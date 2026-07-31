@@ -1,0 +1,30 @@
+# --- Vivado ---------------------------------------------------------
+build/
+*.jou
+*.log
+.Xil/
+vivado_*.backup.*
+clockInfo.txt
+
+# --- firmware (tudo derivado de fw/src) ------------------------------
+fw/build/
+fw/*.elf
+fw/*.bin
+fw/*.asm
+fw/*.hex
+fw/*.coe
+fw/*.mem
+fw/*.mif
+#
+# A imagem da IMEM tambem e derivada: sai de 'make -C fw image'. Nao vai
+# para o repositorio, mesmo sendo o build da FPGA que depende dela --
+# build.tcl e sim.sh falham com mensagem explicita se faltar. Commitar
+# binario gerado num projeto que estuda procedencia seria contraditorio.
+fw/neorv32_imem_image.vhd
+
+# --- host -----------------------------------------------------------
+__pycache__/
+*.pyc
+
+# --- ferramentas de sessao ------------------------------------------
+.claude/
