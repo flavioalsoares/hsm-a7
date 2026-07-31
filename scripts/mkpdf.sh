@@ -9,6 +9,15 @@
 # incompleto (falta xcolor) e instalar exigiria privilegio. O par
 # pandoc+Chrome tambem da controle total da tipografia via CSS.
 #
+# O PDF NAO e byte-reproduzivel: o Chrome embute data de criacao e um
+# identificador no arquivo. Rodar duas vezes sobre a mesma fonte da PDFs
+# diferentes, com conteudo identico. Por isso 'git status' acusa mudanca
+# depois de regerar -- se nao houve mudanca de texto, descarte com
+# 'git checkout -- doc/hsm-a7-manual.pdf'.
+#
+# (Contraste com scripts/mirror-deps.sh, onde a reprodutibilidade importa
+# porque o artefato e uma afirmacao de procedencia. Aqui e so um documento.)
+#
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
