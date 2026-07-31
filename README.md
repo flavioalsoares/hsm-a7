@@ -9,10 +9,19 @@ producao entra aqui.
 
 ## Para aprender o assunto
 
-1. [`doc/arquitetura.md`](doc/arquitetura.md) — como um HSM funciona e por que
-2. [`doc/fase1-didatico.md`](doc/fase1-didatico.md) — cada peca construida e o
-   que ela corresponde num HSM real
-3. [`doc/README.md`](doc/README.md) — roteiro de leitura completo
+**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 43 paginas.
+
+  I-II   como um HSM funciona: fronteira, hierarquia de chaves, cerimonia
+         de LMK, TR-31, maquina de estados, aleatoriedade, self-test
+  III    como HSMs sao atacados: ataques de API, canais laterais, injecao
+         de falha, antitamper
+  IV     certificacao: FIPS 140-3, PCI, Common Criteria
+  V      cada peca deste projeto e o que ela e num HSM real
+  VI     o caminho ate a fase 7
+
+Fonte do manual em [`doc/manual/`](doc/manual/) (Markdown); o PDF sai de
+`./scripts/mkpdf.sh`. Roteiro de leitura completo em
+[`doc/README.md`](doc/README.md).
 
 Antes de mexer no codigo, leia **PLANO.md** -- em especial a secao 0
 (restricoes invioláveis: nada de eFUSE, nunca).

@@ -1,0 +1,238 @@
+/* Estilo de impressao do manual. Alvo: Chrome headless --print-to-pdf. */
+
+@page {
+    size: A4;
+    margin: 22mm 20mm 22mm 20mm;
+}
+
+:root {
+    --tinta: #1a1a1a;
+    --suave: #555;
+    --regua: #d0d0d0;
+    --fundo-cod: #f6f6f4;
+    --destaque: #7a1f1f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    font-family: "Charter", "Bitstream Charter", Georgia, "Times New Roman", serif;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: var(--tinta);
+    margin: 0;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+    text-align: justify;
+}
+
+/* ------------------------------------------------------------ titulos */
+
+h1, h2, h3, h4 {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--tinta);
+    text-align: left;
+    hyphens: none;
+}
+
+/* "Parte N" comeca pagina nova */
+h1 {
+    font-size: 20pt;
+    margin: 0 0 1.4em 0;
+    padding-bottom: 0.35em;
+    border-bottom: 2.5px solid var(--tinta);
+    page-break-before: always;
+    page-break-after: avoid;
+}
+
+h1:first-of-type { page-break-before: avoid; }
+
+h2 {
+    font-size: 14pt;
+    margin: 2em 0 0.7em 0;
+    page-break-after: avoid;
+}
+
+h3 {
+    font-size: 11.5pt;
+    margin: 1.5em 0 0.5em 0;
+    page-break-after: avoid;
+}
+
+h4 {
+    font-size: 10.5pt;
+    margin: 1.2em 0 0.4em 0;
+    font-style: italic;
+    font-weight: 600;
+    page-break-after: avoid;
+}
+
+p { margin: 0 0 0.75em 0; orphans: 3; widows: 3; }
+
+/* ---------------------------------------------------------- capa/toc */
+
+header#title-block-header {
+    page-break-after: always;
+    text-align: left;
+    padding-top: 45mm;
+}
+
+header#title-block-header h1.title {
+    font-size: 30pt;
+    line-height: 1.15;
+    border: none;
+    page-break-before: avoid;
+    margin-bottom: 0.4em;
+    padding: 0;
+}
+
+header#title-block-header p.subtitle {
+    font-size: 13pt;
+    color: var(--suave);
+    font-style: italic;
+    margin-bottom: 3em;
+    text-align: left;
+}
+
+header#title-block-header p.author {
+    font-size: 11pt;
+    color: var(--suave);
+    margin: 0;
+    text-align: left;
+}
+
+nav#TOC {
+    page-break-after: always;
+}
+
+nav#TOC::before {
+    content: "Sumário";
+    display: block;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 20pt;
+    font-weight: 600;
+    margin-bottom: 1.2em;
+    padding-bottom: 0.35em;
+    border-bottom: 2.5px solid var(--tinta);
+}
+
+nav#TOC ul { list-style: none; padding-left: 0; margin: 0; }
+nav#TOC ul ul { padding-left: 1.4em; }
+nav#TOC li { margin: 0.15em 0; text-align: left; }
+nav#TOC a { text-decoration: none; color: var(--tinta); }
+nav#TOC > ul > li { margin-top: 0.7em; font-weight: 600; }
+nav#TOC > ul > li > ul > li { font-weight: 400; font-size: 9.5pt; }
+
+/* --------------------------------------------------------- codigo */
+
+code {
+    font-family: "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+    font-size: 0.86em;
+    background: var(--fundo-cod);
+    padding: 0.1em 0.3em;
+    border-radius: 2px;
+}
+
+pre {
+    font-family: "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace;
+    font-size: 8.4pt;
+    line-height: 1.35;
+    background: var(--fundo-cod);
+    border: 1px solid var(--regua);
+    border-left: 3px solid var(--suave);
+    padding: 0.7em 0.9em;
+    overflow-x: auto;
+    white-space: pre;
+    page-break-inside: avoid;
+    margin: 1em 0;
+    text-align: left;
+    hyphens: none;
+}
+
+pre code { background: none; padding: 0; font-size: inherit; }
+
+/* --------------------------------------------------------- tabelas */
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1.1em 0;
+    font-size: 9.2pt;
+    page-break-inside: avoid;
+    text-align: left;
+    hyphens: none;
+}
+
+th, td {
+    border: 1px solid var(--regua);
+    padding: 0.4em 0.55em;
+    vertical-align: top;
+    text-align: left;
+}
+
+th {
+    background: #eeeeec;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 600;
+    font-size: 8.8pt;
+}
+
+tr:nth-child(even) td { background: #fafaf8; }
+
+/* -------------------------------------------------------- citacoes */
+
+blockquote {
+    margin: 1.1em 0;
+    padding: 0.5em 0 0.5em 1em;
+    border-left: 3px solid var(--destaque);
+    color: #333;
+    font-style: italic;
+    page-break-inside: avoid;
+}
+
+blockquote p:last-child { margin-bottom: 0; }
+
+/* ------------------------------------------------------- caixas */
+
+.capa-nota, .aviso, .fecho {
+    border: 1px solid var(--regua);
+    padding: 0.9em 1.1em;
+    margin: 1.4em 0;
+    page-break-inside: avoid;
+    font-size: 9.8pt;
+}
+
+.capa-nota { background: #f7f7f5; }
+
+.aviso {
+    background: #fdf4f4;
+    border-color: #d9b0b0;
+    border-left: 4px solid var(--destaque);
+}
+
+.aviso strong { color: var(--destaque); }
+
+.fecho {
+    border: none;
+    border-top: 1px solid var(--regua);
+    text-align: center;
+    font-size: 9pt;
+    color: var(--suave);
+}
+
+/* --------------------------------------------------------- listas */
+
+ul, ol { margin: 0 0 0.8em 0; padding-left: 1.5em; }
+li { margin: 0.2em 0; }
+
+hr {
+    border: none;
+    border-top: 1px solid var(--regua);
+    margin: 2em 0;
+}
+
+a { color: var(--tinta); }
+
+strong { font-weight: 700; }
