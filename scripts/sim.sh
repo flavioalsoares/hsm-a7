@@ -25,6 +25,15 @@ fi
 source "$SETTINGS" >/dev/null
 
 mkdir -p "$WORK"
+
+# Vetores KAT no formato do $readmemh. Regenerar e barato e evita o pior
+# resultado possivel: um testbench rodando sobre vetores de uma versao
+# anterior e passando.
+if [ -d "$ROOT/vectors/aes" ]; then
+    python3 "$ROOT/scripts/mkvectors.py" > "$ROOT/build/mkvectors.log" 2>&1 || {
+        echo "ERRO ao gerar vetores:" >&2; cat "$ROOT/build/mkvectors.log" >&2; exit 1; }
+fi
+
 cd "$WORK"
 
 # ---------------------------------------------------------------------
@@ -89,7 +98,16 @@ run_one() {
         echo "--- falha compilando VHDL do projeto:"; tail -20 "${tb}_vhdl.log"; return 1
     fi
 
-    if ! xvlog "$ROOT"/rtl/soc/*.v "$ROOT"/rtl/top/*.v "$src" \
+    # Cores de cripto externos (submodulos). Entram na compilacao de todos
+    # os testbenches; os que nao os instanciam simplesmente os ignoram na
+    # elaboracao.
+    local cripto=()
+    [ -d "$ROOT/third_party/aes/src/rtl" ]    && cripto+=("$ROOT"/third_party/aes/src/rtl/*.v)
+    [ -d "$ROOT/third_party/sha256/src/rtl" ] && cripto+=("$ROOT"/third_party/sha256/src/rtl/*.v)
+
+    if ! xvlog -i "$WORK/../vectors" \
+               "${cripto[@]}" \
+               "$ROOT"/rtl/soc/*.v "$ROOT"/rtl/top/*.v "$src" \
                "$XILINX_VIVADO/data/verilog/src/glbl.v" \
                > "${tb}_compile.log" 2>&1; then
         echo "--- falha de compilacao:"; tail -20 "${tb}_compile.log"; return 1

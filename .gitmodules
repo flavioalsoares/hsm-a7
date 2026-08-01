@@ -1,3 +1,9 @@
 [submodule "third_party/neorv32"]
 	path = third_party/neorv32
 	url = https://github.com/stnolting/neorv32.git
+[submodule "third_party/aes"]
+	path = third_party/aes
+	url = https://github.com/secworks/aes.git
+[submodule "third_party/sha256"]
+	path = third_party/sha256
+	url = https://github.com/secworks/sha256.git
