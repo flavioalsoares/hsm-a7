@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 43 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 45 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
@@ -29,10 +29,14 @@ na V.
 
 ## Registro técnico
 
-**[`fase1-notas.md`](fase1-notas.md)** — o diário de engenharia: números,
-parâmetros do MMCM, configuração do NEORV32, resultados de síntese e timing,
-atritos de toolchain, bring-up em hardware. É o que se lê para continuar o
-trabalho, não para entender o assunto.
+O diário de engenharia: números, decisões de implementação, atritos de
+ferramenta. É o que se lê para **continuar o trabalho**, não para entender o
+assunto.
+
+- **[`fase1-notas.md`](fase1-notas.md)** — MMCM, configuração do NEORV32,
+  síntese e timing, toolchain do firmware, bring-up em hardware.
+- **[`fase2-notas.md`](fase2-notas.md)** — vetores KAT e sua procedência,
+  cores de cripto, o que falta na fase e **como retomar depois de desligar**.
 
 ## Referência
 
@@ -56,6 +60,7 @@ trabalho, não para entender o assunto.
 
 ## Estado
 
-Fase 1 completa e validada em hardware. Próxima é a Fase 2 (`PLANO.md` §3):
-AES-256 e SHA-256 no fabric, TRNG, health tests SP 800-90B e POST com KAT —
-a primeira criptografia do projeto.
+Fase 1 completa e validada em hardware. **Fase 2 em andamento**: AES-256 e
+SHA-256 verificados contra os vetores oficiais do NIST em simulação (1620 +
+65 vetores). Falta integrá-los ao CFS, o TRNG com health tests, o CTR_DRBG e
+o POST. Ver [`fase2-notas.md`](fase2-notas.md).

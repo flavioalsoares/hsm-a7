@@ -181,7 +181,9 @@ testbench e falha no POST, o problema está no barramento, não no core.
 
 ### Critérios de aceitação
 
-- [ ] Todos os KAT passam em simulação **e** no POST
+- [~] Todos os KAT passam em simulação **e** no POST — AES-256 (1620 vetores
+      CAVP) e SHA-256 (65 mensagens SHAVS) passam em **simulação**; falta o
+      POST, e faltam HMAC e DRBG. Ver `doc/fase2-notas.md`.
 - [ ] `RANDOM` de 1 MB passa em `ent` e `dieharder -a` (sanidade, não validação)
 - [ ] Forçar falha artificial no RCT leva o dispositivo a `TAMPERED`
 - [ ] Utilização e timing arquivados

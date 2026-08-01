@@ -9,7 +9,7 @@ producao entra aqui.
 
 ## Para aprender o assunto
 
-**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 43 paginas.
+**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 45 paginas.
 
   I-II   como um HSM funciona: fronteira, hierarquia de chaves, cerimonia
          de LMK, TR-31, maquina de estados, aleatoriedade, self-test
@@ -26,9 +26,9 @@ Fonte do manual em [`doc/manual/`](doc/manual/) (Markdown); o PDF sai de
 Antes de mexer no codigo, leia **PLANO.md** -- em especial a secao 0
 (restricoes invioláveis: nada de eFUSE, nunca).
 
-Estado: fase 1 com os cinco entregaveis prontos -- SoC NEORV32, firmware C
-com o protocolo de comandos, e CLI do host. Falta rodar os criterios de
-aceitacao que exigem a placa. Ver `doc/fase1-notas.md`.
+Estado: **fase 1 completa e validada em hardware** (10.000 pings, 0 erros).
+**Fase 2 em andamento**: AES-256 e SHA-256 verificados contra os vetores
+oficiais do NIST em simulacao. Ver `doc/fase2-notas.md`.
 
 ## Dependencias
 

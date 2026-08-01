@@ -77,7 +77,30 @@ Antes de implementar, responder no PR/commit:
 - [ ] Respeita `exportability` do slot?
 - [ ] Entra no log de auditoria **antes** da execução?
 
-## Estado atual
+## Estado atual (atualizado 2026-08-01)
+
+**Fase 2 em andamento.** Vetores KAT baixados das fontes oficiais com hash
+registrado (`vectors/MANIFEST.txt`), e os cores de cripto verificados contra
+eles em simulação:
+
+```
+tb_aes_kat     405 x 4 (ECB/CBC, cifra/decifra) = 1620 vetores   PASS
+tb_sha256_kat  65 mensagens, 74 blocos                            PASS
+```
+
+Falta, nesta ordem: **CFS** (AES e SHA como coprocessadores — resolve
+`GET_DNA` junto), **neoTRNG + health tests RCT/APT**, **CTR_DRBG**, e o
+**POST** com os comandos `0x10`–`0x15`. Receita do CFS e detalhes em
+`doc/fase2-notas.md`.
+
+⚠ Folga de timing em **+0,637 ns** (Fmax ≈ 107 MHz) antes de entrar cripto
+nenhuma. Acompanhar.
+
+⚠ A placa **não guarda nada**: a gravação é volátil e se perde no
+desligamento. Para voltar ao ponto, ver "Retomando o trabalho" em
+`doc/fase2-notas.md`.
+
+## Fase 1 — concluída
 
 **Fase 1: os cinco entregáveis estão prontos e verificados.** MMCM 50→100 MHz,
 reset síncrono, XDC com pinagem resolvida, SoC NEORV32 (submódulo v1.13.3)

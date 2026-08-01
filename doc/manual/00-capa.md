@@ -20,6 +20,10 @@ arquitetura, ameaças, ataques históricos e certificação. A Parte V explica
 **o que foi construído** e liga cada peça de código ao conceito
 correspondente. A Parte VI é o roteiro do que falta.
 
+Estado na data desta edição: **Fase 1 completa e validada em hardware; Fase
+2 em andamento**, com os cores de AES-256 e SHA-256 verificados contra os
+vetores oficiais do NIST em simulação.
+
 Quem quer só entender o assunto pode parar na Parte IV. Quem quer reproduzir
 o trabalho começa na Parte V e volta às anteriores conforme a dúvida
 aparecer.

@@ -8,6 +8,13 @@ Como este projeto lida com código de terceiros. A regra curta está no
 | Submódulo | Versão | Commit | Modificações nossas |
 |---|---|---|---|
 | `third_party/neorv32` | v1.13.3 | `b217ead5` | **nenhuma** |
+| `third_party/aes` | — | `80dc4718` | **nenhuma** |
+| `third_party/sha256` | — | `837c5cc3` | **nenhuma** |
+
+Os dois cores de cripto (secworks) estão fixados por **SHA de commit**, não
+por tag: o `aes` não publica tags, e a única do `sha256` é de 2023. SHA de
+commit é igualmente imutável — o que se queria evitar era seguir um *branch*,
+que se move.
 
 ## Por que não se edita `third_party/` direto
 

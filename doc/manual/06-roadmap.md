@@ -1,32 +1,74 @@
 # Parte VI — O caminho adiante
 
-## 27. Fase 2 — engines e self-test
+## 27. Fase 2 — engines e self-test *(em andamento)*
 
 **Objetivo:** primitivas corretas e verificáveis. Correção antes de
 desempenho.
 
-| Bloco | Fonte | Notas |
+| Bloco | Fonte | Estado |
 |---|---|---|
-| AES-256 | secworks/aes | ECB e CBC, cifra e decifra |
-| SHA-256 | secworks/sha256 | HMAC em firmware sobre o core |
-| TRNG | neoTRNG (do NEORV32) | fonte de entropia bruta |
-| CTR_DRBG | firmware | AES-256, resemeadura por política |
+| AES-256 | secworks/aes | **verificado em simulação** |
+| SHA-256 | secworks/sha256 | **verificado em simulação** |
+| TRNG | neoTRNG (do NEORV32) | a fazer |
+| CTR_DRBG | firmware | a fazer |
+
+### O que já está feito
+
+Os vetores KAT foram baixados das fontes oficiais — NIST CAVP para AES e
+SHA, RFC 4231 para HMAC, SP 800-90A para o DRBG — com URL e hash SHA-256 de
+cada arquivo registrados num manifesto. Nada foi escrito de memória.
+
+Isso não é formalidade. A regra inviolável do projeto diz que, se um KAT
+falha, o bug está no código e não no vetor — e essa regra só tem força se a
+procedência do vetor for verificável por um terceiro. Um script rebaixa,
+confere hash e reextrai; sobre um repositório limpo, o resultado é byte a
+byte idêntico.
+
+Os dois cores passam:
+
+```
+AES-256   405 vetores × 4 (ECB/CBC, cifra/decifra) = 1620
+SHA-256   65 mensagens, 74 blocos
+```
+
+O AESAVS traz quatro tipos de vetor e todos foram usados, porque cada um
+pega uma classe diferente de defeito: `VarKey` varre cada bit da chave
+isoladamente e acha indexação errada na expansão; `VarTxt` varre cada bit do
+bloco e acha ordem de byte e permutação trocadas. Um core que passa apenas
+no `GFSbox` pode estar inteiro errado.
+
+Uma divisão de responsabilidade ficou registrada e vai importar no firmware:
+o core de AES faz ECB, e o encadeamento de CBC é de quem chama; o core de
+SHA recebe blocos de 512 bits já preenchidos, e o *padding* também é de quem
+chama. Testar o core com essas coisas embutidas misturaria falhas de
+naturezas diferentes.
+
+> **O teste encontrou um defeito no próprio teste.** O testbench de SHA
+> reprovou com um sintoma característico: digests corretos, porém deslocados
+> de um — a mensagem 1 devolvia o resultado da 0. Esperar apenas o sinal de
+> "pronto" logo após o comando termina de imediato, porque o núcleo ainda
+> não o baixou, e lê-se o resultado anterior. O testbench de AES passava com
+> o mesmo handshake fraco, por sorte de temporização; recebeu a mesma
+> correção. Teste que passa por sorte é dívida, não aprovação.
+
+### O que falta
 
 Os cores entram pelo **CFS** (*Custom Functions Subsystem*) do NEORV32 — um
 slot de periférico projetado para receber coprocessadores. A substituição é
-feita trocando qual arquivo o build compila, sem tocar no submódulo.
+feita trocando qual arquivo o build compila, sem tocar no submódulo. É
+também por onde o `GET_DNA` finalmente se resolve.
 
-O conteúdo real da fase são os **testes de saúde** (seção 10) e o **POST**
-(seção 11): RCT e APT sobre a fonte bruta, e KAT de AES, SHA, HMAC e DRBG
-antes de aceitar qualquer comando.
+Depois vêm o neoTRNG e o conteúdo real da fase: os **testes de saúde**
+(seção 10) e o **POST** (seção 11). RCT e APT sobre a fonte bruta, e KAT de
+AES, SHA, HMAC e DRBG antes de aceitar qualquer comando.
 
 **Cuidado térmico registrado no plano:** manter o array de osciladores em
 anel pequeno, meia dúzia de anéis. Centenas geram calor e ruído de
 alimentação localizados sem ganho de entropia.
 
-Critérios: todos os KAT passam em simulação **e** no POST; 1 MB de saída do
-gerador passa em `ent` e `dieharder` (sanidade, não validação); forçar falha
-artificial no RCT leva o dispositivo a `TAMPERED`.
+Critérios restantes: KAT passando também no POST; 1 MB de saída do gerador
+passando em `ent` e `dieharder` (sanidade, não validação); e forçar falha
+artificial no RCT levando o dispositivo a `TAMPERED`.
 
 ## 28. Fase 3 — hierarquia de chaves
 
