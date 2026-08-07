@@ -401,13 +401,93 @@ Se `--detect` do JTAG ficar intermitente, olhar o número do Device em
 `lsusb` antes de suspeitar do bitstream: número mudando é conexão física
 re-enumerando.
 
-### ⚠ ABERTO: o CFS não sobe em hardware
+### Validação em hardware — e a caçada que ela custou
 
-**Estado em 2026-08-06.** O bitstream com o CFS foi gravado com sucesso e o
-dispositivo **não responde**. Isto é o próximo trabalho, antes de qualquer
-coisa nova.
+**Resolvido em 2026-08-07. Causa: oxidação nos contatos do cabo flat do
+JTAG.** Depois de limpar e lixar os conectores, tudo passou de primeira:
 
-O que está provado:
+```
+ping     PONG  (4,13 ms)
+version  v0.1.0, estado UNINITIALIZED
+dna      06CA58966E4285C   (57 bits)
+```
+
+O `GET_DNA` fechou a última sobra da Fase 1, **em hardware**, com um valor
+real e não trivial — nem zeros, nem `F`s. E o limite de frequência do
+`DNA_PORT` que ficara registrado como não conferido não deu problema a
+100 MHz. Segue valendo a ressalva: não foi verificado contra a UG470, só
+observado funcionando.
+
+Vale o registro de quanto o link degradado enganou, porque o padrão se
+repete em qualquer bancada:
+
+| Frequência do JTAG | Antes de limpar | Depois |
+|---|---|---|
+| 6 MHz, leitura de IDCODE | intermitente | 10/10 |
+| 6 MHz, gravar 1,25 MB | `CRC Error`, FPGA em branco | `Done 0x1`, sem erro |
+| 1 MHz, gravar 1,25 MB | passava | passava |
+
+#### A parte que enganou de verdade
+
+Numa das tentativas o bitstream gravou com **`Done 0x1` e `No CRC error`**
+— e o dispositivo ficou mudo, com só o `D1` piscando. Ou seja: **o registro
+de status disse que a configuração estava boa e ela não estava.**
+
+Isso mandou o diagnóstico para o lugar errado. Foram construídas e
+descartadas, nesta ordem:
+
+1. **A leitura do registrador de ID do CFS trava o barramento.** Refutada
+   por um firmware de diagnóstico com marcos por LED: nem `D2` nem `D3`
+   acendiam, e os dois vêm *antes* de qualquer acesso ao CFS.
+2. **Margem de hold** (`WHS +0,030 ns` contra `WNS +0,487`). Era o suspeito
+   seguinte, e é uma hipótese razoável — violação de hold é a causa
+   clássica de "funciona em simulação, morre em hardware". **Também
+   refutada:** o mesmo bitstream, sem uma linha alterada, funciona
+   perfeitamente com os contatos limpos.
+
+**A lição prática:** `Done = 1` prova que a sequência de configuração
+terminou, não que o dispositivo está funcionando. Antes de suspeitar do
+RTL, da síntese ou do timing, vale gastar cinco minutos garantindo que o
+elo físico é bom — porque contato ruim produz sintomas que imitam
+perfeitamente defeitos de projeto, e caros de investigar.
+
+Um segundo enganador, e este era código nosso: **duas verificações do
+`program.sh` estavam quebradas** e produziam falsos negativos que reforçavam
+o diagnóstico errado. O `grep` sobre saída com bytes NUL (o `grep` desta
+máquina é o `ugrep`, que trata entrada binária diferente do GNU grep) e um
+padrão de CRC que casava com o rótulo `CRC Error` e disparava mesmo em
+`No CRC error`. Ambos corrigidos.
+
+#### Sinais que valem para a próxima vez
+
+- **Cadeia JTAG vazia que não melhora baixando a frequência** não é
+  integridade de sinal — é conexão ausente. Sinal ruim melhora com clock
+  menor; fio solto, não.
+- **Precisar baixar para 1 MHz é sintoma, não configuração.** 6 MHz é
+  modesto; o projeto irmão `msxinart` grava assim na mesma placa. Se só
+  funciona devagar, o elo físico está ruim.
+- **Mexer no cabo com a mão mudar o LED do adaptador** é diagnóstico
+  fechado.
+
+#### O que ficou de ferramenta
+
+`scripts/program.sh` agora, antes de gravar, exige 5 leituras de IDCODE
+consecutivas; e depois de gravar, confere `DONE` e `CRC Error` no registro
+`STAT`. Começar e falhar no meio apaga a configuração e deixa o FPGA em
+branco — falhar antes de começar é melhor.
+
+```bash
+CABLE_FREQ=6000000 ./scripts/program.sh   # cabo bom
+./scripts/program.sh                       # padrao 1 MHz, conservador
+openFPGALoader -c digilent_hs2 --read-register STAT   # diagnostico
+```
+
+---
+
+<details>
+<summary>Registro histórico: o quadro enquanto a falha estava aberta</summary>
+
+O que estava provado na época:
 
 | Fato | Prova |
 |---|---|
@@ -487,6 +567,10 @@ Hipóteses já eliminadas, para não repetir trabalho:
 - **Imagem da IMEM desatualizada** — MD5 confere após rebuild.
 - **Porta serial errada** — conferido por VID:PID.
 - **Timing** — fecha com `+0,487 ns`, 0 endpoints falhando.
+
+Nenhuma delas era a causa. Era contato oxidado.
+
+</details>
 
 ### Bancada: o JTAG não pode ficar em hub USB
 

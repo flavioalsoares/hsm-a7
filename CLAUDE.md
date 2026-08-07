@@ -115,17 +115,24 @@ hardware, dividir o clock daquele bloco — o conserto é local.
 desligamento. Para voltar ao ponto, ver "Retomando o trabalho" em
 `doc/fase2-notas.md`.
 
-🔴 **PENDÊNCIA ABERTA — o CFS não sobe em hardware.** É o próximo trabalho,
-antes de qualquer coisa nova. Bitstream grava bem (`Done 0x1`, sem CRC
-error), MMCM trava, SoC sai do reset (`D1` pisca) — e **a CPU não executa o
-firmware**: só o `D1` aceso, dispositivo mudo.
+✅ **Validado em hardware (2026-08-07).** Bitstream de producao gravado, e
+os tres comandos respondem na placa:
 
-Diagnóstico já feito: um firmware com marcos por LED mostrou que nem `D2`
-nem `D3` acendem, e eles vêm **antes** de qualquer acesso ao CFS. Portanto
-**não é o CFS**. Suspeito principal agora é **margem de hold: WHS +0,030 ns**
-(o setup fecha folgado em +0,487). Experimento decisivo: bissecar com
-`IO_CFS_EN => false`. Passo a passo em `doc/fase2-notas.md`, seção
-"⚠ ABERTO".
+```
+ping     PONG  (4,25 ms)
+version  v0.1.0, estado UNINITIALIZED
+dna      06CA58966E4285C   (57 bits)
+```
+
+O `GET_DNA` fecha a ultima sobra da Fase 1 **em hardware**. E o firmware de
+producao se recusa a subir se o CFS nao responder com o ID certo: ele subiu,
+entao o coprocessador esta integro ponta a ponta.
+
+⚠ **Contato oxidado no cabo flat do JTAG custou uma sessao inteira.** O
+bitstream chegou a gravar com `Done 0x1` e `No CRC error` e mesmo assim o
+dispositivo ficou mudo -- `Done = 1` prova que a sequencia de configuracao
+terminou, **nao** que o dispositivo funciona. Antes de suspeitar de RTL,
+sintese ou timing, garantir o elo fisico. Detalhes em `doc/fase2-notas.md`.
 
 ⚠ **O adaptador JTAG não pode ficar em hub USB.** Com ele e a USB da placa
 no mesmo hub, o bitstream chegou corrompido (`CRC Error`, `Done 0x0`) e o

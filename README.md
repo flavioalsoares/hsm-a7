@@ -29,8 +29,9 @@ Antes de mexer no codigo, leia **PLANO.md** -- em especial a secao 0
 Estado: **fase 1 completa e validada em hardware** (10.000 pings, 0 erros).
 **Fase 2 em andamento**: AES-256, SHA-256 e o `DNA_PORT` ja estao no
 coprocessador (CFS), verificados contra os vetores oficiais do NIST em
-simulacao -- nos cores e tambem atraves do barramento. Falta o TRNG, o
-CTR_DRBG e o POST. Ver `doc/fase2-notas.md`.
+simulacao -- nos cores e tambem atraves do barramento -- e **validados na
+placa** (`ping`, `version` e `dna` respondem). Falta o TRNG, o CTR_DRBG e o
+POST. Ver `doc/fase2-notas.md`.
 
 ## Dependencias
 

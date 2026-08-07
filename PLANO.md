@@ -120,6 +120,9 @@ primeiro commit.
 
 `0x01 PING` → `PONG` · `0x02 GET_VERSION` · `0x03 GET_DNA` (lê `DNA_PORT`)
 
+Os tres validados em hardware. O `GET_DNA` so fechou na Fase 2, com o CFS:
+o `DNA_PORT` e primitiva Xilinx e precisava de um caminho ate a CPU.
+
 ### Critérios de aceitação
 
 - [x] `hsmtool.py ping` responde em < 50 ms, 10.000 iterações sem erro de CRC —
