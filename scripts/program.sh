@@ -104,11 +104,60 @@ case "${1:-ram}" in
         ;;
 esac
 
+# --- verificacao: DONE subiu? --------------------------------------
+#
+# O openFPGALoader termina com status 0 mesmo quando a configuracao NAO
+# completa. Ja aconteceu aqui: link USB instavel corrompeu o bitstream em
+# transito, o comando disse "Pronto", e o FPGA ficou EM BRANCO -- a
+# sequencia JTAG apaga a memoria de configuracao antes de carregar, entao
+# uma falha no meio deixa menos do que havia antes.
+#
+# O sintoma na bancada e cruel de diagnosticar: todos os LEDs apagados
+# (sao ativos em nivel baixo, e pino sem projeto fica em pull-up) e o
+# dispositivo mudo na serial. Parece firmware travado. Nao e -- nao ha
+# firmware.
+#
+# STAT e o registro de status de configuracao do 7-series. Interessam:
+#   Done       1 = configuracao completa, projeto rodando
+#   CRC Error  bitstream chegou corrompido -> link, nao arquivo
+echo
+echo "Conferindo o registro de status da configuracao..."
+stat="$(openFPGALoader -c "$CABLE" --read-register STAT 2>&1 || true)"
+
+if echo "$stat" | grep -qi 'CRC error'; then
+    echo >&2
+    echo "ERRO: CRC Error no bitstream. O FPGA esta EM BRANCO." >&2
+    echo >&2
+    echo "  Os bytes se corromperam a caminho do FPGA. O arquivo em disco" >&2
+    echo "  esta bom -- o problema e o link JTAG." >&2
+    echo >&2
+    echo "  Causa mais comum aqui: adaptador JTAG num hub USB. O FT232H em" >&2
+    echo "  modo MPSSE faz milhares de transferencias pequenas para empurrar" >&2
+    echo "  1,25 MB; hub encadeado, ou dividido com a USB da placa, acrescenta" >&2
+    echo "  latencia e disputa de corrente. Ligar o JTAG direto numa porta da" >&2
+    echo "  placa-mae resolve." >&2
+    echo >&2
+    echo "  Sinal de confirmacao: o numero do Device em 'lsusb' mudando" >&2
+    echo "  sozinho e re-enumeracao." >&2
+    exit 1
+fi
+
+if ! echo "$stat" | grep -qE '^Done +0x1'; then
+    echo >&2
+    echo "ERRO: DONE nao subiu. A configuracao nao completou e o FPGA" >&2
+    echo "      esta EM BRANCO (a memoria de configuracao ja foi apagada)." >&2
+    echo >&2
+    echo "$stat" | grep -E '^(Done|EOS|INIT Complete|ID Error|MMCM lock)' >&2
+    exit 1
+fi
+
+echo "  Done = 0x1, sem CRC error -- configuracao completa."
 echo
 echo "Pronto. Verificacao, em ordem de custo:"
 echo "  1. D1 piscando a 1 Hz      -> MMCM travado, dominio de 100 MHz vivo"
 echo "  2. D2 aceso                -> main() chegou ao laco de comandos"
 echo "  3. python3 host/hsmtool.py ping"
+echo "  4. python3 host/hsmtool.py dna"
 echo
 echo "O dispositivo e mudo ate ser perguntado: terminal aberto nao mostra"
 echo "nada, e isso e o comportamento correto."

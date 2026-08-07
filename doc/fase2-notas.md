@@ -401,6 +401,49 @@ Se `--detect` do JTAG ficar intermitente, olhar o número do Device em
 `lsusb` antes de suspeitar do bitstream: número mudando é conexão física
 re-enumerando.
 
+### Bancada: o JTAG não pode ficar em hub USB
+
+Registrado em 2026-08-06, depois de custar uma sessão inteira.
+
+Com o adaptador JTAG e a USB da placa **no mesmo hub** (e ainda com outro
+hub encadeado), a gravação falhou de um jeito que não parece falha de
+gravação:
+
+```
+CRC Error       CRC error      bitstream corrompido em transito
+Done            0x0            configuracao nao completou
+```
+
+O `openFPGALoader` **terminou com status 0** e o script disse "Pronto". Mas
+a sequência JTAG apaga a memória de configuração antes de carregar, então
+a falha no meio deixou o FPGA **em branco** — menos do que havia antes.
+
+O sintoma na bancada engana: todos os LEDs apagados (são ativos em nível
+baixo, e pino sem projeto fica em pull-up) e o dispositivo mudo na serial.
+Parece firmware travado. Não é — não há firmware.
+
+Por que hub atrapalha aqui: o FT232H em modo MPSSE faz milhares de
+transferências pequenas para empurrar 1,25 MB. Hub encadeado acrescenta
+latência, e dividir o upstream com o consumo da placa dá queda de corrente.
+No log do kernel aparece como `error -71` (`EPROTO`) e re-enumeração.
+
+**Conserto:** JTAG direto numa porta do controlador. `lsusb -t` mostra a
+diferença — `Port 003: Dev NNN` direto na raiz, e não `1-2.4` sob um hub.
+
+`scripts/program.sh` agora lê o registro `STAT` depois de gravar e recusa
+terminar com "Pronto" se o `DONE` não subir ou se houver `CRC Error`.
+Diagnóstico útil quando isso acontecer:
+
+```bash
+openFPGALoader -c digilent_hs2 --read-register STAT
+```
+
+Sintoma correlato, e vale saber distinguir: se `--detect` devolve **cadeia
+vazia** e baixar a frequência (`--freq 500000`) não muda nada, não é
+integridade de sinal — é o cabo flat de 6 pinos ou o driver `ftdi_sio`
+preso na interface. Integridade de sinal melhora com clock menor;
+ausência de conexão, não.
+
 E lembrar que existem **duas** `/dev/ttyUSB*` com o gravador ligado — o
 `hsmtool` escolhe por VID:PID, mas `--port` na mão pode acertar o cabo
 errado.

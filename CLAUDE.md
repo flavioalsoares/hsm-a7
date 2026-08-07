@@ -116,7 +116,16 @@ desligamento. Para voltar ao ponto, ver "Retomando o trabalho" em
 `doc/fase2-notas.md`.
 
 ⚠ **Nada disso foi validado em hardware ainda.** O bitstream com o CFS está
-gerado e passa em simulação; a placa não foi ligada desde a Fase 1.
+gerado e passa em simulação. A tentativa de gravar em 2026-08-06 falhou por
+problema de bancada, não de projeto — ver abaixo.
+
+⚠ **O adaptador JTAG não pode ficar em hub USB.** Com ele e a USB da placa
+no mesmo hub, o bitstream chegou corrompido (`CRC Error`, `Done 0x0`) e o
+FPGA ficou **em branco** — a gravação apaga a configuração antes de
+carregar. O `openFPGALoader` sai com status 0 mesmo assim; o `program.sh`
+agora confere o `DONE` e recusa mentir. Sintoma na bancada: todos os LEDs
+apagados e dispositivo mudo, que parece firmware travado e não é.
+Detalhes e diagnóstico em `doc/fase2-notas.md`.
 
 ## Fase 1 — concluída
 
