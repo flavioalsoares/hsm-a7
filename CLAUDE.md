@@ -134,13 +134,13 @@ dispositivo ficou mudo -- `Done = 1` prova que a sequencia de configuracao
 terminou, **nao** que o dispositivo funciona. Antes de suspeitar de RTL,
 sintese ou timing, garantir o elo fisico. Detalhes em `doc/fase2-notas.md`.
 
-⚠ **O adaptador JTAG não pode ficar em hub USB.** Com ele e a USB da placa
-no mesmo hub, o bitstream chegou corrompido (`CRC Error`, `Done 0x0`) e o
-FPGA ficou **em branco** — a gravação apaga a configuração antes de
-carregar. O `openFPGALoader` sai com status 0 mesmo assim; o `program.sh`
-agora confere o `DONE` e recusa mentir. Sintoma na bancada: todos os LEDs
-apagados e dispositivo mudo, que parece firmware travado e não é.
-Detalhes e diagnóstico em `doc/fase2-notas.md`.
+⚠ **JTAG por hub USB: preferir porta direta, mas não é a causa provável de
+gravação corrompida.** O USB tem CRC e retransmissão próprios — hub não
+entrega bytes errados em silêncio, ele erra ou fica lento. O `CRC Error`
+que aparece é do **FPGA**, sobre o bitstream recebido: os bytes saíram bons
+do adaptador e chegaram ruins ao chip, ou seja a corrupção é no **cabo
+flat**, que é o trecho sem proteção nenhuma. Hub direto ajuda em latência e
+corrente; suspeitar dele antes do cabo custou tempo aqui.
 
 ## Fase 1 — concluída
 

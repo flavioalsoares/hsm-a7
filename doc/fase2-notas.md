@@ -572,7 +572,7 @@ Nenhuma delas era a causa. Era contato oxidado.
 
 </details>
 
-### Bancada: o JTAG não pode ficar em hub USB
+### Bancada: hub USB, e uma atribuição de causa que estava errada
 
 Registrado em 2026-08-06, depois de custar uma sessão inteira.
 
@@ -598,8 +598,24 @@ transferências pequenas para empurrar 1,25 MB. Hub encadeado acrescenta
 latência, e dividir o upstream com o consumo da placa dá queda de corrente.
 No log do kernel aparece como `error -71` (`EPROTO`) e re-enumeração.
 
-**Conserto:** JTAG direto numa porta do controlador. `lsusb -t` mostra a
-diferença — `Port 003: Dev NNN` direto na raiz, e não `1-2.4` sob um hub.
+**Correção posterior, e ela importa mais que o parágrafo acima.** Tirar o
+JTAG do hub **não resolveu** — continuou dando cadeia vazia. O que resolveu
+foi limpar a oxidação dos contatos do cabo flat. A explicação pelo hub era
+hipótese promovida a fato cedo demais.
+
+E ela é tecnicamente fraca: **o USB tem CRC e retransmissão próprios**. Um
+hub não entrega bytes errados em silêncio — ele erra a transferência ou
+fica lento. O `CRC Error` observado é do **FPGA**, calculado sobre o
+bitstream recebido: os bytes saíram corretos do adaptador e chegaram
+corrompidos ao chip. A corrupção aconteceu **depois** do USB, no cabo flat
+— sinais single-ended a 6 MHz numa fita sem blindagem e com retorno de
+terra pobre, que é o único trecho sem proteção do caminho.
+
+O que continua valendo sobre hubs, mais modesto: dividem corrente (importa
+se a placa também se alimenta dali), acrescentam latência ao vaivém do
+MPSSE (deixa a gravação lenta, não errada), e hub marginal derruba
+dispositivos. Porta direta é boa prática — não é lei, e **não é o primeiro
+lugar para olhar** quando um bitstream chega corrompido.
 
 `scripts/program.sh` agora lê o registro `STAT` depois de gravar e recusa
 terminar com "Pronto" se o `DONE` não subir ou se houver `CRC Error`.
