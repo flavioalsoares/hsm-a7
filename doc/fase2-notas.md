@@ -401,6 +401,93 @@ Se `--detect` do JTAG ficar intermitente, olhar o número do Device em
 `lsusb` antes de suspeitar do bitstream: número mudando é conexão física
 re-enumerando.
 
+### ⚠ ABERTO: o CFS não sobe em hardware
+
+**Estado em 2026-08-06.** O bitstream com o CFS foi gravado com sucesso e o
+dispositivo **não responde**. Isto é o próximo trabalho, antes de qualquer
+coisa nova.
+
+O que está provado:
+
+| Fato | Prova |
+|---|---|
+| Bitstream íntegro na placa | `Done 0x1`, `No CRC error`, `EOS 0x1` |
+| Clock de 100 MHz vivo, MMCM travado | `MMCM lock 0x1`, e `D1` piscando a 1 Hz |
+| SoC fora de reset | `D1` é zerado pelo reset; piscando ⟹ reset liberado |
+| Porta serial correta | `hsmtool` escolheu o CP2102 por VID:PID, conferido |
+| Firmware não chega ao laço de comandos | `D2` apagado |
+| Nem chega às paradas controladas | `D5` apagado — as duas paradas do `main()` acendem `D5` antes de travar |
+
+O firmware congela nas primeiras linhas do `main()`, **antes** de acender
+LED nenhum.
+
+#### O diagnóstico já foi feito, e refutou a primeira hipótese
+
+A hipótese era: a leitura do registrador de ID do CFS não retorna, a CPU
+trava esperando ACK, e como o firmware nunca chamou `neorv32_rte_setup()`
+uma eventual exceção salta para vetor indefinido.
+
+Foi construído e gravado um firmware de diagnóstico que acende LEDs como
+marcos e **não trava** na verificação:
+
+```c
+/* depois de cmd_init(), ANTES de qualquer coisa tocar no CFS */
+neorv32_gpio_pin_set(LED_ALIVE, 1);      /* D2 */
+neorv32_gpio_pin_set(LED_CMD, 1);        /* D3 */
+{
+    volatile uint32_t *cfs = (volatile uint32_t *)0xFFEB0000u;
+    uint32_t id = *cfs;                  /* o suspeito */
+    neorv32_gpio_pin_set(LED_STATE, 1);  /* D4: a leitura RETORNOU */
+    if (id != HSM_CFS_ID_MAGIC) neorv32_gpio_pin_set(LED_TAMPER, 1);
+}
+/* segue para o laço de comandos, sem travar */
+```
+
+**Resultado medido: só o `D1` piscando.** `D2` e `D3` apagados.
+
+Esses dois são acesos **antes** de qualquer acesso ao CFS. Apagados
+significa que a CPU **não está executando o programa** — e portanto o CFS
+não é o culpado. A hipótese está morta.
+
+#### Onde procurar ao retomar
+
+O quadro é: FPGA configurado, clock e MMCM bons, SoC fora de reset, e o
+processador não roda o firmware. A Fase 1 rodava, na mesma placa, com o
+mesmo fluxo. A diferença é o CFS ocupando o fabric.
+
+**Suspeito principal: margem de hold.** O timing fecha em setup com
+`+0,487 ns`, mas o **hold está em `+0,030 ns`** — trinta picossegundos.
+Formalmente atendido, na prática nenhuma margem. Violação de hold é a causa
+clássica de "funciona em simulação, morre em hardware": corrompe
+registradores em silêncio, e simulação funcional não tem como enxergar,
+porque não modela picossegundos. Na Fase 1 esse número não era vigiado.
+
+**Experimento decisivo, e é uma bisseção:** regerar o bitstream com
+`IO_CFS_EN => false` e o firmware sem a verificação do CFS.
+
+- Se **bootar**, o problema é a presença do CFS no fabric — congestionamento
+  e margem, não lógica. Aí a resposta é atacar o hold e/ou reduzir o clock.
+- Se **não bootar**, algo mais básico quebrou entre a Fase 1 e agora
+  (`phys_opt_design` no fluxo, os cores no build, a lista de arquivos) e a
+  bisseção continua por aí.
+
+**Independente do resultado, fazer:** `neorv32_rte_setup()` no boot. Com
+tratador de exceção instalado, falha de barramento vira mensagem pela UART
+em vez de congelamento mudo. Um HSM que congela em vez de reportar é pior
+que um que reporta — e teria encurtado esta sessão inteira.
+
+Hipóteses já eliminadas, para não repetir trabalho:
+
+- **O CFS** — refutado pelo diagnóstico acima.
+
+- **Caixa preta na síntese** — o log diz `Synth 8-3491 ... 'hsm_cfs' bound
+  to instance 'u_core'`. Ligou. (Na *simulação* isso chegou a acontecer e
+  foi corrigido com `-L work`.)
+- **Roteamento de IO** — `DEV_11_EN bound to: 1`, base `0xFFEB0000`.
+- **Imagem da IMEM desatualizada** — MD5 confere após rebuild.
+- **Porta serial errada** — conferido por VID:PID.
+- **Timing** — fecha com `+0,487 ns`, 0 endpoints falhando.
+
 ### Bancada: o JTAG não pode ficar em hub USB
 
 Registrado em 2026-08-06, depois de custar uma sessão inteira.

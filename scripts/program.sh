@@ -31,6 +31,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CABLE="${CABLE:-digilent_hs2}"
+
+# Clock do JTAG. O padrao do openFPGALoader e 6 MHz e o cabo flat desta
+# bancada nao aguenta: a leitura do IDCODE passa (poucos bits), mas a
+# transferencia de 1,25 MB chega com CRC Error e deixa o FPGA em branco.
+# A 1 MHz passa. Gravar leva ~12 s em vez de ~2 s, o que e irrelevante
+# perto de depurar um FPGA em branco.
+#
+# Com cabo bom da para subir: CABLE_FREQ=6000000 ./scripts/program.sh
+CABLE_FREQ="${CABLE_FREQ:-1000000}"
 BIT="build/hsm_top.bit"
 BIN="build/hsm_top.bin"
 FPGA_PART="xc7a35tftg256"
@@ -40,6 +49,21 @@ if ! command -v openFPGALoader >/dev/null 2>&1; then
     echo "      sudo apt install -y openfpgaloader" >&2
     exit 1
 fi
+
+# ---------------------------------------------------------------------
+# CUIDADO com grep sobre a saida do openFPGALoader.
+#
+# Ela contem bytes NUL (na linha de frequencia). O grep desta maquina e o
+# ugrep, que classifica entrada com NUL como binaria e faz '-q' devolver
+# "nao encontrei" mesmo havendo casamento -- diferente do GNU grep. O
+# resultado sao falsos "nenhum FPGA na cadeia JTAG" com o link perfeito,
+# que ja custou tempo de diagnostico na bancada.
+#
+# Por isso todo filtro sobre essa saida passa por 'tr -d "\0"' antes.
+# Nao trocar por 'grep -a': depende de qual grep esta instalado, e a
+# limpeza explicita funciona nos dois.
+# ---------------------------------------------------------------------
+det() { openFPGALoader -c "$CABLE" --freq "$CABLE_FREQ" --detect 2>&1 | tr -d '\0'; }
 
 # --- preflight ------------------------------------------------------
 #
@@ -54,7 +78,7 @@ if ! lsusb 2>/dev/null | grep -q '0403:6014'; then
     exit 1
 fi
 
-if ! openFPGALoader -c "$CABLE" --detect 2>&1 | grep -qi 'xc7a35t\|idcode'; then
+if ! det | grep -qi 'xc7a35t\|idcode'; then
     echo "ERRO: adaptador presente, mas nenhum FPGA na cadeia JTAG." >&2
     echo >&2
     echo "  O adaptador abriu normalmente -- o problema esta do lado da placa:" >&2
@@ -75,6 +99,42 @@ if ! openFPGALoader -c "$CABLE" --detect 2>&1 | grep -qi 'xc7a35t\|idcode'; then
     exit 1
 fi
 
+# --- o link esta ESTAVEL, e nao so vivo? ----------------------------
+#
+# Um --detect que passa prova que o link funciona AGORA, para poucos bits.
+# A gravacao empurra 1,25 MB. Mau contato no cabo flat de 6 pinos degrada a
+# segunda muito antes de impedir a primeira -- foi assim que um bitstream
+# chegou com CRC Error e deixou o FPGA em branco (doc/fase2-notas.md).
+#
+# Custa ~5 s e evita apagar a configuracao sem conseguir carregar a nova.
+# Preferir recusar a gravar por cima de um link duvidoso: aqui, falhar
+# antes de comecar e melhor do que falhar no meio.
+STABILITY_TRIES="${STABILITY_TRIES:-5}"
+echo "Conferindo estabilidade do link JTAG ($STABILITY_TRIES leituras)..."
+falhas=0
+for _ in $(seq 1 "$STABILITY_TRIES"); do
+    if ! det | grep -q 'idcode'; then
+        falhas=$((falhas + 1))
+    fi
+done
+
+if [ "$falhas" -gt 0 ]; then
+    echo >&2
+    echo "ERRO: link JTAG instavel -- $falhas de $STABILITY_TRIES leituras falharam." >&2
+    echo "      NAO vou gravar: comecar e falhar no meio deixa o FPGA em branco." >&2
+    echo >&2
+    echo "  Causa mais comum nesta bancada: mau contato no cabo flat de 6" >&2
+    echo "  pinos. Sintoma que confirma: mexer no cabo com a mao muda o LED" >&2
+    echo "  do adaptador. Reencaixar as duas pontas, conferindo a orientacao." >&2
+    echo >&2
+    echo "  Se a cadeia vier VAZIA e baixar a frequencia nao ajudar" >&2
+    echo "  ('--freq 500000'), o problema e conexao, nao integridade de" >&2
+    echo "  sinal -- sinal ruim melhora com clock menor, fio solto nao." >&2
+    exit 1
+fi
+echo "  $STABILITY_TRIES de $STABILITY_TRIES -- link estavel."
+echo
+
 case "${1:-ram}" in
     ram)
         [ -f "$BIT" ] || {
@@ -82,9 +142,9 @@ case "${1:-ram}" in
             echo "      make -C fw image && vivado -mode batch -source scripts/build.tcl" >&2
             exit 1; }
 
-        echo "Gravando $BIT na RAM de configuracao (volatil, cabo: $CABLE)..."
+        echo "Gravando $BIT na RAM de configuracao (volatil, cabo: $CABLE @ $CABLE_FREQ Hz)..."
         echo "Some no power-off. E o modo certo para bring-up."
-        openFPGALoader -c "$CABLE" "$BIT"
+        openFPGALoader -c "$CABLE" --freq "$CABLE_FREQ" "$BIT"
         ;;
 
     flash)
@@ -95,7 +155,7 @@ case "${1:-ram}" in
 
         echo "Gravando $BIN na SPI flash (PERSISTENTE, cabo: $CABLE)..."
         echo "A placa passara a carregar este bitstream a cada power-on."
-        openFPGALoader -c "$CABLE" -f --fpga-part "$FPGA_PART" "$BIN"
+        openFPGALoader -c "$CABLE" --freq "$CABLE_FREQ" -f --fpga-part "$FPGA_PART" "$BIN"
         ;;
 
     *)
@@ -122,9 +182,13 @@ esac
 #   CRC Error  bitstream chegou corrompido -> link, nao arquivo
 echo
 echo "Conferindo o registro de status da configuracao..."
-stat="$(openFPGALoader -c "$CABLE" --read-register STAT 2>&1 || true)"
+stat="$(openFPGALoader -c "$CABLE" --freq "$CABLE_FREQ" --read-register STAT 2>&1 | tr -d '\0' || true)"
 
-if echo "$stat" | grep -qi 'CRC error'; then
+# CUIDADO: a linha e "CRC Error       No CRC error" quando esta tudo bem.
+# Um 'grep -i "CRC error"' casa com o ROTULO e dispara sempre -- foi um
+# falso positivo que ja abortou uma gravacao bem-sucedida aqui. O padrao
+# tem de ancorar no VALOR, nao no rotulo.
+if echo "$stat" | grep -qE '^CRC Error[[:space:]]+CRC error'; then
     echo >&2
     echo "ERRO: CRC Error no bitstream. O FPGA esta EM BRANCO." >&2
     echo >&2

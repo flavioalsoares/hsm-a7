@@ -115,9 +115,17 @@ hardware, dividir o clock daquele bloco — o conserto é local.
 desligamento. Para voltar ao ponto, ver "Retomando o trabalho" em
 `doc/fase2-notas.md`.
 
-⚠ **Nada disso foi validado em hardware ainda.** O bitstream com o CFS está
-gerado e passa em simulação. A tentativa de gravar em 2026-08-06 falhou por
-problema de bancada, não de projeto — ver abaixo.
+🔴 **PENDÊNCIA ABERTA — o CFS não sobe em hardware.** É o próximo trabalho,
+antes de qualquer coisa nova. Bitstream grava bem (`Done 0x1`, sem CRC
+error), MMCM trava, SoC sai do reset (`D1` pisca) — e **a CPU não executa o
+firmware**: só o `D1` aceso, dispositivo mudo.
+
+Diagnóstico já feito: um firmware com marcos por LED mostrou que nem `D2`
+nem `D3` acendem, e eles vêm **antes** de qualquer acesso ao CFS. Portanto
+**não é o CFS**. Suspeito principal agora é **margem de hold: WHS +0,030 ns**
+(o setup fecha folgado em +0,487). Experimento decisivo: bissecar com
+`IO_CFS_EN => false`. Passo a passo em `doc/fase2-notas.md`, seção
+"⚠ ABERTO".
 
 ⚠ **O adaptador JTAG não pode ficar em hub USB.** Com ele e a USB da placa
 no mesmo hub, o bitstream chegou corrompido (`CRC Error`, `Done 0x0`) e o
