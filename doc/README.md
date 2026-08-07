@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 45 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 46 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
@@ -44,9 +44,12 @@ assunto.
 |---|---|
 | [`pinout.md`](pinout.md) | Pinagem com procedência: verificado em hardware, no esquemático, ou ainda `[TBD]` |
 | [`submodulos.md`](submodulos.md) | Política de código de terceiros e a escada de decisão para modificá-lo |
+| [`../patches/`](../patches/) | Modificações em código de terceiros, com a justificativa junto do diff |
 | [`puf-experimento.md`](puf-experimento.md) | Experimento de RO-PUF da Fase 6 — mede por que um PUF de FPGA é ruim |
 | `utilization_fase1.txt` | Relatório de utilização (linha base de recursos) |
 | `timing_fase1.txt` | Relatório de timing |
+| `utilization_fase2.txt` | Utilização com o CFS (AES, SHA, DNA) |
+| `timing_fase2.txt` | Timing com o CFS, incluindo a retimagem do SHA |
 | `datasheets/` | Esquemáticos e manuais QMTECH |
 | `qmtech_official_xdc/` | XDCs oficiais de exemplo — cuidado, alguns são do core board **sem** daughterboard |
 
@@ -60,7 +63,9 @@ assunto.
 
 ## Estado
 
-Fase 1 completa e validada em hardware. **Fase 2 em andamento**: AES-256 e
-SHA-256 verificados contra os vetores oficiais do NIST em simulação (1620 +
-65 vetores). Falta integrá-los ao CFS, o TRNG com health tests, o CTR_DRBG e
-o POST. Ver [`fase2-notas.md`](fase2-notas.md).
+Fase 1 completa e validada em hardware. **Fase 2 em andamento**: AES-256,
+SHA-256 e o `DNA_PORT` já estão no coprocessador (CFS), verificados contra
+os vetores oficiais do NIST em simulação — nos cores e também através do
+barramento de registradores. `GET_DNA`, última sobra da Fase 1, está fechado.
+Falta o TRNG com health tests, o CTR_DRBG e o POST. Ver
+[`fase2-notas.md`](fase2-notas.md).

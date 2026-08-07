@@ -230,6 +230,35 @@ module tb_uart_frame;
             end
         end
 
+        // ---- 2b. GET_DNA ----------------------------------------------
+        //
+        // O caminho inteiro numa tacada: host -> UART -> parser -> tabela
+        // de comandos -> driver do CFS -> registrador -> DNA_PORT. Nenhum
+        // outro testbench cobre essa cadeia toda.
+        //
+        // O valor esperado e o SIM_DNA_VALUE de rtl/crypto/hsm_cfs.v. Sao
+        // 57 bits em 8 bytes big-endian, entao os 7 bits mais altos do
+        // primeiro byte tem de vir zerados -- e e justamente ali que um
+        // erro de deslocamento apareceria.
+        send_cmd(8'h03, 1'b0);
+        get_response();
+
+        if (st !== 8'h00 || resp_len !== 9) begin
+            $display("[tb_uart_frame] FAIL: GET_DNA status=0x%02h len=%0d (esperado 0x00, 9)",
+                     st, resp_len);
+            errors = errors + 1;
+        end else if ({resp[1], resp[2], resp[3], resp[4],
+                      resp[5], resp[6], resp[7], resp[8]} !== 64'h00123456789ABCDE) begin
+            $display("[tb_uart_frame] FAIL: GET_DNA = %02h%02h%02h%02h%02h%02h%02h%02h",
+                     resp[1], resp[2], resp[3], resp[4],
+                     resp[5], resp[6], resp[7], resp[8]);
+            errors = errors + 1;
+        end else begin
+            $display("[tb_uart_frame] GET_DNA -> %02h%02h%02h%02h%02h%02h%02h%02h",
+                     resp[1], resp[2], resp[3], resp[4],
+                     resp[5], resp[6], resp[7], resp[8]);
+        end
+
         // ---- 3. CRC corrompido -> STATUS_BAD_CRC ----------------------
         send_cmd(8'h01, 1'b1);
         get_response();

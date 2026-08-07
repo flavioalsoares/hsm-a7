@@ -3,8 +3,8 @@
 Objetivo da fase (`PLANO.md` §3): primitivas corretas e verificáveis.
 **Correção antes de desempenho.**
 
-Estado: **em andamento.** Os vetores e os cores estão prontos e verificados;
-a integração ao CFS ainda não começou.
+Estado: **em andamento.** Vetores, cores e o coprocessador (CFS) estão
+prontos e verificados. Falta o TRNG, o DRBG e o POST.
 
 ---
 
@@ -111,56 +111,226 @@ O `tb_aes_kat` passava com o handshake fraco, por sorte de temporização.
 Recebeu a mesma correção e os 1620 vetores foram reconfirmados. Teste que
 passa por sorte é dívida, não aprovação.
 
+### CFS — AES e SHA como coprocessadores
+
+O `neorv32_cfs.vhd` do upstream é um template feito para ser substituído.
+A troca **não exigiu patch nem tocar no submódulo**: o build filtra o
+arquivo do upstream da lista e compila o nosso na mesma biblioteca. É o
+grau 2 da escada do `doc/submodulos.md`, e é o caso de uso para o qual
+aquela escada foi escrita.
+
+Dois arquivos, por motivos diferentes:
+
+| Arquivo | Papel |
+|---|---|
+| `rtl/crypto/neorv32_cfs.vhd` | shim VHDL. Existe só porque `bus_req_t`/`bus_rsp_t` são *records* e não atravessam a fronteira VHDL→Verilog |
+| `rtl/crypto/hsm_cfs.v` | a lógica: mapa de registradores, AES-256, SHA-256, `DNA_PORT`, wipe |
+
+`IO_CFS_EN => true` no wrapper.
+
+#### Mapa de registradores (base `0xFFEB0000`)
+
+```
+0x000  ID       r   "HSM1"
+0x004  STATUS   r   [0]AES_BUSY [1]AES_VALID [2]SHA_BUSY
+                    [3]SHA_VALID [4]DNA_VALID [5]WIPE_BUSY
+0x008  CTRL     w   [0]AES_INIT [1]AES_NEXT [2]AES_ENCDEC
+                    [3]SHA_INIT [4]SHA_NEXT [5]WIPE
+0x020  AES_KEY[8]     w      0x040  AES_BLOCK[4]  w
+0x050  AES_RESULT[4]  r      0x080  SHA_BLOCK[16] w
+0x0C0  SHA_DIGEST[8]  r      0x100  DNA_LO/HI     r
+```
+
+Palavra mais significativa primeiro, como nos vetores do NIST. A CPU é
+little-endian, então o firmware **tem** de montar cada palavra byte a byte
+(`fw/src/hsm_cfs.c`). Um `memcpy` compilaria e reprovaria em todos os KAT —
+que é o melhor desfecho possível para esse tipo de erro.
+
+#### Decisões que valem registro
+
+**`cfs_out_o` amarrado em zero.** É o único fio do CFS que chega ao toplevel.
+Com ele em zero não existe caminho físico do bloco que guarda a chave até
+fora do die — mesma lógica de `XBUS_EN => false`. Regra 2 do `CLAUDE.md`
+deixa de ser promessa de firmware e vira topologia.
+
+**Chave e blocos são escrita-somente.** Ler devolve zero. Não protege contra
+a CPU, que acabou de escrever a chave; evita criar um caminho de leitura que
+um bug de firmware use por acidente ao varrer o espaço de IO.
+
+**`keylen` fixo em AES-256.** Não há caminho para AES-128. A hierarquia da
+fase 3 é toda de 256 bits e um modo mais fraco alcançável por escrita em
+registrador é um *downgrade* de graça.
+
+**Sem interrupção.** `irq_o` em zero: o caminho de comando é síncrono e de
+passo único, e um handler de IRQ mexendo nos mesmos buffers de chave é mais
+difícil de auditar do que uma espera ocupada.
+
+**O bit de BUSY não é o `ready` do core.** Esperar por `ready` logo depois do
+comando não funciona — o core ainda não o baixou, a espera termina de
+imediato e lê-se o resultado anterior. Foi assim que o `tb_sha256_kat`
+reprovou. Lá o conserto foi no testbench; aqui é em hardware, e some para
+todos os clientes futuros: `BUSY` sobe junto com o comando e só cai depois
+que o core começou **e** terminou.
+
+#### WIPE, e por que ele mexe nos cores
+
+Zerar o registrador de chave não zeroiza nada: a chave **expandida** vive no
+`aes_key_mem`, o resultado no bloco do cifrador, o digest no `sha256_core`.
+Então `CTRL.WIPE` dispara uma sequência — zera os registradores, roda um
+`AES_INIT` com chave zero (reescreve a expansão), um `AES_NEXT` (reescreve o
+resultado) e um `SHA_INIT` (reescreve o digest).
+
+O teste correspondente em `tb_cfs` é o que separa zeroização de teatro de
+zeroização: **depois do wipe, cifrar sem carregar chave nenhuma tem de
+produzir o resultado sob a chave zero.** Se a expansão anterior tivesse
+sobrevivido, sairia outra coisa. O vetor de referência é do próprio AESAVS —
+o `GFSbox` usa chave zero.
+
+Isso é infraestrutura da fase 3 entrando junto com o bloco que guarda a
+chave. Deixar para depois significaria um período com material de chave sem
+caminho de apagar.
+
+#### `GET_DNA` — a sobra da Fase 1, fechada
+
+Respondia `STATUS_NOT_IMPLEMENTED` porque o `DNA_PORT` é primitiva Xilinx e
+precisava de um caminho até a CPU, e o XBUS está desligado por decisão de
+segurança. O registrador do CFS é esse caminho.
+
+São 57 bits, entregues em 8 bytes big-endian. `tb_uart_frame` cobre a cadeia
+inteira contra o `SIM_DNA_VALUE`: UART → parser → tabela de comandos →
+driver → registrador → primitivo.
+
+> **O DNA não é segredo.** É legível por JTAG em qualquer placa e não muda
+> nunca. Serve para identificar a placa em log e inventário. Derivar chave
+> dele é um erro clássico: público e constante são exatamente as duas
+> propriedades que uma chave não pode ter.
+
+⚠ **Não conferido:** o limite de frequência do `CLK` do `DNA_PORT` na UG470.
+O bloco roda a 100 MHz, no mesmo domínio do resto. Se a leitura vier
+inconsistente em hardware, o conserto é local — dividir o clock deste bloco.
+
+#### `tb_cfs` — por que existe, se os cores já passavam
+
+`tb_aes_kat` e `tb_sha256_kat` provam que os **cores** estão certos.
+`tb_cfs` prova outra coisa: que o **caminho** entre a CPU e os cores está
+certo. Um core correto atrás de um mapa de registradores com a ordem das
+palavras invertida produz resultados perfeitamente errados, e nenhum KAT de
+core pega isso.
+
+Por isso os mesmos vetores do NIST são replicados **através do barramento**:
+
+```
+tb_cfs   ID, DNA_PORT, 405 AES-ECB cifra, 405 decifra,
+         65 mensagens SHA (74 blocos), escrita-somente, WIPE   PASS
+```
+
+#### Timing: o CFS não fechou, e o que foi preciso fazer
+
+Este foi o trabalho de verdade da integração. Relatórios completos em
+`doc/utilization_fase2.txt` e `doc/timing_fase2.txt`.
+
+| Ponto | WNS | Endpoints falhando |
+|---|---|---|
+| Fase 1, sem criptografia | +0,637 ns | 0 |
+| CFS integrado, fluxo normal | **−2,388 ns** | 58 |
+| CFS, esforço máximo de implementação | −1,215 ns | 53 |
+| \+ patch 0001 (W registrado) e `phys_opt_design` | +0,014 ns | 0 |
+| \+ patch 0002 (K registrado) | **+0,487 ns** | 0 |
+
+O diagnóstico separou culpa antes de qualquer conserto: dos 58 endpoints,
+**49 estavam no `sha256_core` e 9 no `aes_core`**. Pior slack do AES:
+−0,087 ns — praticamente nada, coberto pelo `phys_opt_design`. Pior slack do
+SHA: −2,388 ns. Um único bloco respondia por tudo.
+
+E dentro dele, um único caminho:
+
+```
+w_mem[1] → σ0 → w_new (3 somas) → w (combinacional)
+         → t1 (4 somas) → a_new (1 soma) → a_reg
+```
+
+**Oito somas de 32 bits encadeadas num ciclo só** — 19 níveis de lógica, 10
+`CARRY4`. A causa é a expansão da mensagem e a rodada de compressão
+dividirem o mesmo ciclo.
+
+Os dois patches em `patches/sha256/` cortam isso registrando as duas
+entradas combinacionais da rodada — `W` e `K`. A rodada passa a começar em
+registradores. **Sem estágio de pipeline novo e sem ciclo a mais:** ainda
+são 64 rodadas por bloco. O truque do 0001 é deslizar a janela uma rodada
+mais cedo, o que faz os quatro *taps* andarem junto e a mesma expressão de
+`w_new` passar a produzir `W[t+1]`.
+
+Onde a folga está agora, e ela está distribuída:
+
+```
++0,487  SHA  w_reg → a_reg        (a rodada, agora saindo de registrador)
++0,554  AES  FSM → key_mem
++0,592  barramento de IO → aes_key_reg
+```
+
+Nada mais domina. O `phys_opt_design` entrou no `build.tcl` junto: até a
+Fase 1 o fluxo simples bastava, e agora vale quase 1 ns.
+
+> **Por que patch e não fork nem core próprio.** Grau 3 da escada
+> (`doc/submodulos.md`): não há generic que resolva, não há ponto de
+> extensão, e um fork criaria obrigação de rebase sobre um core parado
+> desde 2023.
+>
+> E não se reescreve implementação de criptografia por conta própria
+> quando existe uma conhecida e testada. **O que torna este patch
+> aceitável é a rede de vetores oficiais** — dá para provar que a
+> modificação não mudou o resultado. As 65 mensagens do SHAVS passam nos
+> cores e através do barramento, sem um vetor tocado e sem um assert
+> relaxado. Sem essa rede, mexer aqui seria irresponsável, e é essa a
+> lição — não a retimagem.
+
+`scripts/apply-patches.sh` aplica os patches sobre uma **cópia** em
+`build/patched/`. Aplicar dentro de `third_party/` deixaria o submódulo
+sujo, e isso quebraria três coisas de uma vez: `git submodule update`
+descartaria a mudança em silêncio, `mirror-deps.sh` se recusaria a rodar, e
+o pin continuaria dizendo `837c5cc3` enquanto o bitstream conteria outra
+coisa. O script confere que os submódulos seguem limpos e falha se não
+estiverem.
+
+#### Recursos
+
+| Recurso | Fase 1 | Com o CFS | Disponível |
+|---|---|---|---|
+| Slice LUTs | 2240 | **7035** (33,8%) | 20800 |
+| Flip-flops | 1633 | **6235** (15,0%) | 41600 |
+| Block RAM | 3,5 | **3,5** (7%) | 50 |
+| DSP48E1 | 0 | **0** | 90 |
+
+Os cores custaram ~4800 LUTs e ~4600 FFs. A BRAM não mexeu: as S-boxes do
+AES são lógica distribuída, não memória. Os 90 DSP seguem intactos,
+reservados para o RSA de Montgomery da Fase 7.
+
+#### Dois erros encontrados aqui
+
+**1. Corrida de borda no testbench.** A primeira versão de `tb_cfs` dirigia
+o barramento na borda de subida — a mesma em que o DUT amostra. O xsim
+resolveu a favor do testbench, o DUT viu `stb` um ciclo cedo e **todas** as
+leituras chegaram sem ACK. Estímulo na descida, amostragem na subida, e a
+corrida some.
+
+**2. Caixa preta silenciosa.** O `xelab` não conseguiu ligar o componente
+VHDL `hsm_cfs` (biblioteca `neorv32`, obrigatória) ao módulo Verilog de
+mesmo nome (biblioteca padrão). Deixou-o como **caixa preta** e seguiu em
+frente com um `WARNING`. Resultado: o firmware não encontrou o
+coprocessador, recusou-se a subir, e o sintoma apareceu a três camadas de
+distância da causa.
+
+Correção em duas partes, e a segunda importa mais que a primeira:
+
+- `-L work` no `xelab`;
+- `scripts/sim.sh` agora **falha** se aparecer `remains a black box`. Um
+  aviso que ninguém lê é um aviso que não existe.
+
 ---
 
 ## O que falta, na ordem
 
-### 1. CFS — AES e SHA como coprocessadores
-
-O `neorv32_cfs.vhd` é um template feito para ser substituído. A receita está
-em `doc/submodulos.md` e **não exige patch nem tocar no submódulo**: filtra
-o arquivo do upstream da lista e adiciona o nosso na mesma biblioteca.
-
-Em `scripts/build.tcl`, depois de montar `$neorv32_files`:
-
-```tcl
-set neorv32_files [lsearch -all -inline -not $neorv32_files \
-                   $neorv32/rtl/core/neorv32_cfs.vhd]
-add_files rtl/crypto/neorv32_cfs.vhd
-set_property library neorv32 [get_files rtl/crypto/neorv32_cfs.vhd]
-```
-
-O mesmo em `scripts/sim.sh`, filtrando antes do `xvhdl -work neorv32`.
-
-Entidade a respeitar (de `third_party/neorv32/rtl/core/neorv32_cfs.vhd`):
-
-```vhdl
-entity neorv32_cfs is
-  port (
-    clk_i     : in  std_ulogic;
-    rstn_i    : in  std_ulogic;
-    bus_req_i : in  bus_req_t;
-    bus_rsp_o : out bus_rsp_t;
-    irq_o     : out std_ulogic;
-    cfs_in_i  : in  std_ulogic_vector(255 downto 0);
-    cfs_out_o : out std_ulogic_vector(255 downto 0)
-  );
-```
-
-Lembrar de ligar `IO_CFS_EN => true` em `rtl/soc/neorv32_wrapper.vhd`.
-
-**`GET_DNA` se resolve aqui.** Ele responde `STATUS_NOT_IMPLEMENTED` desde a
-Fase 1 porque o `DNA_PORT` é primitiva Xilinx e precisa de um caminho até a
-CPU — e o XBUS está desligado por decisão de segurança. Um registrador no
-CFS é esse caminho.
-
-**Atenção ao orçamento:** a folga de timing está em **+0,637 ns** (Fmax ≈
-107 MHz). Os cores entram como datapath separado e não alongam o caminho
-crítico atual, que está dentro da CPU, mas adicionam congestionamento — e
-roteamento já é 45% do atraso. As alavancas, em ordem, estão em
-`doc/fase1-notas.md`.
-
-### 2. neoTRNG e os health tests
+### 1. neoTRNG e os health tests
 
 `IO_TRNG_EN => true` no wrapper. **Manter `IO_TRNG_NUM_RO` pequeno** — meia
 dúzia de anéis. Centenas geram calor e ruído de alimentação localizados sem
@@ -172,13 +342,13 @@ qualquer um → `TAMPERED`, DRBG parado, LED vermelho.
 É o conteúdo real da fase: esses testes são boa parte do motivo de uma
 avaliação de módulo criptográfico levar meses.
 
-### 3. CTR_DRBG em firmware
+### 2. CTR_DRBG em firmware
 
 AES-256, resemeadura por política. Os vetores já estão em
 `vectors/drbg/CTR_DRBG_AES256.rsp` — falta o conversor em `mkvectors.py` e o
 KAT correspondente.
 
-### 4. POST e comandos
+### 3. POST e comandos
 
 KAT de AES, SHA, HMAC e DRBG no boot, **antes** de aceitar qualquer comando.
 Falhou um vetor → o dispositivo não entra em operação.
@@ -191,11 +361,12 @@ especial: *o que vaza se for chamado em laço com entradas escolhidas?*
 
 ### Critérios de aceitação da fase (`PLANO.md` §3)
 
-- [x] KAT de AES e SHA passam em simulação
+- [x] KAT de AES e SHA passam em simulação — nos cores e através do CFS
 - [ ] KAT passam também no POST
 - [ ] `RANDOM` de 1 MB passa em `ent` e `dieharder -a` (sanidade, não validação)
 - [ ] Forçar falha artificial no RCT leva o dispositivo a `TAMPERED`
-- [ ] Utilização e timing arquivados
+- [x] Utilização e timing arquivados — `doc/utilization_fase2.txt`,
+      `doc/timing_fase2.txt`
 
 ---
 
@@ -206,9 +377,15 @@ git submodule update --init --recursive   # agora são três submódulos
 source /opt/AMD/2026.1/Vivado/settings64.sh
 
 ./scripts/fetch-vectors.sh --check        # vetores íntegros?
+./scripts/apply-patches.sh                # cores de terceiros -> build/patched/
 make -C fw image
-./scripts/sim.sh                          # 7 testbenches devem passar
+./scripts/sim.sh                          # 8 testbenches devem passar
 ```
+
+`sim.sh` e `build.tcl` já chamam o `apply-patches.sh` sozinhos; a linha
+acima serve para conferir à mão que os patches ainda aplicam. Se o
+submódulo do SHA for atualizado algum dia, é ali que o build vai falhar —
+e falhar é o comportamento certo.
 
 **A placa não guarda nada.** A gravação da Fase 1 foi em RAM de configuração
 (volátil) e se perdeu no desligamento. Para voltar ao ponto:

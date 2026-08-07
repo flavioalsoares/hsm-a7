@@ -7,8 +7,9 @@ desempenho.
 
 | Bloco | Fonte | Estado |
 |---|---|---|
-| AES-256 | secworks/aes | **verificado em simulação** |
-| SHA-256 | secworks/sha256 | **verificado em simulação** |
+| AES-256 | secworks/aes | **no CFS, verificado** |
+| SHA-256 | secworks/sha256 | **no CFS, verificado** |
+| `DNA_PORT` | primitiva Xilinx | **no CFS, verificado** |
 | TRNG | neoTRNG (do NEORV32) | a fazer |
 | CTR_DRBG | firmware | a fazer |
 
@@ -51,14 +52,104 @@ naturezas diferentes.
 > o mesmo handshake fraco, por sorte de temporização; recebeu a mesma
 > correção. Teste que passa por sorte é dívida, não aprovação.
 
+### O coprocessador: o CFS
+
+Os cores entraram pelo **CFS** (*Custom Functions Subsystem*) do NEORV32 —
+um slot de periférico projetado para receber coprocessadores. O arquivo do
+upstream é um template feito para ser jogado fora; a substituição é feita
+trocando qual arquivo o build compila, sem patch e sem tocar no submódulo.
+
+É também por onde o `GET_DNA` finalmente se resolveu, fechando a última
+sobra da Fase 1.
+
+O CFS, e não um barramento externo, por um motivo de arquitetura: o
+coprocessador precisa estar **dentro da fronteira criptográfica** (seção 5),
+não pendurado num barramento que sai do die. Coerente com `XBUS_EN => false`,
+que é a mesma decisão vista do outro lado.
+
+Três escolhas do mapa de registradores merecem nota, porque cada uma é um
+conceito da Parte II virando linha de RTL:
+
+- **O único fio do CFS que chega ao toplevel está amarrado em zero.** Não
+  existe caminho físico do bloco que guarda a chave até um pino. A fronteira
+  deixa de ser promessa de firmware e vira topologia.
+- **Chave e blocos de entrada são escrita-somente**; ler devolve zero. Não
+  protege contra a CPU, que acabou de escrever a chave — evita criar um
+  caminho de leitura que um bug use por acidente.
+- **Não há AES-128.** O tamanho de chave é fixo no hardware. Um modo mais
+  fraco alcançável por escrita em registrador seria um *downgrade* de graça,
+  e a seção 15 mostra o que APIs fazem com modos mais fracos disponíveis.
+
+E há um `WIPE` que não é decorativo: ele sobrescreve a **chave expandida**
+dentro do core, não só o registrador visível. O teste correspondente é o que
+separa zeroização de teatro de zeroização — depois do wipe, cifrar sem
+carregar chave nenhuma tem de produzir o resultado sob a chave zero.
+
+> **Um testbench a mais, para uma pergunta diferente.** Os KAT de core provam
+> que o AES está certo. Não provam que o *caminho* entre a CPU e o AES está
+> certo — um core correto atrás de um mapa de registradores com a ordem das
+> palavras invertida produz resultados perfeitamente errados. Por isso os
+> mesmos vetores do NIST são replicados uma segunda vez, agora **através do
+> barramento**. Foi assim que a Fase 1 já tinha aprendido a separar
+> "o módulo funciona" de "o sistema funciona".
+
+### O preço em silício, e o que ele ensinou
+
+Colocar criptografia no fabric custou caro e o custo apareceu onde não se
+esperava.
+
+| | Fase 1 | Com o CFS |
+|---|---|---|
+| Slice LUTs | 2240 (10,8%) | **7035 (33,8%)** |
+| Flip-flops | 1633 (3,9%) | 6235 (15,0%) |
+| Block RAM | 3,5 | 3,5 |
+| DSP48E1 | 0 | 0 |
+
+Área não foi problema — sobra um terço do chip. **Temporização foi.** O
+projeto vinha com +0,637 ns de folga e, com os cores dentro, foi para
+**−2,388 ns**: 58 caminhos falhando, o dispositivo não podia ser gravado.
+
+O diagnóstico veio antes de qualquer conserto, e foi ele que economizou o
+trabalho: dos 58 caminhos, **49 estavam no SHA-256 e 9 no AES**, e o pior do
+AES era −0,087 ns — ruído. Um único bloco respondia por tudo. E dentro dele,
+um único caminho: **oito somas de 32 bits encadeadas num ciclo só**, porque
+a expansão da mensagem e a rodada de compressão dividem o mesmo ciclo.
+
+A correção foi registrar as duas entradas combinacionais da rodada, com um
+detalhe bonito: deslizar a janela da expansão uma rodada mais cedo faz os
+quatro *taps* andarem junto, e a mesma fórmula que produzia `W[t]` passa a
+produzir `W[t+1]`. Sem estágio de pipeline novo, sem ciclo a mais — ainda
+são 64 rodadas por bloco.
+
+```
++0,637 ns   Fase 1, sem criptografia
+−2,388 ns   com o CFS                         não fecha
+−1,215 ns   com esforço máximo de ferramenta  não fecha
++0,487 ns   com os dois patches de retimagem  fecha
+```
+
+> **A lição não é retimagem — é o que precisa existir antes de você poder
+> tocar numa implementação criptográfica.**
+>
+> Modificar um core de hash é a espécie de coisa que se faz errado em
+> silêncio: o resultado continua parecendo um hash. O que tornou isto
+> aceitável foi a rede de vetores oficiais montada antes — 65 mensagens do
+> SHAVS, rodadas no core e através do barramento. Foi possível **provar**
+> que a modificação não mudou o resultado, sem tocar num vetor e sem
+> relaxar um assert.
+>
+> É a mesma razão de o FIPS 140-3 exigir *self-test* (seção 11) e de o
+> projeto ter a regra "se um KAT falha, o bug está no código". Sem isso,
+> mexer ali seria irresponsável — e é exatamente por não ter essa rede que
+> "não invente sua própria criptografia" é um bom conselho.
+
+A modificação entrou como **patch versionado e revisável**, não como fork
+nem reescrita: `third_party/` continua byte a byte igual ao upstream, e o
+diff do que mudou está no repositório, legível, ao lado da justificativa.
+
 ### O que falta
 
-Os cores entram pelo **CFS** (*Custom Functions Subsystem*) do NEORV32 — um
-slot de periférico projetado para receber coprocessadores. A substituição é
-feita trocando qual arquivo o build compila, sem tocar no submódulo. É
-também por onde o `GET_DNA` finalmente se resolve.
-
-Depois vêm o neoTRNG e o conteúdo real da fase: os **testes de saúde**
+Vêm agora o neoTRNG e o conteúdo real da fase: os **testes de saúde**
 (seção 10) e o **POST** (seção 11). RCT e APT sobre a fonte bruta, e KAT de
 AES, SHA, HMAC e DRBG antes de aceitar qualquer comando.
 

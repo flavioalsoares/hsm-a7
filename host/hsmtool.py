@@ -368,8 +368,25 @@ def cmd_version(client, args):
 
 
 def cmd_dna(client, args):
+    """Identidade de fabrica do die: 57 bits, big-endian em 8 bytes.
+
+    NAO E SEGREDO. Qualquer um com um cabo JTAG le o mesmo valor, e ele nao
+    muda nunca. Serve para identificar a placa em log de auditoria e em
+    inventario. Derivar chave dele e um erro classico -- o valor e publico e
+    constante, que sao exatamente as duas propriedades que uma chave nao
+    pode ter.
+    """
     p = client.command(CMD_GET_DNA)
-    print("DNA: %s" % p.hex())
+    if len(p) != 8:
+        print("payload inesperado: %r" % p)
+        return 1
+
+    v = int.from_bytes(p, "big")
+    if v >> 57:
+        print("DNA fora de 57 bits: %s" % p.hex())
+        return 1
+
+    print("DNA: %015X  (57 bits)" % v)
     return 0
 
 

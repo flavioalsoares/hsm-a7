@@ -1,0 +1,101 @@
+Retimar as constantes de rodada: registrar K
+
+Origem     : hsm-a7 (este projeto), 2026-08-06
+Upstream   : secworks/sha256 @ 837c5cc3
+Arquivo    : src/rtl/sha256_core.v
+Depende de : 0001-w-mem-registrado.patch
+Motivo     : temporizacao. Complemento do 0001.
+
+--- Por que existe um segundo patch
+
+Depois do 0001 o design fechou 100 MHz com WNS +0,014 ns. Fechou, mas
+14 picossegundos nao e margem: qualquer coisa acrescentada depois -- e a
+fase 2 ainda tem o neoTRNG, a fase 3 o key store -- derrubaria de volta.
+
+O caminho critico que sobrou:
+
+    t_ctr_reg -> k_data (ROM de 64 constantes, mux em LUT)
+              -> t1  (4 somas)
+              -> a_new  (1 soma)
+              -> a_reg
+
+Mesma doenca do 0001: uma entrada combinacional da rodada. Aqui e o
+contador de rodada atravessando a ROM de constantes.
+
+--- A correcao
+
+Indexar a ROM pela PROXIMA rodada e registrar a saida.
+
+t_ctr_new ja vale exatamente o indice desejado -- 0 quando o contador e
+resetado (entrada em CTRL_ROUNDS) e t+1 quando incrementa. Reusa-lo evita
+um somador paralelo e, mais importante, mantem k_reg e t_ctr_reg sempre em
+fase: os dois sao escritos pelo mesmo t_ctr_we, no mesmo ciclo. Nao ha
+estado em que um esteja adiantado em relacao ao outro.
+
+Resultado: a rodada passa a comecar em dois registradores (w_reg e k_reg),
+sem logica combinacional antes das somas.
+
+--- O que NAO muda
+
+  * A interface do modulo.
+  * A contagem de ciclos. Continuam 64 rodadas por bloco.
+  * sha256_k_constants.v: intocado.
+  * O resultado. Os 65 vetores do SHAVS passam em tb_sha256_kat e em
+    tb_cfs. Nenhum vetor alterado, nenhum assert relaxado.
+
+--- a/sha256_core.v
++++ b/sha256_core.v
+@@ -154,6 +154,7 @@
+   reg [31 : 0] t2;
+ 
+   wire [31 : 0] k_data;
++  reg  [31 : 0] k_reg;   // hsm-a7: K da rodada corrente, registrado
+ 
+   reg           w_init;
+   reg           w_next;
+@@ -164,8 +165,15 @@
+   //----------------------------------------------------------------
+   // Module instantiantions.
+   //----------------------------------------------------------------
++  // hsm-a7: a ROM de constantes e indexada pela PROXIMA rodada e a saida e
++  // registrada. Ver patches/sha256/0002-*.patch -- k_data combinacional era
++  // o caminho critico que sobrou depois de registrar W.
++  //
++  // t_ctr_new ja e "0 no reset do contador, t+1 no incremento", que e
++  // exatamente o indice desejado. Reusa-lo evita um somador paralelo e
++  // mantem k_reg e t_ctr_reg sempre em fase: os dois atualizam com t_ctr_we.
+   sha256_k_constants k_constants_inst(
+-                                      .round(t_ctr_reg),
++                                      .round(t_ctr_new),
+                                       .K(k_data)
+                                      );
+ 
+@@ -222,6 +230,7 @@
+           H7_reg           <= 32'h0;
+           digest_valid_reg <= 0;
+           t_ctr_reg        <= 6'h0;
++          k_reg            <= 32'h0;   // hsm-a7
+           sha256_ctrl_reg  <= CTRL_IDLE;
+         end
+       else
+@@ -252,7 +261,10 @@
+             end
+ 
+           if (t_ctr_we)
+-            t_ctr_reg <= t_ctr_new;
++            begin
++              t_ctr_reg <= t_ctr_new;
++              k_reg     <= k_data;   // hsm-a7: sempre em fase com o contador
++            end
+ 
+           if (digest_valid_we)
+             digest_valid_reg <= digest_valid_new;
+@@ -338,7 +350,7 @@
+ 
+       ch = (e_reg & f_reg) ^ ((~e_reg) & g_reg);
+ 
+-      t1 = h_reg + sum1 + ch + w_data + k_data;
++      t1 = h_reg + sum1 + ch + w_data + k_reg;   // hsm-a7: k_reg, nao k_data
+     end // t1_logic
+ 
+ 

@@ -34,7 +34,8 @@ Estas não são preferências. Se uma tarefa pedir qualquer coisa desta lista,
 
 ```bash
 # simulacao -- xsim, obrigatorio para qualquer coisa que toque no MMCM ou em
-# outra primitiva Xilinx (precisa das unisims)
+# outra primitiva Xilinx (precisa das unisims). Aplica os patches de
+# patches/ sozinho, em build/patched/.
 ./scripts/sim.sh tb_clk_rst     # um testbench
 ./scripts/sim.sh                # todos os implementados
 
@@ -77,28 +78,45 @@ Antes de implementar, responder no PR/commit:
 - [ ] Respeita `exportability` do slot?
 - [ ] Entra no log de auditoria **antes** da execução?
 
-## Estado atual (atualizado 2026-08-01)
+## Estado atual (atualizado 2026-08-06)
 
-**Fase 2 em andamento.** Vetores KAT baixados das fontes oficiais com hash
-registrado (`vectors/MANIFEST.txt`), e os cores de cripto verificados contra
-eles em simulação:
+**Fase 2 em andamento. O CFS está pronto.** AES-256, SHA-256 e o `DNA_PORT`
+são coprocessadores dentro da fronteira criptográfica, verificados contra os
+vetores oficiais do NIST — nos cores **e** através do mapa de registradores:
 
 ```
 tb_aes_kat     405 x 4 (ECB/CBC, cifra/decifra) = 1620 vetores   PASS
 tb_sha256_kat  65 mensagens, 74 blocos                            PASS
+tb_cfs         ID, DNA, 810 AES-ECB, 65 SHA, escrita-so, WIPE     PASS
+tb_uart_frame  agora inclui GET_DNA ponta a ponta                 PASS
 ```
 
-Falta, nesta ordem: **CFS** (AES e SHA como coprocessadores — resolve
-`GET_DNA` junto), **neoTRNG + health tests RCT/APT**, **CTR_DRBG**, e o
-**POST** com os comandos `0x10`–`0x15`. Receita do CFS e detalhes em
-`doc/fase2-notas.md`.
+`GET_DNA`, última sobra da Fase 1, está fechado.
 
-⚠ Folga de timing em **+0,637 ns** (Fmax ≈ 107 MHz) antes de entrar cripto
-nenhuma. Acompanhar.
+Falta, nesta ordem: **neoTRNG + health tests RCT/APT**, **CTR_DRBG**, e o
+**POST** com os comandos `0x10`–`0x15`. Detalhes em `doc/fase2-notas.md`.
+
+**Timing fecha em +0,487 ns** (Fmax ≈ 105 MHz), 0 erros e 0 critical
+warnings. Não fechava: o CFS entrou com **−2,388 ns**, e 49 dos 58 endpoints
+falhando estavam no `sha256_core`. Resolvido com dois patches de retimagem
+em `patches/sha256/` (registrar `W` e `K`) mais `phys_opt_design` no fluxo.
+Recursos: 7035 LUTs (33,8%), 6235 FF (15,0%), BRAM 3,5, DSP 0.
+
+⚠ **Cores de terceiros agora passam por `scripts/apply-patches.sh`**, que
+aplica os patches sobre uma **cópia** em `build/patched/`. `third_party/`
+continua byte a byte igual ao upstream — o script falha se não estiver.
+Nunca aplicar patch dentro do submódulo.
+
+⚠ **Limite de frequência do `CLK` do `DNA_PORT` não conferido** contra a
+UG470. Roda a 100 MHz junto com o resto. Se a leitura vier inconsistente em
+hardware, dividir o clock daquele bloco — o conserto é local.
 
 ⚠ A placa **não guarda nada**: a gravação é volátil e se perde no
 desligamento. Para voltar ao ponto, ver "Retomando o trabalho" em
 `doc/fase2-notas.md`.
+
+⚠ **Nada disso foi validado em hardware ainda.** O bitstream com o CFS está
+gerado e passa em simulação; a placa não foi ligada desde a Fase 1.
 
 ## Fase 1 — concluída
 
@@ -156,9 +174,12 @@ e quebra a procedência: o pin continua dizendo `v1.13.3` enquanto o bitstream
 contém outra coisa. Ordem para mudar código de terceiros:
 
 1. Configuração (generic no wrapper) — resolve quase sempre
-2. Ponto de extensão projetado — é o caso do CFS na Fase 2, ver receita em
-   `doc/submodulos.md`; troca-se o arquivo na lista do build, sem patch
-3. Patch em `patches/`, aplicado pelo build
+2. Ponto de extensão projetado — **usado**: `rtl/crypto/neorv32_cfs.vhd`
+   substitui o CFS do NEORV32 pela lista de arquivos do build, sem patch
+3. Patch em `patches/`, aplicado pelo build — **usado**: dois patches de
+   retimagem no `sha256_core` (`patches/sha256/`), sem os quais o design não
+   fecha 100 MHz. Aplicados por `scripts/apply-patches.sh` sobre uma cópia
+   em `build/patched/`, nunca dentro do submódulo
 4. Fork + repontar o submódulo — **só** com patch que precise persistir ou
    rebase recorrente. Não forkar por precaução: fork cria obrigação de rebase
    e apodrece

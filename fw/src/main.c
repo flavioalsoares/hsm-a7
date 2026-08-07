@@ -10,6 +10,7 @@
 #include <neorv32.h>
 
 #include "cmd.h"
+#include "hsm_cfs.h"
 #include "state.h"
 
 /* PLANO.md secao 2. Nao confundir com os 19200 do bootloader do NEORV32. */
@@ -34,6 +35,21 @@ int main(void)
      * dispositivo aceitaria um frame truncado e ficaria mudo -- negacao de
      * servico com um unico byte. Melhor nao subir do que subir quebrado. */
     if (neorv32_clint_available() == 0) {
+        neorv32_gpio_pin_set(LED_TAMPER, 1);
+        while (1) { /* trava de proposito */ }
+    }
+
+    /* O coprocessador criptografico tem de estar presente e se identificar.
+     *
+     * Nao e o POST -- esse chega com os KAT no boot, ainda nesta fase, e
+     * verifica que o hardware calcula CERTO. Este teste e mais fraco de
+     * proposito: verifica que o hardware EXISTE. Sem ele, um bitstream
+     * gerado com IO_CFS_EN desligado subiria normalmente e so falharia na
+     * hora de usar cripto, que e tarde demais para descobrir.
+     *
+     * Recusar subir e a resposta certa: um modulo criptografico que nao
+     * consegue fazer criptografia nao deve aceitar comando nenhum. */
+    if (hsm_cfs_present() == 0) {
         neorv32_gpio_pin_set(LED_TAMPER, 1);
         while (1) { /* trava de proposito */ }
     }

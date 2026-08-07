@@ -150,16 +150,27 @@ begin
     IO_GPIO_NUM      => 8,      -- LEDs de estado + botoes de dual control
 
     -- ---------------------------------------------------------------
+    -- CFS -- o coprocessador criptografico
+    -- ---------------------------------------------------------------
+    -- Aqui moram AES-256, SHA-256 e o DNA_PORT. O arquivo do upstream e
+    -- um template de exemplo; o build compila rtl/crypto/neorv32_cfs.vhd
+    -- no lugar dele, na mesma biblioteca -- sem patch e sem tocar em
+    -- third_party/ (doc/submodulos.md, grau 2 da escada).
+    --
+    -- E o CFS, e nao o XBUS, justamente porque o XBUS esta desligado por
+    -- decisao de seguranca: o coprocessador precisa estar DENTRO da
+    -- fronteira criptografica, nao pendurado num barramento externo.
+    IO_CFS_EN        => true,
+
+    -- ---------------------------------------------------------------
     -- Ligados em fases seguintes -- listados para nao ficarem esquecidos
     -- ---------------------------------------------------------------
-    -- IO_CFS_EN  : fase 2. E aqui que AES-256 e SHA-256 entram.
     -- IO_TRNG_EN : fase 2. neoTRNG. Ao ligar, manter IO_TRNG_NUM_RO
     --              pequeno (meia duzia) -- ver PLANO secao 3, cuidado
     --              termico com o array de osciladores em anel.
     -- IO_SPI_EN  : fase 4. Log de auditoria na flash MT25QL128.
     -- PMP_*      : fase 3+. Separacao de privilegio para a fronteira
     --              criptografica.
-    IO_CFS_EN        => false,
     IO_TRNG_EN       => false,
     IO_SPI_EN        => false,
     PMP_NUM_REGIONS  => 0,

@@ -9,7 +9,7 @@ producao entra aqui.
 
 ## Para aprender o assunto
 
-**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 45 paginas.
+**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 46 paginas.
 
   I-II   como um HSM funciona: fronteira, hierarquia de chaves, cerimonia
          de LMK, TR-31, maquina de estados, aleatoriedade, self-test
@@ -27,8 +27,10 @@ Antes de mexer no codigo, leia **PLANO.md** -- em especial a secao 0
 (restricoes invioláveis: nada de eFUSE, nunca).
 
 Estado: **fase 1 completa e validada em hardware** (10.000 pings, 0 erros).
-**Fase 2 em andamento**: AES-256 e SHA-256 verificados contra os vetores
-oficiais do NIST em simulacao. Ver `doc/fase2-notas.md`.
+**Fase 2 em andamento**: AES-256, SHA-256 e o `DNA_PORT` ja estao no
+coprocessador (CFS), verificados contra os vetores oficiais do NIST em
+simulacao -- nos cores e tambem atraves do barramento. Falta o TRNG, o
+CTR_DRBG e o POST. Ver `doc/fase2-notas.md`.
 
 ## Dependencias
 
@@ -71,6 +73,7 @@ python3 host/test_hsmtool.py            # sem placa: transporte
 
 python3 host/hsmtool.py ping            # com placa (115200 8N1)
 python3 host/hsmtool.py version
+python3 host/hsmtool.py dna             # identidade do die (57 bits)
 python3 host/hsmtool.py bench -n 10000  # criterio de aceitacao da fase 1
 ```
 

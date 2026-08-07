@@ -29,6 +29,11 @@ mkdir -p "$WORK"
 # Vetores KAT no formato do $readmemh. Regenerar e barato e evita o pior
 # resultado possivel: um testbench rodando sobre vetores de uma versao
 # anterior e passando.
+# Cores de terceiros com os patches de patches/ aplicados sobre uma copia.
+# third_party/ nunca e tocado -- ver o cabecalho de apply-patches.sh.
+"$ROOT/scripts/apply-patches.sh" > "$ROOT/build/patches.log" 2>&1 || {
+    echo "ERRO ao aplicar patches:" >&2; cat "$ROOT/build/patches.log" >&2; exit 1; }
+
 if [ -d "$ROOT/vectors/aes" ]; then
     python3 "$ROOT/scripts/mkvectors.py" > "$ROOT/build/mkvectors.log" 2>&1 || {
         echo "ERRO ao gerar vetores:" >&2; cat "$ROOT/build/mkvectors.log" >&2; exit 1; }
@@ -59,18 +64,29 @@ compile_neorv32() {
         exit 1
     fi
 
+    # O nosso CFS tambem entra nesta biblioteca (ver abaixo), entao editar
+    # rtl/crypto/neorv32_cfs.vhd precisa invalidar o cache. Sem isto a
+    # simulacao rodaria contra a versao anterior do coprocessador.
+    local cfs_ours="$ROOT/rtl/crypto/neorv32_cfs.vhd"
+
     local sha
-    sha="$(git -C "$NEORV32" rev-parse HEAD)-$(sha256sum "$fw_image" | cut -c1-16)"
+    sha="$(git -C "$NEORV32" rev-parse HEAD)-$(sha256sum "$fw_image" | cut -c1-16)-$(sha256sum "$cfs_ours" | cut -c1-16)"
 
     if [ -f .neorv32_lib_sha ] && [ "$(cat .neorv32_lib_sha)" = "$sha" ]; then
         return 0
     fi
 
-    echo "=== compilando NEORV32 ($(git -C "$NEORV32" describe --tags)) + firmware na lib 'neorv32'"
+    echo "=== compilando NEORV32 ($(git -C "$NEORV32" describe --tags)) + firmware + CFS na lib 'neorv32'"
+
+    # O CFS do upstream e um template feito para ser substituido -- ponto de
+    # extensao projetado, grau 2 da escada do doc/submodulos.md. Filtra-se o
+    # arquivo dele e compila-se o nosso, na mesma biblioteca e com a mesma
+    # entidade. third_party/ fica intocado.
     local files
     files="$(sed "s|\$NEORV32_HOME|$NEORV32|" "$NEORV32/rtl/file_list_soc.f" \
-             | grep -v 'neorv32_imem_image\.vhd$')"
-    files="$files $fw_image"
+             | grep -v 'neorv32_imem_image\.vhd$' \
+             | grep -v 'neorv32_cfs\.vhd$')"
+    files="$files $fw_image $cfs_ours"
 
     # shellcheck disable=SC2086
     if ! xvhdl -work neorv32 $files > neorv32_compile.log 2>&1; then
@@ -102,20 +118,37 @@ run_one() {
     # os testbenches; os que nao os instanciam simplesmente os ignoram na
     # elaboracao.
     local cripto=()
-    [ -d "$ROOT/third_party/aes/src/rtl" ]    && cripto+=("$ROOT"/third_party/aes/src/rtl/*.v)
-    [ -d "$ROOT/third_party/sha256/src/rtl" ] && cripto+=("$ROOT"/third_party/sha256/src/rtl/*.v)
+    [ -d "$ROOT/build/patched/aes" ]    && cripto+=("$ROOT"/build/patched/aes/*.v)
+    [ -d "$ROOT/build/patched/sha256" ] && cripto+=("$ROOT"/build/patched/sha256/*.v)
 
     if ! xvlog -i "$WORK/../vectors" \
                "${cripto[@]}" \
+               "$ROOT"/rtl/crypto/*.v \
                "$ROOT"/rtl/soc/*.v "$ROOT"/rtl/top/*.v "$src" \
                "$XILINX_VIVADO/data/verilog/src/glbl.v" \
                > "${tb}_compile.log" 2>&1; then
         echo "--- falha de compilacao:"; tail -20 "${tb}_compile.log"; return 1
     fi
 
-    if ! xelab -L unisims_ver -L neorv32 -s "${tb}_sim" "$tb" glbl \
+    # -L work e necessario para o CFS: neorv32_cfs.vhd mora na biblioteca
+    # 'neorv32' (o neorv32_top instancia 'entity neorv32.neorv32_cfs', nao
+    # ha escolha) e instancia hsm_cfs, que e Verilog e cai na biblioteca
+    # padrao. Sem isto o xelab deixa o coprocessador como caixa preta, com
+    # um WARNING que passa despercebido e um dispositivo que nao boota.
+    if ! xelab -L unisims_ver -L neorv32 -L work -s "${tb}_sim" "$tb" glbl \
                > "${tb}_elab.log" 2>&1; then
         echo "--- falha de elaboracao:"; tail -20 "${tb}_elab.log"; return 1
+    fi
+
+    # Instancia sem binding vira caixa preta com saidas em Z, e o xelab
+    # segue em frente com um WARNING. Isso ja custou uma rodada inteira:
+    # o CFS ficou como caixa preta, o firmware nao encontrou o
+    # coprocessador e o dispositivo nao bootou -- sintoma a tres camadas de
+    # distancia da causa. Aqui e erro.
+    if grep -q "remains a black box" "${tb}_elab.log"; then
+        echo "--- $tb: instancia sem binding (caixa preta):"
+        grep "remains a black box" "${tb}_elab.log"
+        return 1
     fi
 
     xsim "${tb}_sim" -runall > "${tb}_sim.log" 2>&1 || true

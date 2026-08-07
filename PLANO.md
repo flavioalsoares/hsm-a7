@@ -174,6 +174,12 @@ onde ela veio.
 Os mesmos vetores rodam em simulação nos testbenches. Se um KAT passa no
 testbench e falha no POST, o problema está no barramento, não no core.
 
+Por isso o barramento tem testbench próprio: `tb_cfs` replica os vetores do
+NIST **através do mapa de registradores** do coprocessador, e não direto nos
+cores. É a mesma família de defeito que o parágrafo acima antecipa — ordem de
+palavra trocada, handshake mal esperado — pega em simulação, onde custa
+segundos.
+
 ### Comandos da fase
 
 `0x10 AES_ENC` · `0x11 AES_DEC` · `0x12 SHA256` · `0x13 HMAC` · `0x14 RANDOM`
@@ -182,8 +188,9 @@ testbench e falha no POST, o problema está no barramento, não no core.
 ### Critérios de aceitação
 
 - [~] Todos os KAT passam em simulação **e** no POST — AES-256 (1620 vetores
-      CAVP) e SHA-256 (65 mensagens SHAVS) passam em **simulação**; falta o
-      POST, e faltam HMAC e DRBG. Ver `doc/fase2-notas.md`.
+      CAVP) e SHA-256 (65 mensagens SHAVS) passam em **simulação**, nos cores
+      e também **através do barramento do CFS** (`tb_cfs`); falta o POST, e
+      faltam HMAC e DRBG. Ver `doc/fase2-notas.md`.
 - [ ] `RANDOM` de 1 MB passa em `ent` e `dieharder -a` (sanidade, não validação)
 - [ ] Forçar falha artificial no RCT leva o dispositivo a `TAMPERED`
 - [ ] Utilização e timing arquivados

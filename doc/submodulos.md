@@ -111,10 +111,11 @@ git config diff.submodule log
 git submodule foreach --recursive 'git status --short'
 ```
 
-## Receita: substituir o CFS na Fase 2
+## Receita: substituir o CFS — **feito na Fase 2**
 
 `neorv32_cfs.vhd` é o Custom Functions Subsystem — um **template feito para
-ser substituído**. É onde AES-256 e SHA-256 entram como coprocessadores.
+ser substituído**. É onde AES-256, SHA-256 e o `DNA_PORT` entram como
+coprocessadores.
 
 Não editar o arquivo no submódulo. O binding em VHDL é por nome de entidade
 dentro da biblioteca, então basta trocar qual arquivo é compilado. Em
@@ -122,11 +123,19 @@ dentro da biblioteca, então basta trocar qual arquivo é compilado. Em
 
 ```tcl
 # tira o CFS do upstream da lista e usa o nosso no lugar
-set neorv32_files [lsearch -all -inline -not $neorv32_files \
-                   $neorv32/rtl/core/neorv32_cfs.vhd]
+set cfs_upstream $neorv32/rtl/core/neorv32_cfs.vhd
+if {[lsearch -exact $neorv32_files $cfs_upstream] < 0} {
+    error "neorv32_cfs.vhd nao esta na lista do upstream"
+}
+set neorv32_files [lsearch -all -inline -not $neorv32_files $cfs_upstream]
 add_files rtl/crypto/neorv32_cfs.vhd
 set_property library neorv32 [get_files rtl/crypto/neorv32_cfs.vhd]
 ```
+
+A verificação antes do filtro não é paranoia barata: `lsearch -not` sobre um
+arquivo que não está na lista **não reclama**, só não remove nada. Se o
+upstream renomear o CFS, sem essa checagem o build compilaria os dois e o
+erro apareceria como duplicata de entidade — longe da causa.
 
 O mesmo em `scripts/sim.sh`, filtrando a linha antes do `xvhdl -work neorv32`.
 
@@ -150,6 +159,27 @@ entity neorv32_cfs is
 ```
 
 Lembrar de ligar `IO_CFS_EN => true` no wrapper.
+
+### A armadilha que isto tem: biblioteca na fronteira VHDL→Verilog
+
+`neorv32_cfs.vhd` **precisa** morar na biblioteca `neorv32` — o
+`neorv32_top` o instancia como `entity neorv32.neorv32_cfs` e não há
+escolha. Mas a lógica é Verilog (convenção do projeto para código próprio) e
+cai na biblioteca padrão.
+
+O `xelab` não liga um componente VHDL de uma biblioteca a um módulo Verilog
+de outra sem ajuda. Ele **não falha**: deixa a instância como caixa preta,
+emite um `WARNING` e segue. O firmware então não encontra o coprocessador,
+recusa-se a subir, e o sintoma aparece a três camadas de distância da causa.
+
+Duas correções, e a segunda importa mais:
+
+```bash
+xelab -L unisims_ver -L neorv32 -L work ...     # a ligação
+grep -q "remains a black box" && falhar          # o alarme
+```
+
+Um aviso que ninguém lê é um aviso que não existe.
 
 ## Espelho: independência de terceiros
 

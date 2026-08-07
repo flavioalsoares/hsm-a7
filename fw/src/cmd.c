@@ -15,6 +15,7 @@
 #include <neorv32.h>
 
 #include "cmd.h"
+#include "hsm_cfs.h"
 #include "state.h"
 #include "wipe.h"
 
@@ -96,25 +97,37 @@ static hsm_status_t h_get_dna(const uint8_t *in, uint16_t in_len,
                               uint8_t *out, uint16_t *out_len)
 {
     (void)in;
-    (void)out;
 
     if (in_len != 0u) {
         *out_len = 0u;
         return STATUS_BAD_PARAM;
     }
 
-    /* Depende de RTL que ainda nao existe: o DNA_PORT e primitiva Xilinx e
-     * precisa de um caminho ate a CPU. Como XBUS esta desligado por decisao
-     * de seguranca, o caminho sera um registrador no CFS -- que e o mesmo
-     * bloco que a fase 2 usa para AES e SHA. Ver doc/submodulos.md para a
-     * receita de substituicao do CFS.
+    /* Devolve a identidade de fabrica do die: 57 bits em 8 bytes,
+     * big-endian, com os 7 bits mais altos em zero.
      *
-     * Entra na tabela desde ja porque a regra do projeto e: opcode novo tem
-     * entrada na tabela, verificacao de estado e teste, nessa ordem. Um
-     * opcode que responde NOT_IMPLEMENTED e honesto e testavel; um opcode
-     * ausente responderia UNKNOWN_CMD e mentiria sobre o roadmap. */
-    *out_len = 0u;
-    return STATUS_NOT_IMPLEMENTED;
+     * O caminho ate aqui e o registrador DNA do CFS. Nao ha outro: o
+     * DNA_PORT e primitiva Xilinx e o XBUS esta desligado por decisao de
+     * seguranca (rtl/soc/neorv32_wrapper.vhd).
+     *
+     * Checklist do CLAUDE.md para comando novo:
+     *   estados      todos (ST_NORMAL) -- e identidade, nao operacao
+     *   dual control nao
+     *   vazamento    nenhum. O DNA e publico: qualquer um com JTAG le o
+     *                mesmo valor. Chamar em laco devolve sempre a mesma
+     *                constante, entao nao ha oraculo aqui.
+     *   exportability nao se aplica -- nao e material de chave, e nunca
+     *                pode virar material de chave. Ver hsm_cfs.h.
+     *
+     * Nao ha caminho de erro que revele o estado interno: se o hardware
+     * nao terminou a leitura, sai INTERNAL_ERROR sem payload. */
+    if (hsm_cfs_dna(out) != 0) {
+        *out_len = 0u;
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    *out_len = HSM_DNA_LEN;
+    return STATUS_OK;
 }
 
 /* ------------------------------------------------------------------ */

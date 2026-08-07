@@ -1,0 +1,163 @@
+Retimar o message schedule: registrar W
+
+Origem     : hsm-a7 (este projeto), 2026-08-06
+Upstream   : secworks/sha256 @ 837c5cc3
+Arquivo    : src/rtl/sha256_w_mem.v
+Motivo     : temporizacao. Sem isto o SoC nao fecha 100 MHz num
+             XC7A35T-1.
+
+--- O problema
+
+O caminho critico do design inteiro estava dentro deste modulo:
+
+    w_mem[1] -> d0 (rotacoes + XOR)
+              -> w_new  (3 somas de 32 bits)
+              -> w  (combinacional)
+              -> t1  (4 somas, em sha256_core)
+              -> a_new  (1 soma)
+              -> a_reg
+
+Oito somas de 32 bits encadeadas num ciclo so. Medido no XC7A35T-1:
+19 niveis de logica, 10 CARRY4, WNS -2,388 ns em periodo de 10 ns.
+Fmax do conjunto ~81 MHz; com esforco maximo de implementacao, ~89 MHz.
+
+A causa e que a expansao da mensagem e a rodada de compressao compartilham
+o mesmo ciclo. Para round < 16 a leitura de W e um registrador (rapida);
+a partir da rodada 16 e a expansao inteira.
+
+--- A correcao
+
+Registrar W. A expansao passa a rodar UMA RODADA A FRENTE da compressao,
+e o caminho se parte em dois:
+
+    janela -> d0/d1 -> w_new -> w_reg           (expansao)
+    w_reg  -> t1 -> a_new -> a_reg              (compressao)
+
+Tres mudancas, e a segunda e a que faz funcionar:
+
+  1. w_reg guarda W da rodada corrente. Em 'init' recebe W[0], que e a
+     primeira palavra do bloco; em 'next' recebe W[round+1].
+
+  2. A janela desliza a partir da rodada 15 em vez da 16. Isso e o que
+     permite reusar a expressao de w_new sem alterar uma virgula: os
+     quatro taps (w_mem[0], [1], [9], [14]) andam junto com a janela,
+     entao a mesma formula que produzia W[t] passa a produzir W[t+1].
+
+       rodada 15: janela = W[0..15]  -> w_new = s1(W14)+W9+s0(W1)+W0 = W[16]
+       rodada 16: janela = W[1..16]  -> w_new = s1(W15)+W10+s0(W2)+W1 = W[17]
+
+  3. select_w sai. Era a leitura combinacional que originava o caminho.
+
+--- O que NAO muda
+
+  * A interface do modulo. Mesmas portas, mesmos nomes.
+  * sha256_core.v e sha256_k_constants.v: intocados.
+  * A contagem de ciclos. Continuam 64 rodadas por bloco. Nao ha estagio
+    de pipeline novo, so um registrador movido -- por isso nao ha
+    prologo nem penalidade de vazao.
+  * O resultado. Verificado contra os 65 vetores do SHAVS (NIST CAVP) em
+    tb_sha256_kat e, atraves do barramento do CFS, em tb_cfs. Nenhum
+    vetor foi tocado, nenhum assert relaxado -- regra inviolavel numero 5
+    do CLAUDE.md.
+
+--- Por que patch, e nao fork nem core proprio
+
+Escada do doc/submodulos.md: grau 3. Nao ha generic que resolva (grau 0),
+nao ha ponto de extensao (grau 1), e um fork criaria obrigacao de rebase
+sobre um core que nao muda desde 2023.
+
+E nao se reescreve implementacao de cripto por conta propria quando existe
+uma conhecida e testada. O que torna ESTE patch aceitavel e a rede de
+vetores oficiais: da para provar que a modificacao nao mudou o resultado.
+Sem isso, mexer aqui seria irresponsavel.
+
+O submodulo continua byte a byte igual a 837c5cc3. Este patch e aplicado
+por scripts/apply-patches.sh sobre uma COPIA em build/patched/.
+
+--- a/sha256_w_mem.v
++++ b/sha256_w_mem.v
+@@ -78,14 +78,16 @@
+   //----------------------------------------------------------------
+   // Wires.
+   //----------------------------------------------------------------
+-  reg [31 : 0] w_tmp;
+   reg [31 : 0] w_new;
+ 
++  // hsm-a7: registrador de saida. Ver patches/sha256/0001-*.patch.
++  reg [31 : 0] w_reg;
++
+ 
+   //----------------------------------------------------------------
+   // Concurrent connectivity for ports etc.
+   //----------------------------------------------------------------
+-  assign w = w_tmp;
++  assign w = w_reg;
+ 
+ 
+   //----------------------------------------------------------------
+@@ -103,6 +105,7 @@
+           for (i = 0 ; i < 16 ; i = i + 1) begin
+             w_mem[i] <= 32'h0;
+ 	  end
++          w_reg <= 32'h0;   // hsm-a7
+         end
+       else
+         begin
+@@ -125,23 +128,32 @@
+               w_mem[14] <= w_mem14_new;
+               w_mem[15] <= w_mem15_new;
+             end
++
++          // hsm-a7: W da rodada CORRENTE, calculado uma rodada antes.
++          //
++          //   init  -> W[0], que e a primeira palavra do bloco
++          //   next  -> W[round+1]: leitura de registrador ate a rodada 14,
++          //            e a expansao (w_new) a partir da 15
++          //
++          // Com a janela deslocando uma rodada mais cedo (ver abaixo), a
++          // MESMA expressao de w_new produz W[t+1] em vez de W[t]: os
++          // quatro taps andam junto com a janela.
++          if (init)
++            w_reg <= block[511 : 480];
++          else if (next)
++            begin
++              if (round < 6'd15)
++                w_reg <= w_mem[round[3 : 0] + 4'h1];
++              else
++                w_reg <= w_new;
++            end
+         end
+     end // reg_update
+ 
+ 
+-  //----------------------------------------------------------------
+-  // select_w
+-  //
+-  // Mux for the external read operation. This is where we exract
+-  // the W variable.
+-  //----------------------------------------------------------------
+-  always @*
+-    begin : select_w
+-      if (round < 16)
+-        w_tmp = w_mem[round[3 : 0]];
+-      else
+-        w_tmp = w_new;
+-    end // select_w
++  // hsm-a7: o bloco select_w foi removido. A leitura combinacional de W
++  // -- registrador para round < 16, expansao completa para round >= 16 --
++  // era a origem do caminho critico. Agora W sai de w_reg.
+ 
+ 
+   //----------------------------------------------------------------
+@@ -213,7 +225,10 @@
+           w_mem_we    = 1;
+         end
+ 
+-      if (next && (round > 15))
++      // hsm-a7: era (round > 15). A janela desliza UMA RODADA MAIS CEDO,
++      // para que w_reg ja tenha W[t] quando a rodada t executar. Os quatro
++      // taps (0, 1, 9, 14) andam junto, entao a expressao de w_new nao muda.
++      if (next && (round > 14))
+         begin
+           w_mem00_new = w_mem[01];
+           w_mem01_new = w_mem[02];

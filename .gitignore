@@ -5,6 +5,9 @@ build/
 .Xil/
 vivado_*.backup.*
 clockInfo.txt
+# subproduto do phys_opt_design/route_design, escrito no diretorio
+# corrente e nao em build/
+tight_setup_hold_pins.txt
 
 # --- firmware (tudo derivado de fw/src) ------------------------------
 fw/build/

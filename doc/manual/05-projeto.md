@@ -396,6 +396,17 @@ cadeias de carry, de volta ao banco. Os cores de criptografia da Fase 2 são
 datapath separado e não alongam *esse* caminho, mas adicionam
 congestionamento — e roteamento já é 45% do atraso.
 
+> **Nota escrita depois, e vale mais que a previsão.** O parágrafo acima
+> acertou o mecanismo e errou a conclusão. Os cores realmente não alongaram
+> o caminho da CPU — ele continua passando. Mas trouxeram um caminho
+> **próprio**, muito pior: −2,388 ns dentro do SHA-256, contra os +0,637 ns
+> que se estava vigiando. A margem que importava não era a que estava
+> sendo medida.
+>
+> A lição é sobre a forma do erro, não sobre o número: vigiar a métrica que
+> se conhece é conforto, e o que quebra costuma vir de onde ainda não há
+> métrica. A história completa está na seção 27.
+
 Firmware: **1652 bytes de código, 1572 de dados não inicializados** — 10% da
 IMEM e 19% da DMEM. A maior parte da bss são os três buffers de frame.
 

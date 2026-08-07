@@ -116,7 +116,15 @@ resposta  LEN(2) | STATUS(1) | PAYLOAD | CRC32(4)
 |---|---|---|---|
 | `0x01` | `PING` | vazio | `"PONG"` |
 | `0x02` | `GET_VERSION` | vazio | major, minor, patch, estado |
-| `0x03` | `GET_DNA` | vazio | — (responde `NOT_IMPLEMENTED`) |
+| `0x03` | `GET_DNA` | vazio | 8 bytes: identidade do die, 57 bits big-endian |
+
+O `GET_DNA` ficou respondendo `NOT_IMPLEMENTED` durante toda a Fase 1 e só
+fechou com o CFS da Fase 2 (seção 27) — o `DNA_PORT` é primitiva Xilinx e
+precisava de um caminho até a CPU. O valor **não é segredo**: qualquer um com
+um cabo JTAG lê o mesmo número, e ele nunca muda. Serve para identificar a
+placa em log e inventário. Derivar chave dele é um erro clássico, porque
+público e constante são exatamente as duas propriedades que uma chave não
+pode ter.
 
 ### Códigos de status
 
