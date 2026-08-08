@@ -54,6 +54,15 @@ set_property library neorv32 [get_files $fw_image]
 add_files rtl/crypto/neorv32_cfs.vhd
 set_property library neorv32 [get_files rtl/crypto/neorv32_cfs.vhd]
 
+# hsm_entropy vai para a MESMA biblioteca porque instancia neoTRNG_cell,
+# que e uma entidade do upstream e mora em 'neorv32'. O binding padrao de
+# componente procura na biblioteca da unidade que o instancia -- compilar
+# este arquivo na biblioteca padrao deixaria a celula como caixa preta,
+# e um TRNG virando caixa preta sai como um fluxo de zeros que ainda por
+# cima e detectado pelo RCT tarde demais, ja em hardware.
+add_files rtl/crypto/hsm_entropy.vhd
+set_property library neorv32 [get_files rtl/crypto/hsm_entropy.vhd]
+
 # ---------------------------------------------------------------------
 # Cores de cripto (submodulos, fixados por SHA de commit), com os patches
 # de patches/ aplicados sobre uma COPIA em build/patched/ -- third_party/

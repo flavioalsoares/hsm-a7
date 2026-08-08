@@ -93,8 +93,33 @@ tb_uart_frame  agora inclui GET_DNA ponta a ponta                 PASS
 
 `GET_DNA`, última sobra da Fase 1, está fechado.
 
-Falta, nesta ordem: **neoTRNG + health tests RCT/APT**, **CTR_DRBG**, e o
-**POST** com os comandos `0x10`–`0x15`. Detalhes em `doc/fase2-notas.md`.
+**O TRNG e os health tests estão em RTL e verificados** (2026-08-08):
+
+```
+tb_trng_health  fonte travada, borda exata do RCT (41 e nao 40),
+                vies que so o APT pega, fonte equilibrada       PASS
+tb_cfs          retrato de 1024 amostras brutas pelo barramento,
+                fonte travada -> RCT_FAIL visivel pela CPU      PASS
+tb_diag         instrumento de bancada, 8N1 + eco + Block RAM   PASS
+```
+
+⚠ **O plano dizia "RCT e APT em firmware". Não dá, e a divisão mudou.** A
+SP 800-90B exige que os testes *contínuos* vejam **toda** amostra, e a fonte
+produz uma por ciclo de 100 MHz — a CPU veria uma em mil. Então: **hardware**
+faz os testes contínuos e congela 1024 amostras brutas consecutivas;
+**firmware** faz os testes de partida sobre esse retrato e é dono da política
+(falha → `TAMPERED`). Os dois testes ficam implementados duas vezes, de forma
+independente, e discordância entre eles denuncia erro de interpretação da
+norma. Ver `doc/fase2-notas.md`.
+
+⚠ **Cutoffs vêm de `scripts/health-cutoffs.py`, não de tabela lembrada.**
+`H = 0,5 bit/amostra` é **hipótese**, não medida — uma validação 90B de
+verdade estima H de 1.000.000 de amostras reais. É para isso que existe o
+registrador de retrato.
+
+Falta, nesta ordem: chamar `hsm_trng_startup()` no boot e ligar ao
+`TAMPERED`, **CTR_DRBG**, e o **POST** com os comandos `0x10`–`0x15`.
+Detalhes em `doc/fase2-notas.md`.
 
 **Timing fecha em +0,487 ns** (Fmax ≈ 105 MHz), 0 erros e 0 critical
 warnings. Não fechava: o CFS entrou com **−2,388 ns**, e 49 dos 58 endpoints
@@ -133,6 +158,39 @@ bitstream chegou a gravar com `Done 0x1` e `No CRC error` e mesmo assim o
 dispositivo ficou mudo -- `Done = 1` prova que a sequencia de configuracao
 terminou, **nao** que o dispositivo funciona. Antes de suspeitar de RTL,
 sintese ou timing, garantir o elo fisico. Detalhes em `doc/fase2-notas.md`.
+
+## Bancada — como decidir onde está o defeito
+
+**Existe um bitstream de diagnóstico sem CPU nenhuma.** Use-o *antes* de
+suspeitar de RTL, síntese ou timing:
+
+```bash
+vivado -mode batch -source scripts/build-diag.tcl
+BIT=build/hsm_diag.bit ./scripts/program.sh
+```
+
+Ele pisca D1 a 1 Hz, faz luz corrida em D2–D5, transmite
+`HSM-DIAG nnnn Rrrrr Wwwww` a cada 500 ms e **ecoa** o que receber. Se ele
+fala, a camada física está inteira e o defeito é do SoC. Validado em
+hardware 2026-08-08: 6/6 linhas íntegras e eco exato de `5a a5 00 ff`.
+
+Firmware que anuncia o boot: `make -C fw HSM_DIAG=1 image`. **Não é build de
+produção** — o dispositivo de produção é mudo até ser perguntado.
+
+| sintoma | causa provável |
+|---|---|
+| cadeia JTAG `empty` **sempre** | FPGA sem alimentação, ou JTAG aberto |
+| `empty` **às vezes** | mau contato de sinal |
+| IDCODE OK, gravação com `CRC Error` | cabo sob volume de dados |
+| `Done=1` + MMCM travado, e mudo | **não é a física** — grave o `hsm_diag` |
+| adaptador USB enumera e cai em < 1 s | contato/corrente. Cabo só de carga **nunca** enumera |
+
+⚠ **O CP2102 aparecer no `lsusb` não prova nada sobre a alimentação da
+placa** — ele vive da própria USB e enumera com o trilho principal desligado.
+
+Voltagens e temperatura, sem instanciar nada no design, pelo hardware manager
+do Vivado (`get_hw_sysmons`): medido `VCCINT 0,987 V`, `VCCAUX 1,774 V`,
+`VCCBRAM 0,987 V`, `36,7 °C`.
 
 ⚠ **JTAG por hub USB: preferir porta direta, mas não é a causa provável de
 gravação corrompida.** O USB tem CRC e retransmissão próprios — hub não

@@ -77,4 +77,24 @@ USER_FLAGS += -Wall -Wextra -Werror
 PICOLIBC_SPECS ?= --specs=picolibc.specs
 USER_FLAGS += $(PICOLIBC_SPECS)
 
+# ---------------------------------------------------------------------
+# Build de DIAGNOSTICO de bancada -- make HSM_DIAG=1 image
+#
+# Faz o firmware anunciar por onde passou durante o boot, em vez de
+# apenas travar. Existe porque "D2 apagado" diz que main() nao chegou ao
+# laco, mas nao diz ONDE parou -- e sem isso a busca vira adivinhacao.
+#
+# NAO E BUILD DE PRODUCAO, e a diferenca nao e estetica: o dispositivo de
+# producao e MUDO ate ser perguntado, e um HSM que narra o proprio boot
+# entrega informacao de estado interno a quem so encostou um terminal na
+# porta. Aqui isso e aceitavel porque nao ha chave nenhuma no dispositivo
+# nesta fase; deixaria de ser no minuto em que houver.
+#
+# Por isso e um flag de compilacao e nao um comando: nao existe caminho
+# em tempo de execucao que ligue esse modo numa placa de producao.
+# ---------------------------------------------------------------------
+ifdef HSM_DIAG
+USER_FLAGS += -DHSM_DIAG
+endif
+
 include $(NEORV32_HOME)/sw/common/common.mk

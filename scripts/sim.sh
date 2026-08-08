@@ -69,8 +69,12 @@ compile_neorv32() {
     # simulacao rodaria contra a versao anterior do coprocessador.
     local cfs_ours="$ROOT/rtl/crypto/neorv32_cfs.vhd"
 
+    # hsm_entropy.vhd entra na mesma biblioteca: ele instancia
+    # neoTRNG_cell, entidade do upstream que mora em 'neorv32'.
+    local ent_ours="$ROOT/rtl/crypto/hsm_entropy.vhd"
+
     local sha
-    sha="$(git -C "$NEORV32" rev-parse HEAD)-$(sha256sum "$fw_image" | cut -c1-16)-$(sha256sum "$cfs_ours" | cut -c1-16)"
+    sha="$(git -C "$NEORV32" rev-parse HEAD)-$(sha256sum "$fw_image" | cut -c1-16)-$(sha256sum "$cfs_ours" | cut -c1-16)-$(sha256sum "$ent_ours" | cut -c1-16)"
 
     if [ -f .neorv32_lib_sha ] && [ "$(cat .neorv32_lib_sha)" = "$sha" ]; then
         return 0
@@ -86,7 +90,7 @@ compile_neorv32() {
     files="$(sed "s|\$NEORV32_HOME|$NEORV32|" "$NEORV32/rtl/file_list_soc.f" \
              | grep -v 'neorv32_imem_image\.vhd$' \
              | grep -v 'neorv32_cfs\.vhd$')"
-    files="$files $fw_image $cfs_ours"
+    files="$files $fw_image $cfs_ours $ent_ours"
 
     # shellcheck disable=SC2086
     if ! xvhdl -work neorv32 $files > neorv32_compile.log 2>&1; then
@@ -124,7 +128,8 @@ run_one() {
     if ! xvlog -i "$WORK/../vectors" \
                "${cripto[@]}" \
                "$ROOT"/rtl/crypto/*.v \
-               "$ROOT"/rtl/soc/*.v "$ROOT"/rtl/top/*.v "$src" \
+               "$ROOT"/rtl/soc/*.v "$ROOT"/rtl/top/*.v \
+               "$ROOT"/rtl/diag/*.v "$src" \
                "$XILINX_VIVADO/data/verilog/src/glbl.v" \
                > "${tb}_compile.log" 2>&1; then
         echo "--- falha de compilacao:"; tail -20 "${tb}_compile.log"; return 1

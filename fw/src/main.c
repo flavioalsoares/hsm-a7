@@ -24,20 +24,51 @@
 #define LED_STATE      2u
 #define LED_TAMPER     3u
 
+/* Marco de boot -- so no build de diagnostico (make HSM_DIAG=1 image).
+ *
+ * Acende um LED E manda uma linha pela UART. Os dois, porque cada um
+ * reprova uma coisa diferente: LED aceso com UART muda isola o caminho
+ * serial; UART falando com LED apagado isola o GPIO. Um so nao separa.
+ *
+ * FRONTEIRA: nao toca material de chave. Nao pode passar a tocar -- se um
+ * dia este marco imprimir estado interno, vira canal lateral ligado por
+ * flag de compilacao, que e a pior forma de vazamento porque nao aparece
+ * em nenhuma revisao de codigo de runtime. */
+#ifdef HSM_DIAG
+#  define MARCO(led, texto)                        \
+      do {                                         \
+          neorv32_gpio_pin_set((led), 1);          \
+          neorv32_uart0_puts("[diag] " texto "\r\n"); \
+      } while (0)
+#else
+#  define MARCO(led, texto) do { (void)(led); } while (0)
+#endif
+
 int main(void)
 {
     neorv32_uart0_setup(BAUD_RATE, 0);
 
+    /* Primeiro sinal de vida possivel: se este nao sair, o problema esta
+     * antes de main() -- crt0, IMEM ou a propria CPU. */
+    MARCO(LED_CMD, "main");
+
     state_init();
     cmd_init();
+
+    MARCO(LED_STATE, "state+cmd");
 
     /* O CLINT e a base do timeout de resincronizacao do parser. Sem ele o
      * dispositivo aceitaria um frame truncado e ficaria mudo -- negacao de
      * servico com um unico byte. Melhor nao subir do que subir quebrado. */
     if (neorv32_clint_available() == 0) {
+#ifdef HSM_DIAG
+        neorv32_uart0_puts("[diag] SEM CLINT -- travando\r\n");
+#endif
         neorv32_gpio_pin_set(LED_TAMPER, 1);
         while (1) { /* trava de proposito */ }
     }
+
+    MARCO(LED_CMD, "clint ok");
 
     /* O coprocessador criptografico tem de estar presente e se identificar.
      *
@@ -50,11 +81,20 @@ int main(void)
      * Recusar subir e a resposta certa: um modulo criptografico que nao
      * consegue fazer criptografia nao deve aceitar comando nenhum. */
     if (hsm_cfs_present() == 0) {
+#ifdef HSM_DIAG
+        neorv32_uart0_puts("[diag] SEM CFS -- travando\r\n");
+#endif
         neorv32_gpio_pin_set(LED_TAMPER, 1);
         while (1) { /* trava de proposito */ }
     }
 
+    MARCO(LED_STATE, "cfs ok");
+
     neorv32_gpio_pin_set(LED_ALIVE, 1);
+
+#ifdef HSM_DIAG
+    neorv32_uart0_puts("[diag] laco de comandos\r\n");
+#endif
 
     /* Laco principal. Nao ha interrupcao: o caminho de comando e sincrono e
      * de passo unico, que e mais facil de auditar do que um handler de IRQ

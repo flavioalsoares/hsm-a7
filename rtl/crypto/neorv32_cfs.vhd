@@ -59,12 +59,44 @@ architecture hsm of neorv32_cfs is
       rw_i    : in  std_logic;
       rdata_o : out std_logic_vector(31 downto 0);
       ack_o   : out std_logic;
+
+      ent_en_o         : out std_logic;
+      ent_raw_i        : in  std_logic;
+      ent_raw_valid_i  : in  std_logic;
+      ent_byte_i       : in  std_logic_vector(7 downto 0);
+      ent_byte_valid_i : in  std_logic;
+
       irq_o   : out std_logic
+    );
+  end component;
+
+  -- Fonte de ruido. Fica em VHDL porque reaproveita neoTRNG_cell, que e
+  -- uma entidade do upstream -- instanciada, nao copiada e nao remendada.
+  component hsm_entropy is
+    generic (
+      NUM_CELLS     : natural;
+      NUM_INV_START : natural;
+      SIM_MODE      : boolean
+    );
+    port (
+      clk_i        : in  std_logic;
+      rstn_i       : in  std_logic;
+      en_i         : in  std_logic;
+      raw_o        : out std_logic;
+      raw_valid_o  : out std_logic;
+      byte_o       : out std_logic_vector(7 downto 0);
+      byte_valid_o : out std_logic
     );
   end component;
 
   signal rdata : std_logic_vector(31 downto 0);
   signal ack   : std_logic;
+
+  signal ent_en    : std_logic;
+  signal ent_raw   : std_logic;
+  signal ent_rawv  : std_logic;
+  signal ent_byte  : std_logic_vector(7 downto 0);
+  signal ent_bytev : std_logic;
 
 begin
 
@@ -78,7 +110,38 @@ begin
     rw_i    => bus_req_i.rw,
     rdata_o => rdata,
     ack_o   => ack,
+
+    ent_en_o         => ent_en,
+    ent_raw_i        => ent_raw,
+    ent_raw_valid_i  => ent_rawv,
+    ent_byte_i       => ent_byte,
+    ent_byte_valid_i => ent_bytev,
+
     irq_o   => open
+  );
+
+  -- SIM_MODE => false SEMPRE, inclusive em simulacao.
+  --
+  -- Com SIM_MODE => true o neoTRNG troca o anel oscilador por um gerador
+  -- pseudoaleatorio, e o testbench passaria a medir um LFSR em vez da
+  -- fonte. Os testbenches dos health tests exercitam hsm_health direto,
+  -- com sequencias construidas -- que e onde o comportamento sob fonte
+  -- travada e sob fonte enviesada pode ser REPRODUZIDO, coisa que
+  -- nenhuma fonte fisica permite.
+  u_entropia : hsm_entropy
+  generic map (
+    NUM_CELLS     => 6,       -- meia duzia. Cuidado termico, PLANO.md 3.
+    NUM_INV_START => 3,
+    SIM_MODE      => false
+  )
+  port map (
+    clk_i        => clk_i,
+    rstn_i       => rstn_i,
+    en_i         => ent_en,
+    raw_o        => ent_raw,
+    raw_valid_o  => ent_rawv,
+    byte_o       => ent_byte,
+    byte_valid_o => ent_bytev
   );
 
   bus_rsp_o.data <= std_ulogic_vector(rdata);

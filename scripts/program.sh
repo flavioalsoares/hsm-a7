@@ -40,7 +40,9 @@ CABLE="${CABLE:-digilent_hs2}"
 #
 # Com cabo bom da para subir: CABLE_FREQ=6000000 ./scripts/program.sh
 CABLE_FREQ="${CABLE_FREQ:-1000000}"
-BIT="build/hsm_top.bit"
+# Sobrescritivel para o bitstream de diagnostico de bancada:
+#   BIT=build/hsm_diag.bit ./scripts/program.sh
+BIT="${BIT:-build/hsm_top.bit}"
 BIN="build/hsm_top.bin"
 FPGA_PART="xc7a35tftg256"
 

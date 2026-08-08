@@ -55,6 +55,18 @@
 //   0x100  DNA_LO    r   DNA[31:0]
 //   0x104  DNA_HI    r   {7'b0, DNA[56:32]}
 //
+//   0x110  TRNG_CTRL    w  [0] EN     liga a fonte de ruido
+//                          [1] SNAP   congela 1024 amostras BRUTAS
+//   0x114  TRNG_STATUS  r  [0] EN          [1] SRC_READY
+//                          [2] BYTE_VALID  [3] SNAP_BUSY
+//                          [4] SNAP_READY  [5] STARTUP_OK
+//                          [6] RCT_FAIL    [7] APT_FAIL
+//   0x118  TRNG_BYTE    r  [7:0] byte condicionado; a leitura CONSOME
+//   0x11C  TRNG_DIAG    r  {APT_COUNT[15:0], RCT_COUNT[15:0]}
+//   0x180..0x1FC  TRNG_SNAP[0..31]  r  1024 amostras brutas consecutivas
+//                          palavra 0 = as 32 amostras MAIS ANTIGAS
+//
+
 // Ordem das palavras: a mais significativa primeiro, como nos vetores do
 // NIST. O firmware roda em RISC-V little-endian e portanto PRECISA montar
 // cada palavra de 32 bits a partir do vetor de bytes -- ver fw/src/hsm_cfs.c.
@@ -111,6 +123,15 @@ module hsm_cfs (
     output reg  [31:0] rdata_o,
     output reg         ack_o,
 
+    // Fonte de ruido. Fica em hsm_entropy.vhd porque a celula osciladora
+    // que ela reaproveita e uma entidade VHDL do upstream; o shim liga os
+    // dois. Ver o cabecalho daquele arquivo.
+    output wire        ent_en_o,
+    input  wire        ent_raw_i,        // amostra BRUTA, sem condicionar
+    input  wire        ent_raw_valid_i,
+    input  wire [7:0]  ent_byte_i,       // apos von Neumann
+    input  wire        ent_byte_valid_i,
+
     output wire        irq_o
 );
 
@@ -125,6 +146,15 @@ module hsm_cfs (
     localparam [6:0] A_CTRL   = 7'h02;   // 0x008
     localparam [6:0] A_DNA_LO = 7'h40;   // 0x100
     localparam [6:0] A_DNA_HI = 7'h41;   // 0x104
+
+    localparam [6:0] A_TRNG_CTRL   = 7'h44;   // 0x110
+    localparam [6:0] A_TRNG_STATUS = 7'h45;   // 0x114
+    localparam [6:0] A_TRNG_BYTE   = 7'h46;   // 0x118
+    localparam [6:0] A_TRNG_DIAG   = 7'h47;   // 0x11C
+    // TRNG_SNAP: 0x180..0x1FC -> waddr 7'h60..7'h7F, ou seja waddr[6:5]==11.
+    // Faixa escolhida por ter prefixo limpo: decodificar por comparacao de
+    // intervalo custa comparadores no caminho de leitura e e mais facil de
+    // errar em uma palavra so.
 
     // ------------------------------------------------------------------
     // Registradores de dado
@@ -309,6 +339,114 @@ module hsm_cfs (
     end
 
     // ------------------------------------------------------------------
+    // TRNG -- fonte de ruido, health tests e retrato da amostra bruta
+    //
+    // Divisao entre hardware e firmware, e ela e o conteudo da fase:
+    //
+    //   aqui        os health tests CONTINUOS, sobre toda amostra bruta.
+    //               Nao cabe em firmware: a fonte produz uma amostra por
+    //               ciclo de 100 MHz e a SP 800-90B exige que o teste
+    //               continuo veja todas. Ver rtl/crypto/hsm_health.v.
+    //
+    //   firmware    os testes de PARTIDA (secao 4.3), sobre o retrato de
+    //               1024 amostras brutas CONSECUTIVAS congelado abaixo, e
+    //               toda a POLITICA: falha -> TAMPERED, DRBG parado, LED
+    //               vermelho. A decisao continua sendo do firmware.
+    //
+    // O retrato tambem e o caminho para um dia estimar H de verdade: e
+    // dele que sai a coleta de amostras brutas que a ferramenta ea_non_iid
+    // do NIST consome. Enquanto H for hipotese, os cutoffs sao hipotese.
+    //
+    // FRONTEIRA: o retrato bruto e legivel pelo firmware, que esta DENTRO.
+    // Nao existe, e nao pode passar a existir, comando de host que devolva
+    // amostra bruta -- o comando RANDOM devolve saida do DRBG. Expor a
+    // fonte entregaria ao atacante exatamente o que ele precisa para
+    // prever a semente.
+    // ------------------------------------------------------------------
+    reg trng_en;
+
+    assign ent_en_o = trng_en;
+
+    wire        hz_rct_fail, hz_apt_fail, hz_fail, hz_startup_ok;
+    wire [15:0] hz_rct_cnt, hz_apt_cnt;
+
+    hsm_health u_health (
+        .clk_i        (clk_i),
+        .rstn_i       (rstn_i),
+        .en_i         (trng_en),
+        .sample_i     (ent_raw_i),
+        .valid_i      (ent_raw_valid_i),
+        .rct_fail_o   (hz_rct_fail),
+        .apt_fail_o   (hz_apt_fail),
+        .fail_o       (hz_fail),
+        .startup_ok_o (hz_startup_ok),
+        .rct_count_o  (hz_rct_cnt),
+        .apt_count_o  (hz_apt_cnt)
+    );
+
+    // Byte condicionado. Um registrador so: se o firmware nao ler a tempo,
+    // o byte seguinte sobrescreve. Descartar entropia nao lida nao custa
+    // seguranca nenhuma -- so vazao -- e evita uma FIFO que teria de ser
+    // zeroizada junto com o resto.
+    reg [7:0] trng_byte;
+    reg       trng_byte_vld;
+
+    // Retrato: 1024 amostras BRUTAS consecutivas.
+    reg [1023:0] snap_sr;
+    reg [10:0]   snap_cnt;
+    reg          snap_busy;
+    reg          snap_ready;
+
+    wire snap_req = stb_i & rw_i & (waddr == A_TRNG_CTRL) & wdata_i[1] & ~snap_busy;
+
+    always @(posedge clk_i) begin
+        if (!rstn_i) begin
+            trng_byte     <= 8'd0;
+            trng_byte_vld <= 1'b0;
+            snap_sr       <= 1024'd0;
+            snap_cnt      <= 11'd0;
+            snap_busy     <= 1'b0;
+            snap_ready    <= 1'b0;
+        end else if (!trng_en) begin
+            // Fonte desligada: nao guardar byte nem retrato velhos. Um
+            // retrato de antes do desligamento nao e feito de amostras
+            // consecutivas com o de depois.
+            trng_byte     <= 8'd0;
+            trng_byte_vld <= 1'b0;
+            snap_sr       <= 1024'd0;
+            snap_busy     <= 1'b0;
+            snap_ready    <= 1'b0;
+            snap_cnt      <= 11'd0;
+        end else begin
+            if (ent_byte_valid_i) begin
+                trng_byte     <= ent_byte_i;
+                trng_byte_vld <= 1'b1;
+            end else if (stb_i & ~rw_i & (waddr == A_TRNG_BYTE)) begin
+                trng_byte_vld <= 1'b0;      // a leitura consome
+            end
+
+            if (snap_req) begin
+                snap_busy  <= 1'b1;
+                snap_ready <= 1'b0;
+                snap_cnt   <= 11'd0;
+            end else if (snap_busy && ent_raw_valid_i) begin
+                snap_sr <= {snap_sr[1022:0], ent_raw_i};
+                if (snap_cnt == 11'd1023) begin
+                    snap_busy  <= 1'b0;
+                    snap_ready <= 1'b1;
+                end else begin
+                    snap_cnt <= snap_cnt + 11'd1;
+                end
+            end
+        end
+    end
+
+    wire [31:0] trng_status_w = {24'd0,
+                                 hz_apt_fail, hz_rct_fail, hz_startup_ok,
+                                 snap_ready, snap_busy, trng_byte_vld,
+                                 ent_raw_valid_i, trng_en};
+
+    // ------------------------------------------------------------------
     // WIPE -- zeroizacao
     //
     // Zerar os registradores visiveis nao basta: a chave expandida vive na
@@ -385,6 +523,7 @@ module hsm_cfs (
             aes_block  <= 128'd0;
             sha_block  <= 512'd0;
             aes_encdec <= 1'b0;
+            trng_en    <= 1'b0;
             rdata_o    <= 32'd0;
             ack_o      <= 1'b0;
         end else begin
@@ -420,6 +559,9 @@ module hsm_cfs (
                     // SHA_BLOCK: 0x080..0x0BC
                     else if (waddr[6:4] == 3'b010)
                         sha_block[511 - 32*waddr[3:0] -: 32] <= wdata_i;
+                    // TRNG_CTRL. O bit SNAP e tratado no bloco do TRNG.
+                    else if (waddr == A_TRNG_CTRL)
+                        trng_en <= wdata_i[0];
                     // resto: ignorado (mas com ACK)
                 end else begin
                     // ---------------- leitura ----------------
@@ -439,6 +581,22 @@ module hsm_cfs (
                         rdata_o <= dna_sr[31:0];
                     else if (waddr == A_DNA_HI)
                         rdata_o <= {7'd0, dna_sr[56:32]};
+                    else if (waddr == A_TRNG_STATUS)
+                        rdata_o <= trng_status_w;
+                    else if (waddr == A_TRNG_BYTE)
+                        rdata_o <= {24'd0, trng_byte};
+                    else if (waddr == A_TRNG_DIAG)
+                        rdata_o <= {hz_apt_cnt, hz_rct_cnt};
+                    // TRNG_SNAP: 0x140..0x1BC, 32 palavras.
+                    //
+                    // Palavra 0 traz as 32 amostras MAIS ANTIGAS, para a
+                    // leitura sair na ordem temporal em que a fonte
+                    // produziu. RCT e APT dependem da ORDEM: entregar
+                    // invertido faria o firmware testar uma sequencia que
+                    // nunca existiu, e ainda por cima concordar com o
+                    // hardware por acaso na maioria das vezes.
+                    else if (waddr[6:5] == 2'b11)
+                        rdata_o <= snap_sr[1023 - 32*waddr[4:0] -: 32];
                 end
             end
         end

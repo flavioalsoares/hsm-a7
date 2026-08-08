@@ -77,6 +77,54 @@ module tb_cfs;
 
     always #CLK_HALF clk = ~clk;
 
+    // ------------------------------------------------------------------
+    // Fonte de entropia SIMULADA.
+    //
+    // O hsm_entropy de verdade nao entra aqui: ele e um oscilador em anel,
+    // e em simulacao um anel ou nao oscila ou oscila do jeito que o
+    // simulador quiser. Nao da para REPRODUZIR "fonte travada" nem "fonte
+    // enviesada" com ele -- e sao esses dois casos que precisam ser
+    // testados.
+    //
+    // Entao a fonte e um LFSR sob controle do testbench, que sabe trocar
+    // para travada quando quiser. Os health tests em si ja foram testados
+    // isoladamente em tb_trng_health; o que se verifica AQUI e o caminho
+    // pelo barramento: registradores, retrato e bits de status.
+    // ------------------------------------------------------------------
+    reg        ent_travada = 1'b0;
+    reg [31:0] ent_lfsr    = 32'h1357_9BDF;
+    wire       ent_en;
+    reg        ent_raw     = 1'b0;
+    reg        ent_rawv    = 1'b0;
+    reg [7:0]  ent_byte    = 8'd0;
+    reg        ent_bytev   = 1'b0;
+    // Um byte a cada 64 ciclos, nao a cada 8.
+    //
+    // Nao e detalhe de conveniencia: com um byte a cada 8 ciclos, o byte
+    // seguinte chega no MESMO ciclo da leitura e re-arma BYTE_VALID por
+    // direito. O teste "a leitura consome" reprovava um RTL correto. E a
+    // fonte real e mesmo lenta assim -- o von Neumann descarta os pares
+    // 00 e 11, entao sobra menos de um bit a cada quatro amostras.
+    reg [5:0]  ent_bcnt    = 6'd0;
+
+    always @(posedge clk) begin
+        if (!ent_en) begin
+            ent_rawv  <= 1'b0;
+            ent_bytev <= 1'b0;
+            ent_bcnt  <= 6'd0;
+        end else begin
+            ent_lfsr <= {ent_lfsr[30:0],
+                         ent_lfsr[31] ^ ent_lfsr[21] ^ ent_lfsr[1] ^ ent_lfsr[0]};
+            ent_raw  <= ent_travada ? 1'b0 : ent_lfsr[0];
+            ent_rawv <= 1'b1;
+
+            // um byte a cada 8 amostras, so para exercitar o caminho
+            ent_byte  <= {ent_byte[6:0], ent_travada ? 1'b0 : ent_lfsr[0]};
+            ent_bcnt  <= ent_bcnt + 6'd1;
+            ent_bytev <= (ent_bcnt == 6'd63);
+        end
+    end
+
     hsm_cfs dut (
         .clk_i   (clk),
         .rstn_i  (rstn),
@@ -86,6 +134,13 @@ module tb_cfs;
         .rw_i    (rw),
         .rdata_o (rdata),
         .ack_o   (ack),
+
+        .ent_en_o         (ent_en),
+        .ent_raw_i        (ent_raw),
+        .ent_raw_valid_i  (ent_rawv),
+        .ent_byte_i       (ent_byte),
+        .ent_byte_valid_i (ent_bytev),
+
         .irq_o   (irq)
     );
 
@@ -437,6 +492,128 @@ module tb_cfs;
         $finish;
     end
 
+    // ------------------------------------------------------------------
+    // TRNG pelo barramento.
+    //
+    // Nao se testa aqui a QUALIDADE da entropia -- isso nao se testa em
+    // simulacao, e nem em bancada com um script: exige coleta de amostras
+    // brutas e as ferramentas de estimativa da SP 800-90B. O que se testa
+    // e o caminho: liga/desliga, retrato de amostras brutas, e os bits de
+    // status refletindo o que os health tests decidiram.
+    //
+    // O caso da fonte travada e o mais importante: e o unico que prova
+    // que o veredito do health test chega ate a CPU. Um RCT perfeito cujo
+    // bit nao aparece no registrador de status e um RCT que nao existe.
+    // ------------------------------------------------------------------
+    localparam [15:0] R_TRNG_CTRL   = 16'h110;
+    localparam [15:0] R_TRNG_STATUS = 16'h114;
+    localparam [15:0] R_TRNG_BYTE   = 16'h118;
+    localparam [15:0] R_TRNG_SNAP   = 16'h180;
+
+    localparam [31:0] T_EN        = 32'h0000_0001;
+    localparam [31:0] T_SNAP      = 32'h0000_0002;
+    localparam [31:0] TS_EN       = 32'h0000_0001;
+    localparam [31:0] TS_SRC_RDY  = 32'h0000_0002;
+    localparam [31:0] TS_BYTE_VLD = 32'h0000_0004;
+    localparam [31:0] TS_SNAP_BSY = 32'h0000_0008;
+    localparam [31:0] TS_SNAP_RDY = 32'h0000_0010;
+    localparam [31:0] TS_START_OK = 32'h0000_0020;
+    localparam [31:0] TS_RCT_FAIL = 32'h0000_0040;
+
+    task t_trng;
+        reg [31:0] s, w;
+        reg [31:0] snap [0:31];
+        integer k, uns, espera_max;
+        begin
+            // --- desligado por padrao ---
+            bus_rd(R_TRNG_STATUS, s);
+            if ((s & TS_EN) !== 32'd0) begin
+                $display("[tb_cfs] FAIL: TRNG nasceu ligado");
+                erros = erros + 1;
+            end
+
+            // --- liga ---
+            ent_travada = 1'b0;
+            bus_wr(R_TRNG_CTRL, T_EN);
+            repeat (20) @(posedge clk);
+            bus_rd(R_TRNG_STATUS, s);
+            if ((s & TS_EN) === 32'd0 || (s & TS_SRC_RDY) === 32'd0) begin
+                $display("[tb_cfs] FAIL: TRNG nao ligou (status=%08h)", s);
+                erros = erros + 1;
+            end
+
+            // --- byte condicionado aparece ---
+            espera_max = 0;
+            s = 32'd0;
+            while (((s & TS_BYTE_VLD) === 32'd0) && (espera_max < 200)) begin
+                bus_rd(R_TRNG_STATUS, s);
+                espera_max = espera_max + 1;
+            end
+            if ((s & TS_BYTE_VLD) === 32'd0) begin
+                $display("[tb_cfs] FAIL: TRNG nao produziu byte");
+                erros = erros + 1;
+            end else begin
+                bus_rd(R_TRNG_BYTE, w);
+                bus_rd(R_TRNG_STATUS, s);
+                if ((s & TS_BYTE_VLD) !== 32'd0) begin
+                    $display("[tb_cfs] FAIL: leitura de TRNG_BYTE nao consumiu");
+                    erros = erros + 1;
+                end
+            end
+
+            // --- retrato de 1024 amostras brutas ---
+            bus_wr(R_TRNG_CTRL, T_EN | T_SNAP);
+            espera_max = 0;
+            s = 32'd0;
+            while (((s & TS_SNAP_RDY) === 32'd0) && (espera_max < 4000)) begin
+                bus_rd(R_TRNG_STATUS, s);
+                espera_max = espera_max + 1;
+            end
+            if ((s & TS_SNAP_RDY) === 32'd0) begin
+                $display("[tb_cfs] FAIL: retrato nao ficou pronto");
+                erros = erros + 1;
+            end else begin
+                uns = 0;
+                for (k = 0; k < 32; k = k + 1) begin
+                    bus_rd(R_TRNG_SNAP + k*4, snap[k]);
+                    for (j = 0; j < 32; j = j + 1)
+                        if (snap[k][j]) uns = uns + 1;
+                end
+                // Fonte de LFSR: esperar algo perto de 512 em 1024. Faixa
+                // larga de proposito -- o teste e "o retrato tem amostras
+                // de verdade", nao "o LFSR e bom".
+                if (uns < 300 || uns > 724) begin
+                    $display("[tb_cfs] FAIL: retrato com %0d uns em 1024 -- nao parece amostra", uns);
+                    erros = erros + 1;
+                end else begin
+                    $display("[tb_cfs] TRNG        : retrato de 1024 brutas, %0d uns", uns);
+                end
+            end
+
+            // --- fonte travada tem de chegar ao status ---
+            bus_wr(R_TRNG_CTRL, 32'd0);      // desliga: zera os health tests
+            repeat (5) @(posedge clk);
+            ent_travada = 1'b1;
+            bus_wr(R_TRNG_CTRL, T_EN);
+
+            espera_max = 0;
+            s = 32'd0;
+            while (((s & TS_RCT_FAIL) === 32'd0) && (espera_max < 400)) begin
+                bus_rd(R_TRNG_STATUS, s);
+                espera_max = espera_max + 1;
+            end
+            if ((s & TS_RCT_FAIL) === 32'd0) begin
+                $display("[tb_cfs] FAIL: fonte travada nao levantou RCT_FAIL no status");
+                erros = erros + 1;
+            end else begin
+                $display("[tb_cfs] TRNG        : fonte travada -> RCT_FAIL visivel pela CPU");
+            end
+
+            ent_travada = 1'b0;
+            bus_wr(R_TRNG_CTRL, 32'd0);
+        end
+    endtask
+
     initial begin
         $display("[tb_cfs] inicio -- %0d vetores AES ECB, %0d mensagens SHA",
                  `N_AES_ECB, `N_SHA256);
@@ -460,6 +637,7 @@ module tb_cfs;
         t_sha;
         t_write_only;
         t_wipe;
+        t_trng;
 
         if (irq !== 1'b0) begin
             $display("[tb_cfs] FAIL: irq_o nao ficou em zero");

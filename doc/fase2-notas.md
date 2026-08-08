@@ -328,19 +328,188 @@ Correção em duas partes, e a segunda importa mais que a primeira:
 
 ---
 
+## Bitstream de diagnóstico de bancada — `rtl/diag/`
+
+Nasceu de um sintoma que já custou uma sessão inteira antes: o FPGA
+configura com `Done = 0x1`, `No CRC error`, `EOS = 1`, MMCM travado — **e o
+dispositivo fica mudo**. Com o SoC no meio existem dezenas de explicações
+(firmware travado, CFS ausente, reset, IMEM, baud, pinagem, cabo,
+conector), e nenhuma delas se descarta olhando de fora.
+
+`hsm_diag_top.v` remove todas de uma vez: **sem CPU, sem NEORV32, sem
+firmware**. Só contadores e um par de UART de trinta linhas. Ele reprova o
+caminho de I/O inteiro sem nenhuma ajuda de software.
+
+```
+D1              pisca a 1 Hz            MMCM travado, 100 MHz vivo
+D2..D5          luz corrida, ~4 Hz      cada pino de LED, um a um
+UART 115200     "HSM-DIAG nnnn Rrrrr Wwwww"   T14 -> CP2102 -> host
+eco de qualquer byte recebido           T15, o sentido de entrada
+Rrrrr / Wwwww   placar do teste de Block RAM
+```
+
+A luz corrida acende os LEDs **separados no tempo** de propósito: um pino
+morto vira um buraco na sequência, e buraco se vê de longe. Acender todos
+juntos esconderia exatamente isso. O contador na mensagem prova que a UART
+está viva *agora*, e não que sobrou lixo no buffer de alguém.
+
+### Resultado de 2026-08-08
+
+```
+HSM-DIAG 0001 .. 0006      6/6 linhas íntegras
+eco 5a a5 00 ff -> 5a a5 00 ff
+```
+
+**Cadeia física validada de ponta a ponta**: T14, T15, CP2102, cabo,
+conector, alimentação, MMCM e pinagem — todos bons. Com isso, quando o
+`hsm_top` fica mudo com D1 piscando, o defeito está no **SoC ou no
+firmware**, e não adianta procurar em cabo.
+
+### Dois defeitos que o instrumento pegou, um deles nele mesmo
+
+**1. Bit de start com largura arbitrária.** O contador de baud corria livre
+e não era realinhado no carregamento do byte, então o start durava o que
+sobrasse do período corrente — de 1 ciclo a 868. Um start de 10 ns não é
+reconhecido pelo receptor do outro lado, que engata na borda seguinte e lê
+o quadro deslocado de um bit: `0x48` chegando como `0xA4`, que é
+exatamente `(0x48 >> 1) | 0x80`.
+
+Só apareceu **em hardware**. Em simulação passava porque `MSG_DIV` era
+múltiplo de `BAUD_DIV` e a fase caía certa *por acidente* — o teste não
+conseguia reprovar o defeito. Consertado nos dois lados: o RTL realinha o
+contador, e o testbench agora usa um `MSG_DIV` não-múltiplo **e confere a
+largura do start**. Verificado revertendo o conserto do RTL: 16 erros.
+
+**2. O testbench engatava no meio do quadro.** Chamar uma task de recepção
+sob demanda perde a borda de start quando o DUT já começou a transmitir.
+Trocado por um receptor contínuo em background com fila.
+
+Os dois são o mesmo erro de fundo, e vale registrar: **um teste só vale
+pelo que consegue reprovar.** Um instrumento errado não produz "nenhum
+resultado" — produz um resultado errado com cara de certo, e manda trocar
+hardware bom.
+
+### Firmware instrumentado — `make HSM_DIAG=1 image`
+
+Faz o boot anunciar por onde passou, em vez de só travar. **Não é build de
+produção**, e a diferença não é estética: o dispositivo de produção é mudo
+até ser perguntado, e um HSM que narra o próprio boot entrega estado
+interno a quem só encostou um terminal na porta. É aceitável agora porque
+não há chave nenhuma no dispositivo; deixa de ser no minuto em que houver.
+Por isso é flag de compilação e não comando: não existe caminho em tempo
+de execução que ligue esse modo numa placa de produção.
+
+---
+
+## Discriminadores de bancada
+
+Tabela ganha na sessão de 2026-08-08, para não re-investigar:
+
+| sintoma | causa provável |
+|---|---|
+| cadeia JTAG `empty` **sempre**, em todas as frequências | FPGA sem alimentação, ou JTAG fisicamente aberto |
+| `empty` **às vezes**, IDCODE ora sim ora não | mau contato de sinal |
+| IDCODE OK, gravação com `CRC Error` | integridade do cabo sob volume de dados |
+| `Done=1` + `EOS=1` + MMCM travado, e mudo | **não é a camada física** — gravar o `hsm_diag` decide |
+| adaptador USB enumera e cai em < 1 s | contato ou entrega de corrente; cabo só de carga **nunca** enumera |
+| CP2102 aparece no `lsusb` | **não prova nada** sobre a alimentação da placa: ele vive da própria USB |
+
+Voltagens e temperatura são mensuráveis pelo XADC via JTAG, sem instanciar
+nada no design (hardware manager do Vivado, `get_hw_sysmons`). Medido nesta
+placa: `VCCINT 0,987 V`, `VCCAUX 1,774 V`, `VCCBRAM 0,987 V`, `36,7 °C` —
+tudo dentro da faixa, um pouco no lado baixo.
+
+---
+
 ## O que falta, na ordem
 
-### 1. neoTRNG e os health tests
+### 1. neoTRNG e os health tests — RTL pronto, falta ligar no boot
 
-`IO_TRNG_EN => true` no wrapper. **Manter `IO_TRNG_NUM_RO` pequeno** — meia
-dúzia de anéis. Centenas geram calor e ruído de alimentação localizados sem
-ganho de entropia (`PLANO.md` §3).
+**O plano dizia "RCT e APT em firmware, sobre a fonte bruta". Não dá, e o
+motivo é aritmético.** A SP 800-90B §4.4 exige que os testes *contínuos*
+vejam **toda** amostra produzida pela fonte. A fonte digitaliza uma amostra
+por ciclo de 100 MHz. Uma CPU RISC-V a 100 MHz não lê, compara e conta 10⁸
+amostras por segundo — ela veria uma em cada mil, e um teste que amostra
+esparsamente não detecta a falha que a norma quer detectar: a fonte que
+travou *entre* duas leituras do firmware.
 
-RCT e APT em firmware, sobre a fonte bruta, conforme SP 800-90B. Falha em
-qualquer um → `TAMPERED`, DRBG parado, LED vermelho.
+Divisão adotada, que preserva a intenção do plano:
 
-É o conteúdo real da fase: esses testes são boa parte do motivo de uma
-avaliação de módulo criptográfico levar meses.
+| onde | o quê | por quê |
+|---|---|---|
+| hardware | RCT e APT **contínuos**, toda amostra | só ele vê todas |
+| hardware | congela 1024 amostras brutas consecutivas | firmware não consegue amostrar consecutivo |
+| firmware | testes de **partida** (§4.3) sobre o retrato | onde está o aprendizado |
+| firmware | **política**: falha → `TAMPERED`, DRBG parado, LED vermelho | a decisão continua sendo do firmware |
+
+Os dois testes ficam implementados **duas vezes**, independentes — Verilog
+em `rtl/crypto/hsm_health.v` e C em `fw/src/hsm_cfs.c`. Não é redundância
+inútil: são duas leituras da mesma norma, e discordância entre elas denuncia
+erro de interpretação, que é o erro mais provável e o que passa mais calado.
+
+#### Por que não `IO_TRNG_EN => true`
+
+Bastaria ligar o periférico do NEORV32. Duas razões para não:
+
+1. **O neoTRNG só expõe bytes já condicionados** (von Neumann + mistura
+   CRC-8). Testar essa saída testa o *condicionador*, não a fonte — e um
+   condicionador é bom justamente em fazer entrada ruim parecer boa. Fonte
+   travada é detectável (o von Neumann simplesmente para de emitir); fonte
+   apenas **enviesada** passa parecendo ótima, e é essa que interessa pegar.
+2. Como periférico de IO, a entropia viveria **fora** do bloco que guarda
+   chave.
+
+`rtl/crypto/hsm_entropy.vhd` instancia a **célula** `neoTRNG_cell` — entidade
+do upstream, sem patch e sem fork, `third_party/` intocado — e escreve só o
+amostrador, que é onde fica a derivação do sinal bruto. A cadeia:
+
+```
+células em anel --> XOR --> raw --+--> health tests (antes de condicionar)
+                                  |
+                                  +--> von Neumann --> 8 bits --> byte
+```
+
+Sem mistura CRC-8: quem condiciona de verdade é o **CTR_DRBG**, que é o
+condicionador aprovado pela SP 800-90A. Duas camadas ad-hoc antes dele só
+dificultariam estimar quanta entropia entra na semente.
+
+#### Os cutoffs, e a hipótese que eles escondem
+
+Calculados, não lembrados de tabela — `scripts/health-cutoffs.py`:
+
+```
+alpha = 2^-20,  H = 0,5 bit/amostra
+RCT C = 41       APT W = 1024, C = 793
+```
+
+⚠ **H = 0,5 é HIPÓTESE, não medida.** Uma validação 90B de verdade *estima*
+H a partir de 1.000.000 de amostras brutas coletadas do hardware real, pelo
+track não-IID (ferramenta `ea_non_iid` do NIST). Enquanto H for chute, os
+cutoffs são chute — e cutoff frouxo deixa passar fonte degradada, cutoff
+apertado desliga o HSM por acaso. É para isso que existe o registrador de
+retrato: ele é o caminho para coletar as amostras e um dia trocar a
+hipótese por um número.
+
+#### Estado
+
+`hsm_health.v`, `hsm_entropy.vhd`, os registradores no CFS e o driver em C
+estão prontos e verificados:
+
+```
+tb_trng_health  fonte travada, borda exata do RCT (41 e não 40),
+                viés que só o APT pega, fonte equilibrada, reset      PASS
+tb_cfs          retrato de 1024 brutas pelo barramento,
+                fonte travada -> RCT_FAIL visível pela CPU            PASS
+```
+
+Falta: chamar `hsm_trng_startup()` no boot e ligar a falha ao `TAMPERED`.
+Isso entra junto com o POST, porque as duas coisas são a mesma decisão —
+o dispositivo não entra em operação com fonte reprovada.
+
+**Manter `NUM_CELLS` pequeno** — meia dúzia de anéis. Centenas geram calor e
+ruído de alimentação localizados, e anéis vizinhos iguais **travam por
+injeção**, o que *reduz* a entropia independente em vez de aumentar
+(`PLANO.md` §3). Por isso os comprimentos são ímpares e crescentes.
 
 ### 2. CTR_DRBG em firmware
 
