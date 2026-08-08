@@ -13,6 +13,15 @@ void state_init(void)
     g_state = HSM_UNINITIALIZED;
 }
 
+void state_set(hsm_state_t s)
+{
+    /* TAMPERED e absorvente. Ver state.h. */
+    if (g_state == HSM_TAMPERED) {
+        return;
+    }
+    g_state = s;
+}
+
 hsm_state_t state_get(void)
 {
     return g_state;

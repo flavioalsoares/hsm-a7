@@ -52,6 +52,29 @@ CMD_PING = 0x01
 CMD_GET_VERSION = 0x02
 CMD_GET_DNA = 0x03
 
+# Fase 2 -- primitivas.
+#
+# AES e HMAC mandam a CHAVE no payload e por isso so respondem em
+# UNINITIALIZED. Nao e limitacao de implementacao: e a mascara de estados
+# do firmware. Um HSM de verdade nao aceita chave em claro do host -- estes
+# comandos existem para exercitar as primitivas antes de existir key store,
+# e a fase 3 os substitui por versoes que falam por handle de slot.
+CMD_AES_ENC = 0x10
+CMD_AES_DEC = 0x11
+CMD_SHA256 = 0x12
+CMD_HMAC = 0x13
+CMD_RANDOM = 0x14
+CMD_SELFTEST = 0x15
+
+# Bits devolvidos pelo SELFTEST -- espelham fw/include/kat.h
+KAT_BITS = [
+    (0x01, "AES-256"),
+    (0x02, "SHA-256"),
+    (0x04, "HMAC-SHA-256"),
+    (0x08, "CTR_DRBG"),
+    (0x10, "TRNG / health tests"),
+]
+
 STATUS_NAMES = {
     0x00: "OK",
     0x01: "BAD_CRC",
@@ -390,6 +413,97 @@ def cmd_dna(client, args):
     return 0
 
 
+def cmd_aes(client, args):
+    """Um bloco de AES-256 ECB, com a chave vinda daqui.
+
+    Deliberadamente sem encadeamento: o dispositivo faz ECB de um bloco e
+    o modo de operacao e do host, a mesma divisao dos testbenches de KAT.
+    """
+    chave = bytes.fromhex(args.key)
+    bloco = bytes.fromhex(args.block)
+    if len(chave) != 32:
+        print("chave precisa ter 32 bytes (AES-256), veio %d" % len(chave))
+        return 1
+    if len(bloco) != 16:
+        print("bloco precisa ter 16 bytes, veio %d" % len(bloco))
+        return 1
+
+    op = CMD_AES_DEC if args.decrypt else CMD_AES_ENC
+    p = client.command(op, chave + bloco)
+    print(p.hex())
+    return 0
+
+
+def cmd_sha256(client, args):
+    msg = bytes.fromhex(args.data) if args.data else b""
+    p = client.command(CMD_SHA256, msg)
+    print(p.hex())
+    return 0
+
+
+def cmd_hmac(client, args):
+    chave = bytes.fromhex(args.key)
+    msg = bytes.fromhex(args.data) if args.data else b""
+    if len(chave) > 255:
+        print("chave maior que 255 bytes nao cabe no formato do payload")
+        return 1
+    p = client.command(CMD_HMAC, bytes([len(chave)]) + chave + msg)
+    print(p.hex())
+    return 0
+
+
+def cmd_random(client, args):
+    """Bytes do CTR_DRBG.
+
+    NAO e a fonte bruta: a saida da fonte de ruido nunca atravessa a
+    fronteira. O que sai aqui e saida de DRBG semeado por ela.
+    """
+    total = args.n
+    if total < 1:
+        print("n precisa ser >= 1")
+        return 1
+
+    saida = bytearray()
+    while len(saida) < total:
+        pedaco = min(256, total - len(saida))
+        saida += client.command(CMD_RANDOM, pedaco.to_bytes(2, "big"))
+
+    if args.out:
+        with open(args.out, "wb") as f:
+            f.write(bytes(saida))
+        print("%d bytes -> %s" % (len(saida), args.out))
+    else:
+        print(bytes(saida).hex())
+    return 0
+
+
+def cmd_selftest_dev(client, args):
+    """Reroda o POST no dispositivo e mostra o que passou.
+
+    Reprovar aqui leva o dispositivo a TAMPERED, igual ao boot. Por isso o
+    comando responde ate em TAMPERED: sem ele, um dispositivo que reprovou
+    fica mudo sobre O QUE reprovou.
+    """
+    status, data = client.transact(CMD_SELFTEST)
+
+    if not data:
+        print("status 0x%02X %s, sem payload"
+              % (status, STATUS_NAMES.get(status, "?")))
+        return 1
+
+    r = data[0]
+    for bit, nome in KAT_BITS:
+        print("  %-22s %s" % (nome, "FALHOU" if (r & bit) else "ok"))
+
+    if r == 0:
+        print("\nPOST: OK")
+        return 0
+
+    print("\nPOST REPROVOU (mascara 0x%02X). O dispositivo esta em TAMPERED"
+          " e nao aceita mais comando de operacao." % r)
+    return 1
+
+
 def cmd_raw(client, args):
     payload = bytes.fromhex(args.payload) if args.payload else b""
     status, data = client.transact(args.op, payload)
@@ -469,6 +583,24 @@ def main(argv=None):
     sub.add_parser("version")
     sub.add_parser("dna")
 
+    p_aes = sub.add_parser("aes", help="um bloco AES-256 ECB (chave no payload)")
+    p_aes.add_argument("key", help="32 bytes em hex")
+    p_aes.add_argument("block", help="16 bytes em hex")
+    p_aes.add_argument("-d", "--decrypt", action="store_true")
+
+    p_sha = sub.add_parser("sha256", help="SHA-256 de uma mensagem")
+    p_sha.add_argument("data", nargs="?", default="", help="mensagem em hex")
+
+    p_hmac = sub.add_parser("hmac", help="HMAC-SHA-256 (chave no payload)")
+    p_hmac.add_argument("key", help="chave em hex")
+    p_hmac.add_argument("data", nargs="?", default="", help="mensagem em hex")
+
+    p_rand = sub.add_parser("random", help="bytes do CTR_DRBG")
+    p_rand.add_argument("-n", type=int, default=32, help="quantos bytes")
+    p_rand.add_argument("-o", "--out", help="grava num arquivo em vez de imprimir")
+
+    sub.add_parser("post", help="reroda o POST no dispositivo")
+
     p_raw = sub.add_parser("raw", help="envia um opcode arbitrario")
     p_raw.add_argument("--op", type=lambda s: int(s, 0), required=True)
     p_raw.add_argument("--payload", default="", help="payload em hex")
@@ -494,6 +626,11 @@ def main(argv=None):
         "dna": cmd_dna,
         "raw": cmd_raw,
         "bench": cmd_bench,
+        "aes": cmd_aes,
+        "sha256": cmd_sha256,
+        "hmac": cmd_hmac,
+        "random": cmd_random,
+        "post": cmd_selftest_dev,
     }
 
     try:

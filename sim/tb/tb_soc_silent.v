@@ -23,8 +23,13 @@
 //
 module tb_soc_silent;
 
-    // Bem alem dos ~690 us em que o bootloader antigo comecava a transmitir.
-    localparam real WATCH_NS = 3000000.0;   // 3 ms
+    // Precisa cobrir o POST INTEIRO, que roda antes de main() acender o
+    // LED de atividade: KAT de AES, SHA, HMAC e CTR_DRBG, mais os testes
+    // de partida da fonte de entropia sobre 1024 amostras. Sao alguns
+    // milissegundos de tempo simulado -- irrelevante em hardware, caro
+    // aqui. Encolher esta janela nao acelera nada: so faz o teste reprovar
+    // um dispositivo que estava apenas ocupado.
+    localparam real WATCH_NS = 12000000.0;  // 12 ms
 
     reg  sys_clk = 1'b0;
     reg  rst_n   = 1'b0;
@@ -38,6 +43,16 @@ module tb_soc_silent;
     wire [2:0] seg_an;
 
     integer errors    = 0;
+    real    t_alive   = 0.0;   // quando o POST terminou
+
+    // Marca o instante em que o LED de atividade acende. Serve de medida
+    // do custo do POST: se ele crescer sem que ninguem perceba, este numero
+    // cresce junto e aparece no log.
+    always @(negedge led[1]) begin
+        if (t_alive == 0.0) begin
+            t_alive = $realtime;
+        end
+    end
     reg     tx_spoke  = 1'b0;
     real    t_spoke;
 
@@ -85,6 +100,11 @@ module tb_soc_silent;
         // main() acende o LED de atividade (GPIO 0 -> D2) depois de
         // inicializar UART, estado, parser e checar o CLINT. Aceso = nivel
         // baixo, que e a polaridade da placa.
+        if (t_alive != 0.0) begin
+            $display("[tb_soc_silent] POST concluido em %.2f ms de tempo simulado",
+                     t_alive / 1000000.0);
+        end
+
         if (led[1] !== 1'b0) begin
             $display("[tb_soc_silent] FAIL: led[1]=%b, esperado 0 -- main() nao chegou ao laco",
                      led[1]);

@@ -38,6 +38,14 @@ typedef enum {
 #define ST_NORMAL       (ST_UNINIT | ST_AUTH | ST_OPER)
 
 void        state_init(void);
+
+/* Transicao de estado.
+ *
+ * TAMPERED e ABSORVENTE: uma vez la, nao se sai por software. Sair exigiria
+ * uma zeroizacao com dual control -- fase 3. Um dispositivo que se
+ * auto-recupera de tamper nao detectou tamper nenhum, so registrou um
+ * incomodo. */
+void        state_set(hsm_state_t s);
 hsm_state_t state_get(void);
 uint32_t    state_mask(void);
 const char *state_name(hsm_state_t s);

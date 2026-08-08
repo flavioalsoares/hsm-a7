@@ -42,6 +42,33 @@
 #define CMD_GET_VERSION   0x02u
 #define CMD_GET_DNA       0x03u
 
+/* ---------------------------------------------------------------------
+ * Fase 2 -- primitivas. LEIA ANTES DE USAR.
+ *
+ * AES_ENC, AES_DEC e HMAC recebem a CHAVE NO PAYLOAD, vinda do host. Um
+ * HSM de verdade nao faz isso: chave entra uma vez, na cerimonia, e depois
+ * so se fala com ela por HANDLE. Estes comandos existem porque a fase 2 e
+ * sobre primitivas e o key store so chega na fase 3.
+ *
+ * Por isso eles sao permitidos APENAS em UNINITIALIZED. No instante em que
+ * o dispositivo tiver uma LMK, param de responder -- e nao por convencao,
+ * por mascara de estado na tabela. Um comando que aceita chave em claro nao
+ * pode coexistir com chave de verdade no mesmo dispositivo.
+ *
+ * Na fase 3 eles sao SUBSTITUIDOS por versoes que recebem handle de slot.
+ * Nao "estendidos": substituidos.
+ * ------------------------------------------------------------------- */
+#define CMD_AES_ENC       0x10u   /* chave(32) || bloco(16)  -> 16 bytes  */
+#define CMD_AES_DEC       0x11u   /* chave(32) || bloco(16)  -> 16 bytes  */
+#define CMD_SHA256        0x12u   /* mensagem                -> 32 bytes  */
+#define CMD_HMAC          0x13u   /* klen(1) || chave || msg -> 32 bytes  */
+#define CMD_RANDOM        0x14u   /* n(2, big-endian)        -> n bytes   */
+#define CMD_SELFTEST      0x15u   /* vazio                   -> 1 byte    */
+
+/* Maximo de bytes que RANDOM devolve numa chamada. Limitado pelo buffer de
+ * resposta; para 1 MB o host chama em laco. */
+#define CMD_RANDOM_MAX    256u
+
 void         cmd_init(void);
 void         cmd_poll(void);
 uint32_t     crc32_hsm(const uint8_t *data, uint32_t len);

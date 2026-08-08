@@ -27,11 +27,23 @@ Antes de mexer no codigo, leia **PLANO.md** -- em especial a secao 0
 (restricoes invioláveis: nada de eFUSE, nunca).
 
 Estado: **fase 1 completa e validada em hardware** (10.000 pings, 0 erros).
-**Fase 2 em andamento**: AES-256, SHA-256 e o `DNA_PORT` ja estao no
-coprocessador (CFS), verificados contra os vetores oficiais do NIST em
-simulacao -- nos cores e tambem atraves do barramento -- e **validados na
-placa** (`ping`, `version` e `dna` respondem). Falta o TRNG, o CTR_DRBG e o
-POST. Ver `doc/fase2-notas.md`.
+**Fase 2 praticamente completa e validada na placa**: AES-256, SHA-256,
+HMAC-SHA-256, TRNG com health tests da SP 800-90B, CTR_DRBG e o **POST**
+rodando a cada boot contra vetores oficiais do NIST e do IETF. Falha do POST
+leva o dispositivo a `TAMPERED`. Ver `doc/fase2-notas.md`.
+
+```
+python3 host/hsmtool.py post        # reroda o POST no dispositivo
+  AES-256                ok
+  SHA-256                ok
+  HMAC-SHA-256           ok
+  CTR_DRBG               ok
+  TRNG / health tests    ok
+```
+
+⚠ **Grave na flash, nao na SRAM** -- `./scripts/program.sh flash`. Nesta
+bancada a configuracao por JTAG **nao aplica a inicializacao das Block
+RAMs**, e e dela que a IMEM tira o codigo. Ver `doc/bancada.md`.
 
 ## Dependencias
 

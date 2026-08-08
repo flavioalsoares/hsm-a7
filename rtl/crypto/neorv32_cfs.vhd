@@ -120,19 +120,25 @@ begin
     irq_o   => open
   );
 
-  -- SIM_MODE => false SEMPRE, inclusive em simulacao.
+  -- SIM_MODE vem de is_simulation_c: false em sintese, true em simulacao.
   --
-  -- Com SIM_MODE => true o neoTRNG troca o anel oscilador por um gerador
-  -- pseudoaleatorio, e o testbench passaria a medir um LFSR em vez da
-  -- fonte. Os testbenches dos health tests exercitam hsm_health direto,
-  -- com sequencias construidas -- que e onde o comportamento sob fonte
-  -- travada e sob fonte enviesada pode ser REPRODUZIDO, coisa que
-  -- nenhuma fonte fisica permite.
+  -- E o mesmo mecanismo que o proprio neorv32_trng usa, e nao ha escolha
+  -- razoavel: em simulacao um anel de inversores com latches NAO oscila.
+  -- Sem SIM_MODE a fonte nao produziria nada, o teste de partida do POST
+  -- giraria ate o limite de espera e reprovaria -- e um POST que nao roda
+  -- em simulacao nao pode ser testado em regressao nenhuma.
+  --
+  -- O preco, e ele precisa estar escrito: em simulacao o TRNG e um gerador
+  -- PSEUDOaleatorio. Nenhum testbench aqui mede qualidade de entropia, e
+  -- nem poderia. Quem exercita os health tests e tb_trng_health, direto
+  -- sobre hsm_health, com sequencias construidas -- fonte travada e fonte
+  -- enviesada, que e onde esses casos podem ser REPRODUZIDOS. Nenhuma
+  -- fonte fisica permite reproduzir a propria falha sob demanda.
   u_entropia : hsm_entropy
   generic map (
     NUM_CELLS     => 6,       -- meia duzia. Cuidado termico, PLANO.md 3.
     NUM_INV_START => 3,
-    SIM_MODE      => false
+    SIM_MODE      => is_simulation_c
   )
   port map (
     clk_i        => clk_i,

@@ -451,9 +451,10 @@ especial: *o que vaza se for chamado em laço com entradas escolhidas?*
 ### Critérios de aceitação da fase (`PLANO.md` §3)
 
 - [x] KAT de AES e SHA passam em simulação — nos cores e através do CFS
-- [ ] KAT passam também no POST
-- [ ] `RANDOM` de 1 MB passa em `ent` e `dieharder -a` (sanidade, não validação)
-- [ ] Forçar falha artificial no RCT leva o dispositivo a `TAMPERED`
+- [x] KAT passam também no POST — AES, SHA, HMAC e CTR_DRBG, **em hardware**
+- [~] `RANDOM` de 1 MB passa em `ent` — passa nas cinco medidas; falta
+      `dieharder -a`, não instalado
+- [x] Forçar falha artificial no RCT leva o dispositivo a `TAMPERED`
 - [x] Utilização e timing arquivados — `doc/utilization_fase2.txt`,
       `doc/timing_fase2.txt`
 
@@ -723,3 +724,159 @@ ausência de conexão, não.
 E lembrar que existem **duas** `/dev/ttyUSB*` com o gravador ligado — o
 `hsmtool` escolhe por VID:PID, mas `--port` na mão pode acertar o cabo
 errado.
+
+---
+
+## CTR_DRBG e POST — implementados
+
+### CTR_DRBG AES-256 com derivation function
+
+`fw/src/drbg.c`, SP 800-90A §10.2. Todas as cifragens passam pelo CFS —
+**não há AES em software neste firmware**, e isso é deliberado: uma segunda
+implementação seria uma segunda chance de errar, e ainda por cima uma que
+roda com a chave na RAM da CPU.
+
+Consequência prática: o CFS guarda **uma** chave expandida por vez. O `df`
+usa uma chave fixa e o gerador usa a chave do estado, então alternar entre
+as duas exige recarregar e reexpandir. Custa ciclos e não importa —
+correção antes de desempenho, que é o objetivo declarado da fase.
+
+**Por que `use df` e não `no df`:** a semente crua não entra direto. O
+`Block_Cipher_df` (§10.3.2) a comprime para exatamente seedlen = 384 bits
+espalhando a entropia por todo o bloco. Sem ele, uma fonte que entregue
+256 bits com a entropia concentrada nos primeiros bytes semearia um estado
+parcialmente previsível. São **algoritmos diferentes** e um não passa nos
+vetores do outro — daí o CAVP trazer as duas famílias.
+
+**O update depois de cada geração** é o que dá *backtracking resistance*:
+quem capturar o estado agora não reconstrói a saída já entregue. Pulá-lo
+quando não há dado adicional é um erro comum, e a norma manda rodar sempre.
+
+**Reseed:** intervalo de 1024 gerações, muito abaixo do limite teórico de
+2^48. O custo aqui é baixo (a fonte está no mesmo die) e o valor didático
+está em ter a política implementada e visível. Não há caminho que entregue
+bytes sem resemear quando o intervalo estoura — `drbg_generate` devolve −2 e
+**não gera nada**. Devolver bytes junto com "eu deveria ter resemeado" seria
+inútil: quem chamou já usou.
+
+### POST
+
+`fw/src/kat.c`, roda antes de aceitar qualquer comando. Cobre AES-256 ECB
+(cifra e decifra), SHA-256, HMAC-SHA-256 e CTR_DRBG contra vetores oficiais,
+mais os testes de partida da fonte de entropia.
+
+Os vetores vêm de `fw/include/kat_vectors.h`, **gerado** por
+`scripts/mkkat.py` a partir de `vectors/`. Nenhum número foi digitado à
+mão: é a única coisa que sustenta a regra inviolável nº 5.
+
+Poucos vetores, de propósito. A cobertura exaustiva — 1620 de AES, 65 de
+SHA, 480 de DRBG — roda em **simulação**, onde custa segundos e não ocupa
+IMEM. O POST prova integridade do **caminho** neste boot, não corretude do
+algoritmo, que já foi provada antes de o bitstream existir. Se um KAT passa
+no testbench e falha no POST, o problema está no barramento ou no silício.
+
+Escolhas que valem registro:
+
+- **Não para no primeiro erro.** Roda tudo e reporta a máscara. Parar cedo
+  economiza microssegundos e esconde diagnóstico numa situação em que o
+  dispositivo não vai operar de qualquer forma.
+- **Falha → `TAMPERED`, e o dispositivo continua atendendo.** Não trava. O
+  único comando que responde em `TAMPERED` é `SELFTEST` — sem ele o
+  operador teria apenas um LED vermelho e nenhuma informação.
+- **O fluxo do teste do CAVP não é óbvio a partir do `.rsp`:** instancia,
+  gera uma vez **descartando**, gera de novo e compara. Comparar a primeira
+  saída reprova uma implementação correta.
+- **Wipe no fim.** Os KAT deixam a chave expandida do último vetor no
+  `aes_key_mem`. Limpar antes de operar é higiene de fronteira.
+
+**Custo medido: 5,94 ms** de boot (tb_soc_silent reporta a cada rodada, para
+o número não crescer sem ninguém ver).
+
+### Comandos `0x10`–`0x15`
+
+⚠ **`AES_ENC`, `AES_DEC` e `HMAC` recebem a chave no payload** e por isso
+são permitidos **apenas em `UNINITIALIZED`**. Não é convenção: é a máscara
+de estados na tabela de comandos. Um comando que aceita chave em claro não
+pode coexistir com chave de verdade no mesmo dispositivo. Na fase 3 eles são
+**substituídos** — não estendidos — por versões que falam por handle de slot.
+
+`RANDOM` devolve saída do DRBG. A amostra bruta da fonte **nunca** sai, em
+nenhum comando.
+
+`SELFTEST` responde até em `TAMPERED`, e é a única exceção ao "um
+dispositivo comprometido responde o mínimo possível".
+
+### Simulação do TRNG
+
+`SIM_MODE` do `hsm_entropy` vem de `is_simulation_c`: `false` em síntese,
+`true` em simulação. Não há escolha razoável — em simulação um anel de
+inversores com latches **não oscila**, a fonte não produziria nada e o teste
+de partida do POST reprovaria. Um POST que não roda em simulação não pode
+ser testado em regressão nenhuma.
+
+O preço, e ele precisa estar escrito: **em simulação o TRNG é
+pseudoaleatório**. Nenhum testbench aqui mede qualidade de entropia, e nem
+poderia. Quem exercita os health tests é `tb_trng_health`, direto sobre
+`hsm_health`, com sequências construídas — fonte travada e fonte enviesada,
+que é onde esses casos podem ser *reproduzidos*.
+
+
+---
+
+## Validação em hardware — 2026-08-08
+
+Bitstream na flash, POST rodando a cada boot:
+
+```
+POST no dispositivo
+  AES-256                ok
+  SHA-256                ok
+  HMAC-SHA-256           ok      <- inclui chave maior que o bloco (RFC 4231 caso 6)
+  CTR_DRBG               ok      <- vetores do CAVP, no silicio
+  TRNG / health tests    ok      <- aneis fisicos, SP 800-90B
+
+AES-256 ECB (GFSbox, chave zero)   5c9d844ed46f9885085e5d6a4f94c7d7   confere
+SHA-256 de mensagem vazia          e3b0c442...7852b855                confere
+HMAC-SHA-256 RFC 4231 caso 1       b0344c61...2e32cff7                confere
+
+RANDOM 1 MB em 2 min:
+  entropia (bits/byte)   7.999806    [7.99 .. 8.01]
+  qui-quadrado (gl=255)    281.93    [180 .. 340]
+  media aritmetica        127.3839   [127 .. 128]
+  Monte Carlo pi          3.143818   [3.10 .. 3.18]
+  correlacao serial       0.000121   [-0.01 .. 0.01]
+```
+
+Recursos: 7392 LUT (35,5%), 7475 FF (18,0%), 5 BRAM, 0 DSP.
+Timing: **WNS +0,356 ns**, WHS +0,025, 0 erros, 0 critical warnings.
+
+Os 48 latches `LDCE` conferem com 3+5+7+9+11+13 inversores dos seis anéis —
+nenhum oscilador foi otimizado para fora, que era o risco real.
+
+### Sobre `scripts/entstat.py`
+
+Reimplementa as cinco medidas do `ent` para o critério não depender de um
+pacote instalado. **Não valida o gerador**, e o cabeçalho do arquivo diz
+isso: um contador de 32 bits cifrado com AES passa em todas elas, e um DRBG
+semeado com quatro bits de entropia também. Nenhuma estatística sobre a
+*saída* detecta entropia insuficiente na *semente* — é exatamente por isso
+que a SP 800-90B estima entropia sobre a amostra **bruta**.
+
+As faixas foram verificadas contra fontes sabidamente ruins: um contador
+cifrado e uma fonte com 60% de zeros reprovam em 4 das 5 medidas.
+
+### O que `tb_post_tamper` prova, e o que não prova
+
+A injeção ideal seria travar a amostra bruta. **O xsim não permite**: não
+suporta `force` atravessando a fronteira VHDL/Verilog, nem sobre o sinal
+VHDL nem sobre a porta Verilog ligada a ele.
+
+Então força-se o **veredito** do RCT, que é registrador puramente Verilog.
+O teste prova `RCT reprovado → status → firmware → TAMPERED → comando
+recusado`. O elo que ele *não* prova — fonte travada produz RCT reprovado —
+está em `tb_trng_health` (na amostra exata) e em `tb_cfs` (através do
+barramento). Os três juntos cobrem a corrente; nenhum sozinho cobre.
+
+Registrar essa costura importa: um teste que se descreve como "fonte
+travada" quando na verdade força o resultado mente sobre a própria
+cobertura.

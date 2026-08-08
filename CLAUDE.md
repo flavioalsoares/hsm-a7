@@ -39,8 +39,16 @@ Estas não são preferências. Se uma tarefa pedir qualquer coisa desta lista,
 ./scripts/sim.sh tb_clk_rst     # um testbench
 ./scripts/sim.sh                # todos os implementados
 
-# iverilog serve para cores de cripto puros (fases 2 e 3), sem primitivas:
-iverilog -g2012 -o /tmp/tb sim/tb/tb_aes_kat.v rtl/crypto/*.v && vvp /tmp/tb
+# iverilog serviria para cores puros, sem primitivas Xilinx -- mas NAO esta
+# instalado nesta maquina. Use o sim.sh para tudo.
+
+# vetores embutidos no firmware (POST). Regenerar apos mexer em vectors/:
+python3 scripts/mkkat.py            # -> fw/include/kat_vectors.h
+python3 scripts/health-cutoffs.py   # cutoffs da SP 800-90B, com a derivacao
+
+# sanidade estatistica sobre saida do RANDOM (NAO valida o gerador):
+python3 host/hsmtool.py random -n 1048576 -o /tmp/r.bin
+python3 scripts/entstat.py /tmp/r.bin
 
 # sintese + bitstream (Vivado 2026.1 em /opt/AMD)
 source /opt/AMD/2026.1/Vivado/settings64.sh
@@ -50,6 +58,7 @@ vivado -mode batch -source scripts/build.tcl
 python3 host/hsmtool.py selftest    # codec do protocolo
 python3 host/test_hsmtool.py        # transporte (pty + modelo do dispositivo)
 python3 host/hsmtool.py ping
+python3 host/hsmtool.py post        # reroda o POST no dispositivo
 ```
 
 Após qualquer mudança de RTL, arquivar utilização e timing em `doc/`. Regressão
@@ -117,8 +126,23 @@ norma. Ver `doc/fase2-notas.md`.
 verdade estima H de 1.000.000 de amostras reais. É para isso que existe o
 registrador de retrato.
 
-Falta, nesta ordem: chamar `hsm_trng_startup()` no boot e ligar ao
-`TAMPERED`, **CTR_DRBG**, e o **POST** com os comandos `0x10`–`0x15`.
+**CTR_DRBG e POST estão implementados** (2026-08-08). O POST roda antes de
+aceitar qualquer comando e cobre AES-256, SHA-256, HMAC-SHA-256 e CTR_DRBG
+contra vetores oficiais, mais os testes de partida da fonte. Falha leva a
+`TAMPERED`, e o dispositivo continua atendendo **só** ao `SELFTEST`. Custo
+medido: **5,94 ms** de boot.
+
+⚠ **Vetores do POST vêm de `scripts/mkkat.py`**, que gera
+`fw/include/kat_vectors.h` a partir de `vectors/`. **Nunca editar esse
+header à mão** — ele é a única coisa que sustenta a regra nº 5.
+
+⚠ **`AES_ENC`, `AES_DEC` e `HMAC` recebem chave no payload e só respondem em
+`UNINITIALIZED`.** Não é convenção, é a máscara de estados na tabela. Um
+comando que aceita chave em claro não pode coexistir com chave de verdade.
+A fase 3 os **substitui** por versões que falam por handle.
+
+Falta: os critérios de aceitação de campo — `RANDOM` de 1 MB em `ent` e
+`dieharder`, e forçar falha de RCT levando a `TAMPERED`.
 Detalhes em `doc/fase2-notas.md`.
 
 **Timing fecha em +0,487 ns** (Fmax ≈ 105 MHz), 0 erros e 0 critical

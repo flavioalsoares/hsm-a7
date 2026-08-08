@@ -190,6 +190,30 @@ module tb_uart_frame;
 
         #200;
         rst_n = 1'b1;
+
+        // Espera o POST terminar antes de falar com o dispositivo.
+        //
+        // Nao e cortesia: antes do POST passar o firmware nao esta no laco
+        // de comandos, e um PING nesse instante nao seria respondido. O
+        // sinal de pronto e o LED de atividade (led[1], ativo baixo), que
+        // main() acende exatamente ao sair do POST -- o mesmo indicador que
+        // tb_soc_silent usa.
+        //
+        // Esperar por um TEMPO FIXO seria pior: o custo do POST muda quando
+        // se acrescenta um vetor, e o teste passaria a reprovar por atraso
+        // em vez de por defeito.
+        // Espera QUALQUER um dos dois desfechos, nao so o bom: se o POST
+        // reprovar, led[1] nunca desce e esperar so por ele trava aqui para
+        // sempre. Um teste que trava nao reprova -- ele deixa de existir.
+        wait ((led[1] === 1'b0) || (led[4] === 1'b0));
+
+        if (led[4] === 1'b0) begin
+            $display("[tb_uart_frame] FAIL: POST reprovou -- LED de tamper aceso em %.2f ms",
+                     $realtime / 1000000.0);
+            $display("[tb_uart_frame] FAIL");
+            $finish;
+        end
+        $display("[tb_uart_frame] POST concluido em %.2f ms", $realtime / 1000000.0);
         #(BOOT_WAIT_NS);
 
         // ---- 1. PING -> PONG ------------------------------------------

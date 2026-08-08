@@ -11,6 +11,37 @@ chave de produção deve jamais ser carregada nele.
 
 ---
 
+## Alvo declarado — para onde este projeto aponta
+
+*Decidido em 2026-08-08.*
+
+O modelo de referência é um **HSM de pagamento estilo Thales payShield**, e não
+um token PKCS#11 genérico. Isso não muda as fases 1 a 4; muda **duas escolhas**
+que já estavam em aberto:
+
+| Onde | Escolha |
+|---|---|
+| Fase 3, key blocks | **ANSI X9.143** (TR-31 versão D), que é o que um payShield consome e produz |
+| Fase 5, API de host | **Command set ASCII** de dois caracteres sobre socket, não `.so` PKCS#11 |
+
+**O que este projeto passa a ensinar bem:** a fronteira criptográfica, a
+hierarquia sob uma LMK, key blocks com *usage*, *mode of use* e
+*exportability*, KCV, cerimônia com split knowledge e dual control, estado
+autorizado, POST, e por que a API é a superfície de ataque de um HSM. Quem
+terminar isto lê o manual de um payShield reconhecendo decisões em vez de
+decorando comandos.
+
+**O que ele continua NÃO ensinando, e é bom deixar escrito:** o command set
+real do fabricante e seus códigos, os esquemas de LMK específicos da Thales,
+e o negócio de pagamento propriamente dito — PIN blocks ISO 9564, PVV,
+offsets IBM 3624, CVV, ARQC/EMV, DUKPT. Nada disso está em nenhuma das sete
+fases. **Este projeto não substitui o equipamento nem o manual dele.**
+
+Se algum dia o alvo mudar, esta seção muda primeiro, e as duas escolhas
+acima mudam com ela.
+
+---
+
 ## 0. Restrições invioláveis do projeto
 
 Esta seção vem primeiro por um motivo: é checklist, não introdução. Ler antes de
@@ -190,12 +221,17 @@ segundos.
 
 ### Critérios de aceitação
 
-- [~] Todos os KAT passam em simulação **e** no POST — AES-256 (1620 vetores
-      CAVP) e SHA-256 (65 mensagens SHAVS) passam em **simulação**, nos cores
-      e também **através do barramento do CFS** (`tb_cfs`); falta o POST, e
-      faltam HMAC e DRBG. Ver `doc/fase2-notas.md`.
-- [ ] `RANDOM` de 1 MB passa em `ent` e `dieharder -a` (sanidade, não validação)
-- [ ] Forçar falha artificial no RCT leva o dispositivo a `TAMPERED`
+- [x] Todos os KAT passam em simulação **e** no POST — AES-256 (1620 vetores
+      CAVP) e SHA-256 (65 mensagens SHAVS) em simulação, nos cores e através
+      do barramento do CFS; e AES, SHA, HMAC-SHA-256 e CTR_DRBG no POST,
+      **verificados em hardware** em 2026-08-08.
+- [~] `RANDOM` de 1 MB passa em `ent` — **1 MB colhido da placa passa nas
+      cinco medidas** (`scripts/entstat.py`, reimplementação do `ent`, com
+      as faixas verificadas contra fontes sabidamente ruins). Falta
+      `dieharder -a`, que não está instalado nesta máquina.
+- [x] Forçar falha artificial no RCT leva o dispositivo a `TAMPERED` —
+      `tb_post_tamper`: POST reprova, LED de tamper acende, `PING` é
+      recusado com `WRONG_STATE` e o `SELFTEST` acusa o TRNG.
 - [ ] Utilização e timing arquivados
 
 ---
@@ -253,7 +289,11 @@ instrutivo — separa "quem digita" de "quem autoriza" fisicamente.
 Cada custodiante carrega apenas o seu componente e não vê os demais (split
 knowledge). Nenhum componente isolado revela nada sobre a LMK.
 
-### Key blocks TR-31 / ANSI X9.143 versão D
+### Key blocks ANSI X9.143 (TR-31 versão D)
+
+*Formato fixado em 2026-08-08 pela decisão de rumo da seção 0: X9.143, que é
+o que um payShield consome e produz. TR-31 "genérico" não existe como alvo —
+o que existe é a versão D do padrão, e é ela.*
 
 - KBEK e KBAK derivados da LMK por CMAC (derivação por propósito)
 - Corpo em AES-CBC, autenticação por CMAC sobre header + corpo
@@ -306,10 +346,19 @@ trilha forense.
 **Fase 4 — NV storage.** Blobs wrapped na SPI flash, MAC de integridade,
 contador anti-rollback, recuperação de estado no boot. Modelo real de HSM.
 
-**Fase 5 — API de host.** Subconjunto PKCS#11 (`C_Initialize`, `C_GenerateKey`,
-`C_WrapKey`, `C_Sign`) como `.so` no Linux, ou um command set ASCII estilo
-payShield. Aqui se entende por que a API é o que é: é você que precisa impedi-la
-de vazar material de chave.
+**Fase 5 — API de host: command set ASCII estilo payShield.** *Decisão de rumo
+tomada em 2026-08-08 — ver "Alvo declarado" na seção 0.* Em vez de um subconjunto
+PKCS#11 como `.so`, um command set ASCII sobre socket, no formato de um HSM de
+pagamento: código de comando de dois caracteres, código de resposta = comando + 1,
+códigos de erro numéricos, campos posicionais.
+
+Não é só troca de sintaxe. PKCS#11 é uma API de *biblioteca* — objetos, sessões,
+atributos. Um command set de HSM de pagamento é um protocolo de *serviço*, sem
+sessão e sem estado do lado do cliente, e essa diferença muda como o dispositivo
+tem de se defender: cada comando chega sozinho e precisa se bastar.
+
+Aqui se entende por que a API é o que é: é você que precisa impedi-la de vazar
+material de chave.
 
 **Fase 6 — tamper e ataques.** XADC monitorando temperatura/tensão dispara
 zeroize. Depois, ataque o próprio HSM: glitch de clock via DRP do MMCM, observe a

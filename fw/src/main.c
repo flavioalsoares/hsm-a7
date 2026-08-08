@@ -11,6 +11,7 @@
 
 #include "cmd.h"
 #include "hsm_cfs.h"
+#include "kat.h"
 #include "state.h"
 
 /* PLANO.md secao 2. Nao confundir com os 19200 do bootloader do NEORV32. */
@@ -90,7 +91,33 @@ int main(void)
 
     MARCO(LED_STATE, "cfs ok");
 
-    neorv32_gpio_pin_set(LED_ALIVE, 1);
+    /* ------------------------------------------------------------------
+     * POST -- power-on self-test
+     *
+     * Roda ANTES de aceitar qualquer comando. Nao e capricho: e o
+     * requisito de self-test do FIPS 140-3, e a logica dele e simples --
+     * um modulo criptografico que nao consegue provar que calcula certo
+     * AGORA nao deve aceitar comando nenhum. Cripto errada e pior que
+     * cripto ausente, porque parece que funcionou.
+     *
+     * Cobre AES, SHA, HMAC e CTR_DRBG contra vetores oficiais, e os
+     * testes de partida da fonte de entropia. Ver fw/src/kat.c.
+     *
+     * Falhou: o dispositivo vai para TAMPERED e FICA. Nao trava e nao
+     * reinicia -- continua atendendo, porque o unico comando que responde
+     * em TAMPERED e o SELFTEST, e sem ele o operador teria apenas um LED
+     * vermelho e nenhuma informacao sobre o que reprovou.
+     * ------------------------------------------------------------------ */
+    if (kat_post() != KAT_OK) {
+#ifdef HSM_DIAG
+        neorv32_uart0_puts("[diag] POST REPROVOU\r\n");
+#endif
+        neorv32_gpio_pin_set(LED_TAMPER, 1);
+        state_set(HSM_TAMPERED);
+    } else {
+        MARCO(LED_CMD, "post ok");
+        neorv32_gpio_pin_set(LED_ALIVE, 1);
+    }
 
 #ifdef HSM_DIAG
     neorv32_uart0_puts("[diag] laco de comandos\r\n");

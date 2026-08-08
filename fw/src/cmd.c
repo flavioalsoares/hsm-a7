@@ -15,7 +15,10 @@
 #include <neorv32.h>
 
 #include "cmd.h"
+#include "drbg.h"
 #include "hsm_cfs.h"
+#include "kat.h"
+#include "sha.h"
 #include "state.h"
 #include "wipe.h"
 
@@ -130,6 +133,204 @@ static hsm_status_t h_get_dna(const uint8_t *in, uint16_t in_len,
     return STATUS_OK;
 }
 
+
+/* ==================================================================== */
+/* Fase 2 -- primitivas                                                 */
+/*                                                                      */
+/* LEIA cmd.h antes de mexer aqui. AES e HMAC recebem a chave no payload */
+/* e por isso rodam SO em UNINITIALIZED: no instante em que existir uma  */
+/* LMK, a mascara de estados os desliga. Um comando que aceita chave em  */
+/* claro nao pode coexistir com chave de verdade no mesmo dispositivo.   */
+/* ==================================================================== */
+
+/* AES-256 ECB, um bloco.
+ *
+ * Checklist do CLAUDE.md:
+ *   estados      SO ST_UNINIT -- ver acima
+ *   dual control nao (nao ha chave do dispositivo envolvida)
+ *   vazamento    em laco com entradas escolhidas, e um oraculo de AES para
+ *                uma chave que o CHAMADOR ja possui: ele escolheu. Nao ha
+ *                nada aqui que ele nao pudesse calcular sozinho.
+ *   exportability nao se aplica -- nao ha slot
+ *   log          fase 3, junto com o key store
+ *
+ * ECB de um bloco so, de proposito. Encadeamento e do host, mesma divisao
+ * dos testbenches de KAT: modo de operacao em RTL custa fabric e esconde
+ * erro de padding onde depurar exige simulacao.
+ */
+static hsm_status_t h_aes(const uint8_t *in, uint16_t in_len,
+                          uint8_t *out, uint16_t *out_len, int cifra)
+{
+    hsm_status_t st = STATUS_OK;
+
+    *out_len = 0u;
+
+    if (in_len != (HSM_AES_KEY_LEN + HSM_AES_BLOCK_LEN)) {
+        return STATUS_BAD_PARAM;
+    }
+
+    if (hsm_cfs_aes_key(in) != 0) {
+        st = STATUS_INTERNAL_ERROR;
+    } else if (hsm_cfs_aes_block(&in[HSM_AES_KEY_LEN], out, cifra) != 0) {
+        st = STATUS_INTERNAL_ERROR;
+    } else {
+        *out_len = HSM_AES_BLOCK_LEN;
+    }
+
+    /* A chave expandida fica no aes_key_mem depois da operacao. Apagar
+     * agora, e nao "na proxima vez que alguem carregar chave": material de
+     * chave nao espera pelo proximo comando. */
+    (void)hsm_cfs_wipe();
+
+    if (st != STATUS_OK) {
+        wipe(out, HSM_AES_BLOCK_LEN);
+    }
+    return st;
+}
+
+static hsm_status_t h_aes_enc(const uint8_t *in, uint16_t in_len,
+                              uint8_t *out, uint16_t *out_len)
+{
+    return h_aes(in, in_len, out, out_len, 1);
+}
+
+static hsm_status_t h_aes_dec(const uint8_t *in, uint16_t in_len,
+                              uint8_t *out, uint16_t *out_len)
+{
+    return h_aes(in, in_len, out, out_len, 0);
+}
+
+/* SHA-256 de mensagem inteira.
+ *
+ * Checklist:
+ *   estados      ST_NORMAL -- hash publico, sem chave, nao ha o que vazar
+ *   dual control nao
+ *   vazamento    nenhum: SHA-256 e funcao publica. Em laco o chamador so
+ *                obtem o que qualquer biblioteca daria.
+ */
+static hsm_status_t h_sha256(const uint8_t *in, uint16_t in_len,
+                             uint8_t *out, uint16_t *out_len)
+{
+    *out_len = 0u;
+
+    if (hsm_sha256(in, in_len, out) != 0) {
+        return STATUS_INTERNAL_ERROR;
+    }
+    *out_len = HSM_SHA256_LEN;
+    return STATUS_OK;
+}
+
+/* HMAC-SHA-256.
+ *
+ * Payload: klen(1) || chave(klen) || mensagem
+ *
+ * Checklist:
+ *   estados      SO ST_UNINIT -- recebe chave em claro
+ *   vazamento    oraculo de HMAC sob chave escolhida pelo chamador
+ */
+static hsm_status_t h_hmac(const uint8_t *in, uint16_t in_len,
+                           uint8_t *out, uint16_t *out_len)
+{
+    uint16_t klen;
+
+    *out_len = 0u;
+
+    if (in_len < 1u) {
+        return STATUS_BAD_PARAM;
+    }
+    klen = in[0];
+    if ((uint32_t)klen + 1u > (uint32_t)in_len) {
+        return STATUS_BAD_PARAM;
+    }
+
+    if (hsm_hmac_sha256(&in[1], klen,
+                        &in[1u + klen], (uint16_t)(in_len - 1u - klen),
+                        out) != 0) {
+        return STATUS_INTERNAL_ERROR;
+    }
+    *out_len = HSM_SHA256_LEN;
+    return STATUS_OK;
+}
+
+/* RANDOM -- saida do CTR_DRBG.
+ *
+ * Payload: n em 2 bytes big-endian.
+ *
+ * Checklist:
+ *   estados      ST_NORMAL
+ *   dual control nao
+ *   vazamento    NENHUM sobre o estado do DRBG. E o ponto do update apos
+ *                cada geracao (SP 800-90A): quem capturar o estado depois
+ *                nao reconstroi o que ja saiu. Chamar em laco consome o
+ *                intervalo de resemeadura, e a resemeadura acontece
+ *                sozinha -- nao ha caminho que entregue bytes sem ela.
+ *   fronteira    devolve saida do DRBG. A amostra BRUTA da fonte NUNCA sai
+ *                daqui, em nenhum comando. Ver hsm_cfs.h.
+ */
+static hsm_status_t h_random(const uint8_t *in, uint16_t in_len,
+                             uint8_t *out, uint16_t *out_len)
+{
+    uint32_t n;
+
+    *out_len = 0u;
+
+    if (in_len != 2u) {
+        return STATUS_BAD_PARAM;
+    }
+    n = ((uint32_t)in[0] << 8) | (uint32_t)in[1];
+    if ((n == 0u) || (n > CMD_RANDOM_MAX)) {
+        return STATUS_BAD_PARAM;
+    }
+
+    if (drbg_dispositivo_bytes(out, n) != 0) {
+        wipe(out, n);
+        return STATUS_INTERNAL_ERROR;
+    }
+    *out_len = (uint16_t)n;
+    return STATUS_OK;
+}
+
+/* SELFTEST -- reroda o POST e devolve a mascara de falhas.
+ *
+ * Checklist:
+ *   estados      ST_NORMAL **e** ST_TAMPERED. E a unica excecao ao "um
+ *                dispositivo comprometido responde o minimo possivel", e
+ *                ela e deliberada: sem isto, um dispositivo que reprovou
+ *                no boot fica mudo sobre O QUE reprovou, e o operador nao
+ *                tem nada alem de um LED vermelho.
+ *   dual control nao
+ *   vazamento    revela QUAL primitiva falhou. E informacao de
+ *                diagnostico, nao material de chave, e o valor dela para
+ *                quem opera supera o valor para quem ataca -- um atacante
+ *                que ja consegue derrubar uma primitiva nao precisa que a
+ *                gente confirme.
+ *
+ * Reprovar aqui leva a TAMPERED, igual ao boot. Um dispositivo que passa
+ * no boot e falha depois esta pior, nao melhor.
+ */
+static hsm_status_t h_selftest(const uint8_t *in, uint16_t in_len,
+                               uint8_t *out, uint16_t *out_len)
+{
+    unsigned r;
+
+    (void)in;
+    *out_len = 0u;
+
+    if (in_len != 0u) {
+        return STATUS_BAD_PARAM;
+    }
+
+    r = kat_post();
+    out[0]   = (uint8_t)r;
+    *out_len = 1u;
+
+    if (r != KAT_OK) {
+        state_set(HSM_TAMPERED);
+        return STATUS_SELFTEST_FAIL;
+    }
+    return STATUS_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tabela de comandos                                                  */
 /* ------------------------------------------------------------------ */
@@ -151,9 +352,20 @@ typedef struct {
  * key store: nao vazam nada em laco alem da propria existencia do
  * dispositivo. Nenhum exige dual control. */
 static const cmd_entry_t g_cmds[] = {
-    { CMD_PING,        ST_NORMAL, h_ping        },
-    { CMD_GET_VERSION, ST_NORMAL, h_get_version },
-    { CMD_GET_DNA,     ST_NORMAL, h_get_dna     },
+    { CMD_PING,        ST_NORMAL,               h_ping        },
+    { CMD_GET_VERSION, ST_NORMAL,               h_get_version },
+    { CMD_GET_DNA,     ST_NORMAL,               h_get_dna     },
+
+    /* Fase 2. AES e HMAC so em UNINITIALIZED porque recebem chave em
+     * claro -- ver cmd.h. Nao e convencao: e esta mascara. */
+    { CMD_AES_ENC,     ST_UNINIT,               h_aes_enc     },
+    { CMD_AES_DEC,     ST_UNINIT,               h_aes_dec     },
+    { CMD_SHA256,      ST_NORMAL,               h_sha256      },
+    { CMD_HMAC,        ST_UNINIT,               h_hmac        },
+    { CMD_RANDOM,      ST_NORMAL,               h_random      },
+
+    /* SELFTEST responde ate em TAMPERED, de proposito. Ver o handler. */
+    { CMD_SELFTEST,    ST_NORMAL | ST_TAMPERED, h_selftest    },
 };
 
 #define N_CMDS (sizeof(g_cmds) / sizeof(g_cmds[0]))
