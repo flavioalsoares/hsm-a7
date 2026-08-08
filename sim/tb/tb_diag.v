@@ -138,6 +138,7 @@ module tb_diag;
     endtask
 
     reg [15:0] er_lido, ew_lido;
+    reg [31:0] z_lido;
 
     // Le a mensagem inteira e devolve o campo de sequencia.
     task ler_mensagem(output [15:0] seq_lida, input integer verifica_texto);
@@ -175,6 +176,7 @@ module tb_diag;
             // " R" + 4 hex + " W" + 4 hex -- placar do teste de Block RAM
             le_placar("R", er_lido);
             le_placar("W", ew_lido);
+            le_palavra32("Z", z_lido);
 
             uart_get(c);
             if (c !== 8'h0D) begin
@@ -185,6 +187,36 @@ module tb_diag;
             if (c !== 8'h0A) begin
                 $display("[tb_diag] ERRO: esperava LF, veio 0x%02x", c);
                 erros = erros + 1;
+            end
+        end
+    endtask
+
+    // Mesma coisa com 8 digitos -- a primeira palavra lida da ROM.
+    task le_palavra32(input [7:0] marca, output [31:0] valor);
+        reg [7:0] c;
+        integer i, v;
+        begin
+            uart_get(c);
+            if (c !== " ") begin
+                $display("[tb_diag] ERRO: esperava espaco antes de %0s", marca);
+                erros = erros + 1;
+            end
+            uart_get(c);
+            if (c !== marca) begin
+                $display("[tb_diag] ERRO: esperava marca %0s, veio 0x%02x", marca, c);
+                erros = erros + 1;
+            end
+            valor = 32'd0;
+            for (i = 0; i < 8; i = i + 1) begin
+                uart_get(c);
+                if (c >= "0" && c <= "9")      v = c - "0";
+                else if (c >= "A" && c <= "F") v = c - "A" + 10;
+                else begin
+                    $display("[tb_diag] ERRO: hex invalido em %0s: 0x%02x", marca, c);
+                    erros = erros + 1;
+                    v = 0;
+                end
+                valor = (valor << 4) | v[3:0];
             end
         end
     endtask
@@ -265,6 +297,17 @@ module tb_diag;
             erros = erros + 1;
         end else begin
             $display("[tb_diag] placar de Block RAM zerado, como tem de ser em simulacao");
+        end
+
+        // A primeira palavra da ROM tem de ser a semente. E esta a medida
+        // que nao depende de hipotese de latencia: em hardware ela separa
+        // "inicializacao nao pegou" de "comparador desalinhado".
+        // Quinta leitura valida = rom[4]. Ver o cabecalho de hsm_memtest:
+        // a primeira nao serve porque zero e ambiguo entre "inicializacao
+        // nao pegou" e "um ciclo de latencia a mais".
+        if (z_lido !== 32'h2345_678B) begin
+            $display("[tb_diag] ERRO: palavra da ROM = %08x, esperado 2345678B", z_lido);
+            erros = erros + 1;
         end
 
         if (s2 !== (s1 + 16'd1)) begin

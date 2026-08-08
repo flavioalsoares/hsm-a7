@@ -43,7 +43,9 @@ CABLE_FREQ="${CABLE_FREQ:-1000000}"
 # Sobrescritivel para o bitstream de diagnostico de bancada:
 #   BIT=build/hsm_diag.bit ./scripts/program.sh
 BIT="${BIT:-build/hsm_top.bit}"
-BIN="build/hsm_top.bin"
+# Derivado de BIT, para que BIT=build/hsm_diag.bit valha nos dois modos.
+# Sobrescritivel tambem:  BIN=... ./scripts/program.sh flash
+BIN="${BIN:-${BIT%.bit}.bin}"
 FPGA_PART="xc7a35tftg256"
 
 if ! command -v openFPGALoader >/dev/null 2>&1; then
@@ -150,14 +152,52 @@ case "${1:-ram}" in
         ;;
 
     flash)
-        [ -f "$BIN" ] || {
-            echo "ERRO: $BIN nao existe." >&2
-            echo "      Gere com: write_cfgmem no Vivado, ou use o modo 'ram'." >&2
+        [ -f "$BIT" ] || {
+            echo "ERRO: $BIT nao existe. Rode o build primeiro." >&2
             exit 1; }
+
+        # Gera o .bin se faltar ou se o .bit for mais novo. write_cfgmem so
+        # escreve arquivo em disco -- nao toca no dispositivo e nao tem nada
+        # a ver com eFUSE.
+        #
+        # spix4 porque o XDC define BITSTREAM.CONFIG.SPI_BUSWIDTH 4 para a
+        # MT25QL128 da placa. Os dois PRECISAM casar: com spix1 sobre um
+        # bitstream marcado x4, o write_cfgmem recusa -- e se passasse, a
+        # placa nao carregaria.
+        if [ ! -f "$BIN" ] || [ "$BIT" -nt "$BIN" ]; then
+            command -v vivado >/dev/null 2>&1 || {
+                echo "ERRO: vivado nao esta no PATH e $BIN precisa ser gerado." >&2
+                echo "      source /opt/AMD/2026.1/Vivado/settings64.sh" >&2
+                exit 1; }
+            echo "Gerando $BIN a partir de $BIT..."
+            # Arquivo temporario, nao heredoc: 'vivado -source /dev/stdin'
+            # nao le o script e sai sem gerar nada, em silencio.
+            tcl="$(mktemp -t hsm_cfgmem.XXXXXX.tcl)"
+            trap 'rm -f "$tcl"' EXIT
+            printf '%s\n' \
+                "write_cfgmem -force -format bin -interface spix4 -size 16 \\" \
+                "             -loadbit {up 0x0 $BIT} -file $BIN" > "$tcl"
+            if ! vivado -mode batch -nojournal -nolog -source "$tcl" > "$tcl.log" 2>&1; then
+                echo "ERRO ao gerar $BIN:" >&2
+                tail -20 "$tcl.log" >&2
+                exit 1
+            fi
+            [ -f "$BIN" ] || {
+                echo "ERRO: write_cfgmem terminou sem gerar $BIN." >&2
+                tail -20 "$tcl.log" >&2
+                exit 1; }
+        fi
 
         echo "Gravando $BIN na SPI flash (PERSISTENTE, cabo: $CABLE)..."
         echo "A placa passara a carregar este bitstream a cada power-on."
         openFPGALoader -c "$CABLE" --freq "$CABLE_FREQ" -f --fpga-part "$FPGA_PART" "$BIN"
+
+        # Escrever a flash NAO configura o FPGA: o conteudo so entra numa
+        # reconfiguracao. Sem isto o script conferiria DONE do dispositivo
+        # em branco e reportaria falha em cima de uma gravacao boa.
+        echo "Reconfigurando a partir da flash..."
+        openFPGALoader -c "$CABLE" --freq "$CABLE_FREQ" --reset >/dev/null 2>&1 || true
+        sleep 3
         ;;
 
     *)

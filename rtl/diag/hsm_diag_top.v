@@ -253,7 +253,7 @@ module hsm_diag_top #(
     // janela entre duas mensagens.
     // ------------------------------------------------------------------
     reg [31:0] msg_cnt = 32'd0;
-    reg [4:0]  msg_idx = 5'd0;
+    reg [5:0]  msg_idx = 6'd0;
     reg        msg_run = 1'b0;
     reg [15:0] seq     = 16'd0;
 
@@ -262,52 +262,65 @@ module hsm_diag_top #(
     //   rrrr  erros da BRAM inicializada pelo bitstream (o caso da IMEM)
     //   wwww  erros de escrita/leitura em BRAM
     // Os dois placares em zero e a prova de que a Block RAM esta boa.
-    localparam integer MSG_LEN = 27;
+    localparam integer MSG_LEN = 37;
 
     wire        mem_done;
     wire [15:0] mem_erros_rom, mem_erros_rw;
+    wire [31:0] mem_primeira;
 
     hsm_memtest #(.N (512)) u_memtest (
         .clk_i       (clk),
         .rstn_i      (rst_n),
         .done_o      (mem_done),
         .erros_rom_o (mem_erros_rom),
-        .erros_rw_o  (mem_erros_rw)
+        .erros_rw_o  (mem_erros_rw),
+        .primeira_o  (mem_primeira)
     );
 
     function [7:0] hexdig(input [3:0] v);
         hexdig = (v < 4'd10) ? (8'd48 + {4'd0, v}) : (8'd55 + {4'd0, v});
     endfunction
 
-    function [7:0] msg_char(input [4:0] i, input [15:0] s,
-                            input [15:0] er, input [15:0] ew);
+    function [7:0] msg_char(input [5:0] i, input [15:0] s,
+                            input [15:0] er, input [15:0] ew,
+                            input [31:0] z);
         case (i)
-            5'd0:  msg_char = "H";
-            5'd1:  msg_char = "S";
-            5'd2:  msg_char = "M";
-            5'd3:  msg_char = "-";
-            5'd4:  msg_char = "D";
-            5'd5:  msg_char = "I";
-            5'd6:  msg_char = "A";
-            5'd7:  msg_char = "G";
-            5'd8:  msg_char = " ";
-            5'd9:  msg_char = hexdig(s[15:12]);
-            5'd10: msg_char = hexdig(s[11:8]);
-            5'd11: msg_char = hexdig(s[7:4]);
-            5'd12: msg_char = hexdig(s[3:0]);
-            5'd13: msg_char = " ";
-            5'd14: msg_char = "R";
-            5'd15: msg_char = hexdig(er[15:12]);
-            5'd16: msg_char = hexdig(er[11:8]);
-            5'd17: msg_char = hexdig(er[7:4]);
-            5'd18: msg_char = hexdig(er[3:0]);
-            5'd19: msg_char = " ";
-            5'd20: msg_char = "W";
-            5'd21: msg_char = hexdig(ew[15:12]);
-            5'd22: msg_char = hexdig(ew[11:8]);
-            5'd23: msg_char = hexdig(ew[7:4]);
-            5'd24: msg_char = hexdig(ew[3:0]);
-            5'd25: msg_char = 8'h0D;
+            6'd0:  msg_char = "H";
+            6'd1:  msg_char = "S";
+            6'd2:  msg_char = "M";
+            6'd3:  msg_char = "-";
+            6'd4:  msg_char = "D";
+            6'd5:  msg_char = "I";
+            6'd6:  msg_char = "A";
+            6'd7:  msg_char = "G";
+            6'd8:  msg_char = " ";
+            6'd9:  msg_char = hexdig(s[15:12]);
+            6'd10: msg_char = hexdig(s[11:8]);
+            6'd11: msg_char = hexdig(s[7:4]);
+            6'd12: msg_char = hexdig(s[3:0]);
+            6'd13: msg_char = " ";
+            6'd14: msg_char = "R";
+            6'd15: msg_char = hexdig(er[15:12]);
+            6'd16: msg_char = hexdig(er[11:8]);
+            6'd17: msg_char = hexdig(er[7:4]);
+            6'd18: msg_char = hexdig(er[3:0]);
+            6'd19: msg_char = " ";
+            6'd20: msg_char = "W";
+            6'd21: msg_char = hexdig(ew[15:12]);
+            6'd22: msg_char = hexdig(ew[11:8]);
+            6'd23: msg_char = hexdig(ew[7:4]);
+            6'd24: msg_char = hexdig(ew[3:0]);
+            6'd25: msg_char = " ";
+            6'd26: msg_char = "Z";
+            6'd27: msg_char = hexdig(z[31:28]);
+            6'd28: msg_char = hexdig(z[27:24]);
+            6'd29: msg_char = hexdig(z[23:20]);
+            6'd30: msg_char = hexdig(z[19:16]);
+            6'd31: msg_char = hexdig(z[15:12]);
+            6'd32: msg_char = hexdig(z[11:8]);
+            6'd33: msg_char = hexdig(z[7:4]);
+            6'd34: msg_char = hexdig(z[3:0]);
+            6'd35: msg_char = 8'h0D;
             default: msg_char = 8'h0A;
         endcase
     endfunction
@@ -323,7 +336,7 @@ module hsm_diag_top #(
 
         if (!rst_n) begin
             msg_cnt   <= 32'd0;
-            msg_idx   <= 5'd0;
+            msg_idx   <= 6'd0;
             msg_run   <= 1'b0;
             seq       <= 16'd0;
             echo_pend <= 1'b0;
@@ -337,7 +350,7 @@ module hsm_diag_top #(
                 msg_cnt <= 32'd0;
                 if (!msg_run) begin
                     msg_run <= 1'b1;
-                    msg_idx <= 5'd0;
+                    msg_idx <= 6'd0;
                 end
             end else begin
                 msg_cnt <= msg_cnt + 32'd1;
@@ -350,13 +363,13 @@ module hsm_diag_top #(
                     tx_load   <= 1'b1;
                     echo_pend <= 1'b0;
                 end else if (msg_run) begin
-                    tx_data <= msg_char(msg_idx, seq, mem_erros_rom, mem_erros_rw);
+                    tx_data <= msg_char(msg_idx, seq, mem_erros_rom, mem_erros_rw, mem_primeira);
                     tx_load <= 1'b1;
                     if (msg_idx == (MSG_LEN - 1)) begin
                         msg_run <= 1'b0;
                         seq     <= seq + 16'd1;
                     end else begin
-                        msg_idx <= msg_idx + 5'd1;
+                        msg_idx <= msg_idx + 6'd1;
                     end
                 end
             end

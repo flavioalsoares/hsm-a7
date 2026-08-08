@@ -35,6 +35,23 @@ opt_design
 place_design
 route_design
 
+# Conteudo inicial que o bitstream VAI carregar nas Block RAMs.
+#
+# Existe para separar duas causas que produzem o mesmo sintoma quando a
+# memoria le zero em hardware: a ferramenta nao emitiu a inicializacao, ou
+# o dispositivo nao a reteve. Sem esta consulta as duas sao
+# indistinguiveis de fora, e levam a consertos opostos.
+puts "=== INIT das Block RAMs ==="
+foreach c [get_cells -hier -filter {PRIMITIVE_TYPE =~ BMEM.*}] {
+    puts "  celula: $c"
+    foreach p {INIT_00 INIT_01} {
+        if {![catch {set v [get_property $p $c]}]} {
+            puts "    $p = $v"
+        }
+    }
+}
+puts "=== fim INIT ==="
+
 report_timing_summary -file $outdir/timing_diag.txt
 report_utilization    -file $outdir/utilization_diag.txt
 

@@ -328,96 +328,16 @@ Correção em duas partes, e a segunda importa mais que a primeira:
 
 ---
 
-## Bitstream de diagnóstico de bancada — `rtl/diag/`
+## Bancada
 
-Nasceu de um sintoma que já custou uma sessão inteira antes: o FPGA
-configura com `Done = 0x1`, `No CRC error`, `EOS = 1`, MMCM travado — **e o
-dispositivo fica mudo**. Com o SoC no meio existem dezenas de explicações
-(firmware travado, CFS ausente, reset, IMEM, baud, pinagem, cabo,
-conector), e nenhuma delas se descarta olhando de fora.
+As notas de bancada saíram daqui: gravação, diagnóstico de hardware e os
+discriminadores de falha física estão em **[`doc/bancada.md`](bancada.md)**.
 
-`hsm_diag_top.v` remove todas de uma vez: **sem CPU, sem NEORV32, sem
-firmware**. Só contadores e um par de UART de trinta linhas. Ele reprova o
-caminho de I/O inteiro sem nenhuma ajuda de software.
-
-```
-D1              pisca a 1 Hz            MMCM travado, 100 MHz vivo
-D2..D5          luz corrida, ~4 Hz      cada pino de LED, um a um
-UART 115200     "HSM-DIAG nnnn Rrrrr Wwwww"   T14 -> CP2102 -> host
-eco de qualquer byte recebido           T15, o sentido de entrada
-Rrrrr / Wwwww   placar do teste de Block RAM
-```
-
-A luz corrida acende os LEDs **separados no tempo** de propósito: um pino
-morto vira um buraco na sequência, e buraco se vê de longe. Acender todos
-juntos esconderia exatamente isso. O contador na mensagem prova que a UART
-está viva *agora*, e não que sobrou lixo no buffer de alguém.
-
-### Resultado de 2026-08-08
-
-```
-HSM-DIAG 0001 .. 0006      6/6 linhas íntegras
-eco 5a a5 00 ff -> 5a a5 00 ff
-```
-
-**Cadeia física validada de ponta a ponta**: T14, T15, CP2102, cabo,
-conector, alimentação, MMCM e pinagem — todos bons. Com isso, quando o
-`hsm_top` fica mudo com D1 piscando, o defeito está no **SoC ou no
-firmware**, e não adianta procurar em cabo.
-
-### Dois defeitos que o instrumento pegou, um deles nele mesmo
-
-**1. Bit de start com largura arbitrária.** O contador de baud corria livre
-e não era realinhado no carregamento do byte, então o start durava o que
-sobrasse do período corrente — de 1 ciclo a 868. Um start de 10 ns não é
-reconhecido pelo receptor do outro lado, que engata na borda seguinte e lê
-o quadro deslocado de um bit: `0x48` chegando como `0xA4`, que é
-exatamente `(0x48 >> 1) | 0x80`.
-
-Só apareceu **em hardware**. Em simulação passava porque `MSG_DIV` era
-múltiplo de `BAUD_DIV` e a fase caía certa *por acidente* — o teste não
-conseguia reprovar o defeito. Consertado nos dois lados: o RTL realinha o
-contador, e o testbench agora usa um `MSG_DIV` não-múltiplo **e confere a
-largura do start**. Verificado revertendo o conserto do RTL: 16 erros.
-
-**2. O testbench engatava no meio do quadro.** Chamar uma task de recepção
-sob demanda perde a borda de start quando o DUT já começou a transmitir.
-Trocado por um receptor contínuo em background com fila.
-
-Os dois são o mesmo erro de fundo, e vale registrar: **um teste só vale
-pelo que consegue reprovar.** Um instrumento errado não produz "nenhum
-resultado" — produz um resultado errado com cara de certo, e manda trocar
-hardware bom.
-
-### Firmware instrumentado — `make HSM_DIAG=1 image`
-
-Faz o boot anunciar por onde passou, em vez de só travar. **Não é build de
-produção**, e a diferença não é estética: o dispositivo de produção é mudo
-até ser perguntado, e um HSM que narra o próprio boot entrega estado
-interno a quem só encostou um terminal na porta. É aceitável agora porque
-não há chave nenhuma no dispositivo; deixa de ser no minuto em que houver.
-Por isso é flag de compilação e não comando: não existe caminho em tempo
-de execução que ligue esse modo numa placa de produção.
-
----
-
-## Discriminadores de bancada
-
-Tabela ganha na sessão de 2026-08-08, para não re-investigar:
-
-| sintoma | causa provável |
-|---|---|
-| cadeia JTAG `empty` **sempre**, em todas as frequências | FPGA sem alimentação, ou JTAG fisicamente aberto |
-| `empty` **às vezes**, IDCODE ora sim ora não | mau contato de sinal |
-| IDCODE OK, gravação com `CRC Error` | integridade do cabo sob volume de dados |
-| `Done=1` + `EOS=1` + MMCM travado, e mudo | **não é a camada física** — gravar o `hsm_diag` decide |
-| adaptador USB enumera e cai em < 1 s | contato ou entrega de corrente; cabo só de carga **nunca** enumera |
-| CP2102 aparece no `lsusb` | **não prova nada** sobre a alimentação da placa: ele vive da própria USB |
-
-Voltagens e temperatura são mensuráveis pelo XADC via JTAG, sem instanciar
-nada no design (hardware manager do Vivado, `get_hw_sysmons`). Medido nesta
-placa: `VCCINT 0,987 V`, `VCCAUX 1,774 V`, `VCCBRAM 0,987 V`, `36,7 °C` —
-tudo dentro da faixa, um pouco no lado baixo.
+O achado que importa para esta fase: **a configuração por JTAG não aplica a
+inicialização das Block RAMs nesta bancada**, e é dela que a IMEM do NEORV32
+tira o código. Sintoma: `Done = 1`, MMCM travado, e CPU sem executar uma
+instrução. **Gravar pela flash** (`./scripts/program.sh flash`) resolve e
+passou a ser o modo padrão de bring-up.
 
 ---
 

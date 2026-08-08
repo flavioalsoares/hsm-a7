@@ -42,6 +42,7 @@ assunto.
 
 | Arquivo | Assunto |
 |---|---|
+| [`bancada.md`](bancada.md) | Gravação, diagnóstico de hardware e discriminadores de falha física. **Leia antes de depurar a placa** |
 | [`pinout.md`](pinout.md) | Pinagem com procedência: verificado em hardware, no esquemático, ou ainda `[TBD]` |
 | [`submodulos.md`](submodulos.md) | Política de código de terceiros e a escada de decisão para modificá-lo |
 | [`../patches/`](../patches/) | Modificações em código de terceiros, com a justificativa junto do diff |

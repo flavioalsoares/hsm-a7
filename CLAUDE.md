@@ -136,12 +136,12 @@ Nunca aplicar patch dentro do submódulo.
 UG470. Roda a 100 MHz junto com o resto. Se a leitura vier inconsistente em
 hardware, dividir o clock daquele bloco — o conserto é local.
 
-⚠ A placa **não guarda nada**: a gravação é volátil e se perde no
-desligamento. Para voltar ao ponto, ver "Retomando o trabalho" em
-`doc/fase2-notas.md`.
+✅ **A placa agora guarda o bitstream**: `./scripts/program.sh flash` grava
+na SPI flash e a placa sobe sozinha no power-on. Passou a ser o modo padrão
+— e não só por conveniência, ver a seção de bancada abaixo.
 
-✅ **Validado em hardware (2026-08-07).** Bitstream de producao gravado, e
-os tres comandos respondem na placa:
+✅ **Validado em hardware (2026-08-07, reconfirmado 2026-08-08 pela flash).**
+Os tres comandos respondem na placa:
 
 ```
 ping     PONG  (4,25 ms)
@@ -153,52 +153,41 @@ O `GET_DNA` fecha a ultima sobra da Fase 1 **em hardware**. E o firmware de
 producao se recusa a subir se o CFS nao responder com o ID certo: ele subiu,
 entao o coprocessador esta integro ponta a ponta.
 
-⚠ **Contato oxidado no cabo flat do JTAG custou uma sessao inteira.** O
-bitstream chegou a gravar com `Done 0x1` e `No CRC error` e mesmo assim o
-dispositivo ficou mudo -- `Done = 1` prova que a sequencia de configuracao
-terminou, **nao** que o dispositivo funciona. Antes de suspeitar de RTL,
-sintese ou timing, garantir o elo fisico. Detalhes em `doc/fase2-notas.md`.
+## Bancada — leia `doc/bancada.md` antes de depurar hardware
 
-## Bancada — como decidir onde está o defeito
+**Grave na flash, não na SRAM:**
 
-**Existe um bitstream de diagnóstico sem CPU nenhuma.** Use-o *antes* de
+```bash
+./scripts/program.sh flash     # persistente, e o modo certo aqui
+```
+
+⚠ **A configuração por JTAG NÃO aplica a inicialização das Block RAMs nesta
+bancada.** É de lá que a IMEM do NEORV32 tira o código. Carregado por JTAG:
+`Done = 1`, MMCM travado, e a CPU não executa uma instrução — GPIO mudo,
+UART muda, heartbeat piscando (porque flip-flop é configurado certo).
+Carregado pela flash: `ping`, `version` e `dna` respondem. Mesmo bitstream,
+medido nos dois caminhos com `rtl/diag/`.
+
+⚠ **`Done = 1` prova que a sequência de configuração terminou, NÃO que o
+dispositivo funciona.** Já custou duas sessões, por duas causas diferentes.
+
+**Existe um bitstream de diagnóstico sem CPU nenhuma** — use-o *antes* de
 suspeitar de RTL, síntese ou timing:
 
 ```bash
 vivado -mode batch -source scripts/build-diag.tcl
-BIT=build/hsm_diag.bit ./scripts/program.sh
+BIT=build/hsm_diag.bit ./scripts/program.sh flash
 ```
 
-Ele pisca D1 a 1 Hz, faz luz corrida em D2–D5, transmite
-`HSM-DIAG nnnn Rrrrr Wwwww` a cada 500 ms e **ecoa** o que receber. Se ele
-fala, a camada física está inteira e o defeito é do SoC. Validado em
-hardware 2026-08-08: 6/6 linhas íntegras e eco exato de `5a a5 00 ff`.
+Ele pisca D1, faz luz corrida em D2–D5, transmite
+`HSM-DIAG nnnn Rrrrr Wwwww Zzzzzzzzz` e ecoa o que receber. `R`/`W` são os
+placares do teste de Block RAM e `Z` deve ser `2345678B`.
 
 Firmware que anuncia o boot: `make -C fw HSM_DIAG=1 image`. **Não é build de
 produção** — o dispositivo de produção é mudo até ser perguntado.
 
-| sintoma | causa provável |
-|---|---|
-| cadeia JTAG `empty` **sempre** | FPGA sem alimentação, ou JTAG aberto |
-| `empty` **às vezes** | mau contato de sinal |
-| IDCODE OK, gravação com `CRC Error` | cabo sob volume de dados |
-| `Done=1` + MMCM travado, e mudo | **não é a física** — grave o `hsm_diag` |
-| adaptador USB enumera e cai em < 1 s | contato/corrente. Cabo só de carga **nunca** enumera |
-
-⚠ **O CP2102 aparecer no `lsusb` não prova nada sobre a alimentação da
-placa** — ele vive da própria USB e enumera com o trilho principal desligado.
-
-Voltagens e temperatura, sem instanciar nada no design, pelo hardware manager
-do Vivado (`get_hw_sysmons`): medido `VCCINT 0,987 V`, `VCCAUX 1,774 V`,
-`VCCBRAM 0,987 V`, `36,7 °C`.
-
-⚠ **JTAG por hub USB: preferir porta direta, mas não é a causa provável de
-gravação corrompida.** O USB tem CRC e retransmissão próprios — hub não
-entrega bytes errados em silêncio, ele erra ou fica lento. O `CRC Error`
-que aparece é do **FPGA**, sobre o bitstream recebido: os bytes saíram bons
-do adaptador e chegaram ruins ao chip, ou seja a corrupção é no **cabo
-flat**, que é o trecho sem proteção nenhuma. Hub direto ajuda em latência e
-corrente; suspeitar dele antes do cabo custou tempo aqui.
+Discriminadores de falha, medição de VCCINT/temperatura pelo XADC e as
+armadilhas de `grep` sobre `openFPGALoader`: `doc/bancada.md`.
 
 ## Fase 1 — concluída
 
