@@ -880,3 +880,49 @@ barramento). Os três juntos cobrem a corrente; nenhum sozinho cobre.
 Registrar essa costura importa: um teste que se descreve como "fonte
 travada" quando na verdade força o resultado mente sobre a própria
 cobertura.
+
+---
+
+## CMAC-AES-256 — primeira peça da fase 3, já no POST
+
+`fw/src/cmac.c`, NIST SP 800-38B. Entrou aqui porque é a base da fase 3 e
+porque, existindo, tem de estar no POST como todo o resto.
+
+**Ele faz duas coisas, e é a mesma função nas duas:** deriva KBEK e KBAK a
+partir da LMK *por propósito*, e autentica o key block (CMAC sobre header
+**mais** corpo). É por isso que um byte trocado no header em ASCII invalida
+o bloco inteiro — sem isso, um atacante edita `exportabilidade: não` para
+`sim` num blob que nem consegue decifrar.
+
+**Por que não CBC-MAC puro:** CBC-MAC com IV zero só é seguro para
+mensagens de tamanho **fixo**. Com tamanho variável, dado `MAC(m)` dá para
+construir uma mensagem de duas partes cujo MAC é previsível, sem a chave.
+Os dois subkeys (K1 e K2) existem para fechar isso. Um "MAC" caseiro que é
+só CBC-MAC parece funcionar em todo teste que se escreve sem má-fé.
+
+O `0x87` do `dobra()` não é mágico: é o polinômio irredutível
+x¹²⁸+x⁷+x²+x+1 que define GF(2^128). Multiplicar por x é deslocar; se
+transbordar o grau 128, subtrai-se o polinômio — e em GF(2) subtrair é XOR.
+
+### Três vetores, porque o algoritmo tem três caminhos
+
+```
+Mlen = 0          vazia      -> usa K2   (o caso que mais falha)
+Mlen % 16 == 0    alinhada   -> usa K1
+Mlen % 16 != 0    padding    -> usa K2
+```
+
+Um vetor só não distingue K1 de K2: uma implementação que use sempre o
+mesmo subkey passa em metade dos casos.
+
+⚠ **Os vetores do CAVS 11.0 só trazem tags TRUNCADAS** — `Tlen` 5 e 10,
+nenhuma de 16 bytes, nem no arquivo de geração nem no de verificação.
+Truncar é o comportamento normatizado (SP 800-38B §6.2: os bytes mais à
+esquerda), então o KAT compara os primeiros `Tlen` bytes e é legítimo. Mas
+fica registrado: **ele não verifica os últimos 6 bytes da tag.** Um erro
+que afete só o fim do último bloco passaria, e não há vetor público de tag
+cheia para fechar isso.
+
+Verificado em hardware em 2026-08-09: `CMAC-AES-256 ok` no POST.
+Timing **WNS +0,359 ns**, WHS +0,026, utilização inalterada (7392 LUT) —
+CMAC é firmware, não custa fabric.

@@ -22,12 +22,13 @@
  * ---------------------------------------------------------------------
  * O QUE ELE COBRE, E O QUE DELIBERADAMENTE NÃO
  *
- * Cobre: AES-256 ECB (cifra e decifra), SHA-256, HMAC-SHA-256 e CTR_DRBG,
- * cada um contra vetores oficiais, **através do mapa de registradores do
- * coprocessador** — que é o caminho que o firmware usa de verdade.
+ * Cobre AES-256 ECB (cifra e decifra), SHA-256, HMAC-SHA-256, CMAC-AES-256
+ * e CTR_DRBG, cada um contra vetores oficiais e **através do mapa de
+ * registradores do coprocessador** — que é o caminho que o firmware usa de
+ * verdade.
  *
- * Não cobre exaustivamente: são 1620 vetores de AES, 65 de SHA e 480 de
- * DRBG disponíveis, e eles rodam em SIMULAÇÃO, onde custam segundos e
+ * Não cobre exaustivamente: são 1620 vetores de AES, 65 de SHA, 96 de CMAC
+ * e 480 de DRBG disponíveis, e eles rodam em SIMULAÇÃO, onde custam segundos e
  * não ocupam IMEM. O POST prova integridade do caminho neste boot, não
  * corretude do algoritmo — essa já foi provada antes de o bitstream
  * existir.
@@ -46,6 +47,7 @@
 #define KAT_FALHA_HMAC  0x04u
 #define KAT_FALHA_DRBG  0x08u
 #define KAT_FALHA_TRNG  0x10u
+#define KAT_FALHA_CMAC  0x20u
 
 /* Roda o POST inteiro. Devolve KAT_OK ou a união dos bits que falharam.
  *

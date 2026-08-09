@@ -16,6 +16,14 @@
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/aes/KAT_AES.zip
 sha256 a203b16c9246b2ebae31dee5de21a606be80cf78ceabaca37150236fa098eb60
 
+[CMAC-AES-256]  NIST CAVP — CMACVS
+url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/mac/cmactestvectors.zip
+sha256 bdda4edade394c9a2ae74d9cd0921caa120c911a5e735e37abf39d0d5f062be1
+extrai CMACGenAES256.rsp  (o zip tem 8,8 MB com 3DES e AES-128/192, que
+       este projeto nao usa e nao deve ter a mao)
+uso    fase 3 — deriva KBEK/KBAK da LMK e autentica o key block X9.143.
+       Baixado em 2026-08-09.
+
 [SHA-256]  NIST CAVP — SHAVS (byte-oriented)
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/shs/shabytetestvectors.zip
 sha256 929ef80b7b3418aca026643f6f248815913b60e01741a44bba9e118067f4c9b8

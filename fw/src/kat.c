@@ -9,13 +9,14 @@
  */
 #include "kat.h"
 #include "kat_vectors.h"
+#include "cmac.h"
 #include "drbg.h"
 #include "hsm_cfs.h"
 #include "sha.h"
 #include "wipe.h"
 
-static unsigned g_ultimo = KAT_FALHA_AES | KAT_FALHA_SHA |
-                           KAT_FALHA_HMAC | KAT_FALHA_DRBG | KAT_FALHA_TRNG;
+static unsigned g_ultimo = KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC |
+                           KAT_FALHA_CMAC | KAT_FALHA_DRBG | KAT_FALHA_TRNG;
 
 /* Comparação de tempo constante.
  *
@@ -110,6 +111,41 @@ static unsigned kat_hmac(void)
     return falha;
 }
 
+/* CMAC-AES-256.
+ *
+ * Tres classes porque o algoritmo tem tres caminhos -- mensagem vazia,
+ * alinhada ao bloco (usa K1) e com padding (usa K2). Um vetor so nao
+ * distingue K1 de K2: uma implementacao que use sempre o mesmo subkey
+ * passa em metade dos casos.
+ *
+ * Compara so os primeiros TAGLEN bytes: o arquivo do CAVP traz tags
+ * truncadas. Ver o cabecalho de kat_vectors.h. */
+static unsigned kat_cmac(void)
+{
+    uint8_t  tag[CMAC_TAG_LEN];
+    unsigned falha = 0u;
+
+#define TESTA_CMAC(i)                                                      \
+    do {                                                                   \
+        if (falha == 0u) {                                                 \
+            if (cmac_aes256(kat_cmac##i##_key,                             \
+                            kat_cmac##i##_msg, KAT_CMAC##i##_MSGLEN,       \
+                            tag) != 0 ||                                   \
+                !iguais(tag, kat_cmac##i##_mac, KAT_CMAC##i##_TAGLEN)) {   \
+                falha = KAT_FALHA_CMAC;                                    \
+            }                                                              \
+        }                                                                  \
+    } while (0)
+
+    TESTA_CMAC(0);
+    TESTA_CMAC(1);
+    TESTA_CMAC(2);
+#undef TESTA_CMAC
+
+    wipe(tag, sizeof tag);
+    return falha;
+}
+
 /* CTR_DRBG.
  *
  * O fluxo do teste do CAVP não é óbvio a partir do .rsp e errá-lo dá um
@@ -196,6 +232,7 @@ unsigned kat_post(void)
     r |= kat_aes();
     r |= kat_sha();
     r |= kat_hmac();
+    r |= kat_cmac();
     r |= kat_drbg();
     r |= kat_trng();
 

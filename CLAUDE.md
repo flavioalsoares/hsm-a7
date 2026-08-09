@@ -141,8 +141,15 @@ header à mão** — ele é a única coisa que sustenta a regra nº 5.
 comando que aceita chave em claro não pode coexistir com chave de verdade.
 A fase 3 os **substitui** por versões que falam por handle.
 
-Falta: os critérios de aceitação de campo — `RANDOM` de 1 MB em `ent` e
-`dieharder`, e forçar falha de RCT levando a `TAMPERED`.
+**Fase 3 começou.** `CMAC-AES-256` (`fw/src/cmac.c`, SP 800-38B) está
+pronto e no POST — é ele que deriva KBEK/KBAK da LMK e autentica o key
+block X9.143. Vetores do CAVP em `vectors/cmac/`.
+
+⚠ **Os vetores de CMAC do CAVS 11.0 só têm tags truncadas** (Tlen 5 e 10).
+O KAT compara os primeiros Tlen bytes, o que é normatizado — mas **não
+verifica os últimos 6 bytes da tag**. Não há vetor público de tag cheia.
+
+Falta da fase 2 apenas `dieharder -a`, que não está instalado.
 Detalhes em `doc/fase2-notas.md`.
 
 **Timing fecha em +0,487 ns** (Fmax ≈ 105 MHz), 0 erros e 0 critical

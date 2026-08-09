@@ -187,6 +187,88 @@ def hmac_vetores(casos=(1, 2, 6)):
     return out
 
 
+def cmac_vetores(n=3):
+    """CMAC-AES-256 do CAVP (CMACGenAES256.rsp).
+
+    ⚠ O arquivo do CAVS 11.0 só traz tags TRUNCADAS -- Tlen 5 e 10, nenhuma
+    de 16 bytes. Truncar é o comportamento normatizado (SP 800-38B §6.2: a
+    tag são os Tlen bytes mais à esquerda do CMAC completo), então o KAT
+    compara os primeiros Tlen bytes. É KAT legítimo, mas registre-se: ele
+    NÃO verifica os últimos 6 bytes da tag. Um erro que afete só o fim do
+    último bloco passaria -- e não há vetor público de tag cheia para
+    fechar isso.
+
+    Escolhe comprimentos de mensagem DIFERENTES, cobrindo os três caminhos
+    que o algoritmo tem:
+
+        Mlen = 0          mensagem vazia -- usa K2, e é o caso que mais
+                          falha em implementação caseira
+        Mlen % 16 == 0    alinhada ao bloco -- usa K1
+        Mlen % 16 != 0    precisa de padding -- usa K2
+
+    Um vetor só, de qualquer tamanho, não distingue K1 de K2. Uma
+    implementação que use sempre o mesmo subkey passa em metade dos casos.
+    """
+    p = VEC / "cmac" / "CMACGenAES256.rsp"
+    if not p.exists():
+        sys.exit(f"ERRO: {p} nao existe -- rode scripts/fetch-vectors.sh")
+
+    regs = []
+    atual = None
+    for linha in p.read_text(errors="replace").splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or linha.startswith("["):
+            continue
+        if "=" not in linha:
+            continue
+        k, v = (x.strip() for x in linha.split("=", 1))
+        k = k.upper()
+        if k == "COUNT":
+            atual = {}
+            regs.append(atual)
+            continue
+        if atual is not None:
+            atual[k] = v
+
+    quero = ["vazia", "alinhada", "padding"]
+    achados = {}
+    for r in regs:
+        if "MAC" not in r or "MLEN" not in r or "TLEN" not in r:
+            continue
+        # a mais longa das duas disponiveis, para maximizar o que e conferido
+        if int(r["TLEN"]) != 10:
+            continue
+        mlen = int(r["MLEN"])
+        if mlen == 0:
+            classe = "vazia"
+        elif mlen % 16 == 0:
+            classe = "alinhada"
+        else:
+            classe = "padding"
+        if classe in achados:
+            continue
+        msg = b"" if mlen == 0 else hexbytes(r["MSG"])[:mlen]
+        if len(msg) != mlen:
+            continue
+        mac = hexbytes(r["MAC"])
+        if len(mac) != int(r["TLEN"]):
+            continue
+        achados[classe] = {
+            "classe": classe,
+            "mlen": mlen,
+            "key": hexbytes(r["KEY"]),
+            "msg": msg,
+            "mac": mac,
+        }
+        if len(achados) == len(quero):
+            break
+
+    faltando = [c for c in quero if c not in achados]
+    if faltando:
+        sys.exit(f"ERRO: nao achei vetor CMAC para {faltando}")
+    return [achados[c] for c in quero][:n]
+
+
 def drbg_vetores(n=3):
     """CTR_DRBG AES-256 use df, sem resemeadura (CAVP).
 
@@ -258,6 +340,7 @@ def main():
     aes = aes_vetores()
     sha = sha_vetores()
     hmac = hmac_vetores()
+    cmac = cmac_vetores()
     drbg = drbg_vetores()
 
     L = []
@@ -310,6 +393,25 @@ def main():
     L.append(f"#define KAT_HMAC_N {len(hmac)}")
     L.append("")
 
+    L.append("/* ---- CMAC-AES-256 (NIST CAVP / CMACVS) ----")
+    L.append(" *")
+    L.append(" * Tres classes, porque o algoritmo tem tres caminhos e um")
+    L.append(" * vetor so nao distingue K1 de K2.")
+    L.append(" *")
+    L.append(" * TAGS TRUNCADAS: o arquivo do CAVS 11.0 nao tem tag de 16")
+    L.append(" * bytes. Comparar os primeiros TAGLEN bytes e o que a norma")
+    L.append(" * define (SP 800-38B 6.2), mas nao confere o resto da tag. */")
+    for i, v in enumerate(cmac):
+        L.append(f"/* {v['classe']}: Mlen = {v['mlen']}, Tlen = {len(v['mac'])} */")
+        L.append(carr(f"kat_cmac{i}_key", v["key"]))
+        L.append(carr(f"kat_cmac{i}_msg", v["msg"]))
+        L.append(f"#define KAT_CMAC{i}_MSGLEN {len(v['msg'])}u")
+        L.append(carr(f"kat_cmac{i}_mac", v["mac"]))
+        L.append(f"#define KAT_CMAC{i}_TAGLEN {len(v['mac'])}u")
+        L.append("")
+    L.append(f"#define KAT_CMAC_N {len(cmac)}")
+    L.append("")
+
     L.append("/* ---- CTR_DRBG AES-256 use df (NIST CAVP / SP 800-90A) ----")
     L.append(" *")
     L.append(" * Fluxo do teste, e ele NAO e obvio a partir do .rsp:")
@@ -335,6 +437,7 @@ def main():
     print(f"   AES  {len(aes)} vetores")
     print(f"   SHA  {len(sha)} vetores")
     print(f"   HMAC {len(hmac)} vetores (casos {[v['caso'] for v in hmac]})")
+    print(f"   CMAC {len(cmac)} vetores ({[v['classe'] for v in cmac]})")
     print(f"   DRBG {len(drbg)} vetores")
     print(f"   {SAIDA.stat().st_size} bytes")
 

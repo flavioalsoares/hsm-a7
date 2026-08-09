@@ -73,6 +73,7 @@ KAT_BITS = [
     (0x04, "HMAC-SHA-256"),
     (0x08, "CTR_DRBG"),
     (0x10, "TRNG / health tests"),
+    (0x20, "CMAC-AES-256"),
 ]
 
 STATUS_NAMES = {

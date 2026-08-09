@@ -366,6 +366,40 @@ assinatura sair errada, implemente contramedidas (dupla execução, verificaçã
 resultado). Bitstream encriptado com chave em BBRAM como confidencialidade de
 firmware.
 
+**Fase 8 — criptografia de pagamento (esboço, decidido em 2026-08-08).**
+Depois que a hierarquia de chaves e a API existirem, é o que falta para o
+projeto encostar de verdade no assunto de um payShield. Nem tudo é
+ensinável aqui; o que separa é o **hardware** e a **procedência dos
+vetores**, não a dificuldade.
+
+| Assunto | Dá? | O que decide |
+|---|---|---|
+| **PIN block ISO 9564 formato 4** | **sim** | é AES, que já temos. Formatação, XOR com o PAN, cifra |
+| **PIN block formato 0** | **sim** | 3DES no uso real, mas a *estrutura* é a mesma e o ataque não depende da cifra |
+| **PIN translate** | **sim** | é o `CA` de um payShield e o alvo clássico de ataque de API |
+| **Ataque de tabela de decimalização** | **sim, e é o melhor item da lista** | Bond/Clulow. Não precisa de 3DES nem de vetor da Visa: o ataque é sobre a *API*, e reproduz num esquema nosso com AES |
+| **DUKPT AES (X9.24-3)** | **sim** | cabe no hardware AES-only. Ensina gerenciamento de chave em escala |
+| **CVV / CVC** | **não sem 3DES** | inerentemente 3DES nos esquemas de cartão. Não existe variante AES em uso |
+| **PVV** | **não sem 3DES** | idem. O *ataque* sobre ele é ensinável sem ele |
+| **DUKPT TDES (X9.24-1)** | **não sem 3DES** | idem |
+
+**O 3DES é uma decisão de arquitetura, não uma tarefa.** O CFS tem `keylen`
+fixo em AES-256 **sem caminho de downgrade**, de propósito (§3). Um core DES
+contradiz isso. É defensável como engine separado e rotulado como legado —
+que é honestamente o que um HSM de pagamento real tem — mas é escolha
+consciente, e a decisão fica para quando a fase chegar.
+
+**O obstáculo maior são os vetores.** A regra inviolável nº 5 exige
+procedência verificável, e para cripto de pagamento os vetores oficiais
+estão atrás de paywall (ANSI X9.24-3) ou dentro de manual de fabricante.
+Sem vetor autoritativo não há KAT, e "implementei e parece certo" é
+exatamente o que a regra proíbe. Onde não houver vetor público, o item
+**não entra** — ou entra explicitamente marcado como não verificado.
+
+⚠ **Nenhum PAN real, nunca**, pela mesma razão que nenhuma chave de
+produção. Gerar CVV ou PIN para um número de cartão que existe deixa de ser
+exercício.
+
 **Fase 7 — assimétrico.** RSA-2048 por Montgomery nos 90 DSP48E1; P-256 depois.
 Deixar por último: o aprendizado de HSM está nas fases 3 a 5.
 

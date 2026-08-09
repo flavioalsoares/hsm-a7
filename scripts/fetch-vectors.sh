@@ -33,6 +33,12 @@ HMAC_SHA="72178527ce93500e730bc8eb182b857e583096d652b64ece0879c52ba1df973b"
 DRBG_URL="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/drbg/drbgtestvectors.zip"
 DRBG_SHA="5f7e5658ebd5b4e6785a7b12fa32333511d2acc2f2d9c5ae1ffa16b699377769"
 
+# CMAC -- fase 3. E ele que deriva KBEK/KBAK da LMK e autentica o key block,
+# entao um erro aqui nao aparece como "MAC errado": aparece como key block
+# que nao importa em lugar nenhum, ou pior, que importa onde nao devia.
+CMAC_URL="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/mac/cmactestvectors.zip"
+CMAC_SHA="bdda4edade394c9a2ae74d9cd0921caa120c911a5e735e37abf39d0d5f062be1"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -78,6 +84,7 @@ fetch "$AES_URL"  "$AES_SHA"  "$TMP/KAT_AES.zip"
 fetch "$SHA_URL"  "$SHA_SHA"  "$TMP/shabytetestvectors.zip"
 fetch "$HMAC_URL" "$HMAC_SHA" "$TMP/rfc4231.txt"
 fetch "$DRBG_URL" "$DRBG_SHA" "$TMP/drbgtestvectors.zip"
+fetch "$CMAC_URL" "$CMAC_SHA" "$TMP/cmactestvectors.zip"
 
 echo "=== extraindo"
 unzip -qo "$TMP/KAT_AES.zip" 'ECB*256.rsp' 'CBC*256.rsp' -d "$VEC/aes/"
@@ -85,6 +92,11 @@ unzip -qjo "$TMP/shabytetestvectors.zip" \
       'shabytetestvectors/SHA256ShortMsg.rsp' \
       'shabytetestvectors/SHA256LongMsg.rsp' -d "$VEC/sha/"
 cp "$TMP/rfc4231.txt" "$VEC/hmac/"
+
+# CMAC: so a geracao com AES-256. O zip tem 8,8 MB com 3DES e AES-128/192,
+# que este projeto nao usa e nao deve ter a mao.
+mkdir -p "$VEC/cmac"
+unzip -qjo "$TMP/cmactestvectors.zip" 'CMACGenAES256.rsp' -d "$VEC/cmac/"
 
 # CTR_DRBG vem num zip dentro do zip, e o arquivo completo tem 785 KB com
 # 3DES e AES-128/192 que este projeto nao usa. Filtra para [AES-256 ...].
