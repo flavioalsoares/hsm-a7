@@ -97,3 +97,18 @@ O dispositivo e mudo ate ser perguntado: terminal aberto nao mostra nada, e
 isso e o comportamento correto.
 
 Nada vai para a placa sem passar antes no testbench. Ver `CLAUDE.md`.
+
+## Licenca
+
+Codigo e documentacao deste projeto: **Apache License 2.0** (ver `LICENSE`).
+
+Escolhida pela concessao expressa de patente da secao 3 -- nao porque haja
+patente envolvida (nao ha: AES, SHA-256, HMAC, CMAC e CTR_DRBG sao normas
+livres de royalties, e as patentes de DES expiraram nos anos 1990), mas
+porque deixar isso por escrito custa nada.
+
+**Codigo de terceiros nao e redistribuido aqui.** NEORV32, AES e SHA-256
+entram como submodulos apontando para o upstream, sob BSD-3 e BSD-2. Ver
+`NOTICE` e **[`THIRD-PARTY.md`](THIRD-PARTY.md)**, que tambem registra a
+situacao de patente de cada algoritmo e por que implementar uma norma nao
+infringe o direito autoral do documento dela.

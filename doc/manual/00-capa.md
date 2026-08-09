@@ -54,3 +54,14 @@ seção 22 corresponde a um mecanismo real que existe num HSM de verdade e
 custa dinheiro, tempo de projeto e meses de avaliação.
 
 :::
+
+---
+
+**Licença.** Este manual e o código do projeto estão sob a **Apache License
+2.0**. O texto integral está em `LICENSE`, no repositório.
+
+**Independência.** Este documento não nomeia fabricante nem produto de HSM,
+e não há vínculo, patrocínio, endosso ou alegação de compatibilidade com
+equipamento comercial algum. O conteúdo vem de normas públicas — ISO, ANSI,
+NIST, IETF — e de literatura acadêmica publicada; nada é derivado de
+documentação proprietária. Ver `THIRD-PARTY.md`.

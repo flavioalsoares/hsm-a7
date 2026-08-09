@@ -1,0 +1,26 @@
+hsm-a7 — HSM educacional em FPGA Artix-7
+Copyright 2026 Flavio Soares
+
+Licenciado sob a Apache License 2.0. Ver LICENSE.
+
+----------------------------------------------------------------------
+Este produto NAO redistribui codigo de terceiros. Os componentes abaixo
+entram como submodulos git apontando para o repositorio original, e o
+codigo deles permanece sob as respectivas licencas:
+
+  NEORV32   BSD-3-Clause   Copyright (c) NEORV32 contributors
+                           Copyright (c) 2020-2026 Stephan Nolting
+                           github.com/stnolting/neorv32  (tag v1.13.3)
+
+  AES       BSD-2-Clause   Copyright (c) 2014 Joachim Strombergson
+                           github.com/secworks/aes  (commit 80dc471)
+
+  SHA-256   BSD-2-Clause   Copyright (c) 2013 Joachim Strombergson
+                           github.com/secworks/sha256  (commit 837c5cc)
+
+Modificacoes ao SHA-256 vivem em patches/sha256/ e sao aplicadas sobre uma
+COPIA em build/patched/. O submodulo permanece byte a byte igual ao
+upstream.
+
+Detalhes, e a situacao de patente dos algoritmos implementados, em
+THIRD-PARTY.md.
