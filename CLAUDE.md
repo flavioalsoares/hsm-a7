@@ -150,7 +150,9 @@ O KAT compara os primeiros Tlen bytes, o que é normatizado — mas **não
 verifica os últimos 6 bytes da tag**. Não há vetor público de tag cheia.
 
 Falta da fase 2 apenas `dieharder -a`, que não está instalado.
-Detalhes em `doc/fase2-notas.md`.
+Detalhes em `doc/fase2-notas.md`; **o próximo passo e como retomar estão em
+`doc/fase3-notas.md`** — o próximo é o **key store em BRAM**, e a estrutura
+do slot precisa nascer com os campos do header X9.143 já modelados.
 
 **Timing fecha em +0,487 ns** (Fmax ≈ 105 MHz), 0 erros e 0 critical
 warnings. Não fechava: o CFS entrou com **−2,388 ns**, e 49 dos 58 endpoints

@@ -36,7 +36,9 @@ assunto.
 - **[`fase1-notas.md`](fase1-notas.md)** — MMCM, configuração do NEORV32,
   síntese e timing, toolchain do firmware, bring-up em hardware.
 - **[`fase2-notas.md`](fase2-notas.md)** — vetores KAT e sua procedência,
-  cores de cripto, o que falta na fase e **como retomar depois de desligar**.
+  cores de cripto, TRNG, CTR_DRBG, POST e CMAC.
+- **[`fase3-notas.md`](fase3-notas.md)** — hierarquia de chaves: o que já
+  existe, o que falta e **como retomar depois de desligar**.
 
 ## Criptografia de pagamento
 
