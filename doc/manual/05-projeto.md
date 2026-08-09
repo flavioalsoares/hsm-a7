@@ -347,7 +347,7 @@ Um teste que passa quando o dispositivo está morto é pior que teste nenhum.
 ### 24.12 `hsmtool.py` — o cliente da API
 
 Codec do protocolo, transporte serial, CLI. Em produção isso seria PKCS#11 ou
-um command set ASCII estilo payShield — é o que a Fase 5 constrói.
+um command set ASCII de HSM de pagamento — é o que a Fase 5 constrói.
 
 O comentário no topo do arquivo é a regra que o mantém honesto:
 

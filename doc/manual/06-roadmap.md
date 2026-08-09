@@ -209,7 +209,7 @@ configuração, e o acesso a partir da lógica do usuário exige a primitiva
 
 Subconjunto de PKCS#11 (`C_Initialize`, `C_GenerateKey`, `C_WrapKey`,
 `C_Sign`) como biblioteca compartilhada, ou um command set ASCII estilo
-payShield.
+de HSM de pagamento.
 
 É aqui que se entende por que a API é o que é: **é você que precisa impedi-la
 de vazar material de chave**. Depois de ter lido a seção 15, escrever a API

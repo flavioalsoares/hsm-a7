@@ -30,8 +30,17 @@ pessoa sozinha. Ver seção 7.
 **DRBG** — *Deterministic Random Bit Generator*. Gerador determinístico
 semeado por entropia física, especificado na SP 800-90A.
 
+**CVV / CVC** — três dígitos derivados de PAN, validade e código de serviço
+sob um par de chaves. Inerentemente 3DES, e por isso fora do alcance deste
+projeto (seção 38).
+
+**Decimalização** — mapear os dígitos hexadecimais que uma cifra produz
+para dígitos decimais, para formar um PIN. A tabela que faz esse mapeamento
+foi a origem do ataque de Bond e Zieliński (seções 15.2 e 36.3).
+
 **DUKPT** — *Derived Unique Key Per Transaction*. Esquema em que cada
-transação usa uma chave distinta derivada de uma BDK.
+transação usa uma chave distinta derivada de uma BDK, identificada por um
+KSN. Duas normas: X9.24-1 (TDES, legado) e X9.24-3 (AES). Seção 37.
 
 **eFUSE** — memória de programação única do FPGA. **Proibida neste
 projeto**: erro vira brick permanente.
@@ -51,6 +60,10 @@ da LMK por propósito.
 **KCV** — *Key Check Value*. Três bytes do resultado de cifrar um bloco de
 zeros com a chave. Permite verificar sem revelar.
 
+**KSN** — *Key Serial Number*. Identificador do dispositivo mais o contador
+de transação, enviado junto com cada transação DUKPT. Com ele e a BDK, o HSM
+rederiva a chave usada. Seção 37.
+
 **KEK** — *Key Encryption Key*. Chave cuja função é proteger outras chaves.
 
 **LMK** — *Local Master Key*. A chave mestra do módulo, no topo da
@@ -59,8 +72,16 @@ hierarquia. Nunca sai, nem embrulhada.
 **MMCM** — *Mixed-Mode Clock Manager*. Bloco do FPGA Xilinx que sintetiza
 clocks. Aqui, 50 → 100 MHz.
 
+**PAN** — *Primary Account Number*. O número do cartão. Entra na formação
+do PIN block para amarrar o PIN à conta. **Nunca usar um PAN real neste
+projeto** (seção 38.4).
+
 **PIN block** — formato que combina PIN e número da conta para transporte.
-Alvo de ataques clássicos (seção 15.3).
+Os formatos da ISO 9564 e suas fraquezas estão na seção 34; os ataques
+clássicos, na 15.3.
+
+**PVV** — *PIN Verification Value*. Quatro dígitos derivados de PAN e PIN
+sob uma chave PVK, guardados pelo emissor no lugar do PIN. Seção 36.1.
 
 **PMP** — *Physical Memory Protection*. Mecanismo RISC-V de restrição de
 acesso à memória por região.
@@ -80,8 +101,12 @@ montada de componentes.
 **Tamper-evident / resistant / responsive** — a escada de proteção física.
 Ver seção 18.1.
 
+**Tradução de PIN** — decifrar um PIN block sob uma chave e recifrá-lo sob
+outra, sem que o PIN saia da fronteira. É o comando mais perigoso de um HSM
+de pagamento, porque é um oráculo por construção. Seção 35.
+
 **TR-31** — formato de key block da indústria de pagamentos, hoje ANSI
-X9.143. Ver seção 8.
+X9.143. É o formato adotado por este projeto (seção 8).
 
 **TRNG** — gerador de números aleatórios verdadeiro, baseado em fenômeno
 físico.

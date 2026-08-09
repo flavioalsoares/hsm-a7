@@ -43,7 +43,8 @@ PARTES=(
     "$SRC/04-certificacao.md"
     "$SRC/05-projeto.md"
     "$SRC/06-roadmap.md"
-    "$SRC/07-apendices.md"
+    "$SRC/07-pagamento.md"
+    "$SRC/08-apendices.md"
 )
 
 for f in "${PARTES[@]}"; do

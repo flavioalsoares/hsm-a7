@@ -15,24 +15,25 @@ chave de produção deve jamais ser carregada nele.
 
 *Decidido em 2026-08-08.*
 
-O modelo de referência é um **HSM de pagamento estilo Thales payShield**, e não
+O modelo de referência é um **HSM de pagamento comercial**, e não
 um token PKCS#11 genérico. Isso não muda as fases 1 a 4; muda **duas escolhas**
 que já estavam em aberto:
 
 | Onde | Escolha |
 |---|---|
-| Fase 3, key blocks | **ANSI X9.143** (TR-31 versão D), que é o que um payShield consome e produz |
+| Fase 3, key blocks | **ANSI X9.143** (TR-31 versão D), que é o formato que os HSM de pagamento comerciais consomem e produzem |
 | Fase 5, API de host | **Command set ASCII** de dois caracteres sobre socket, não `.so` PKCS#11 |
 
 **O que este projeto passa a ensinar bem:** a fronteira criptográfica, a
 hierarquia sob uma LMK, key blocks com *usage*, *mode of use* e
 *exportability*, KCV, cerimônia com split knowledge e dual control, estado
 autorizado, POST, e por que a API é a superfície de ataque de um HSM. Quem
-terminar isto lê o manual de um payShield reconhecendo decisões em vez de
+terminar isto lê o manual de um HSM de pagamento comercial reconhecendo
+decisões em vez de
 decorando comandos.
 
 **O que ele continua NÃO ensinando, e é bom deixar escrito:** o command set
-real do fabricante e seus códigos, os esquemas de LMK específicos da Thales,
+real de cada fabricante e seus códigos, os esquemas de LMK proprietários,
 e o negócio de pagamento propriamente dito — PIN blocks ISO 9564, PVV,
 offsets IBM 3624, CVV, ARQC/EMV, DUKPT. Nada disso está em nenhuma das sete
 fases. **Este projeto não substitui o equipamento nem o manual dele.**
@@ -292,7 +293,8 @@ knowledge). Nenhum componente isolado revela nada sobre a LMK.
 ### Key blocks ANSI X9.143 (TR-31 versão D)
 
 *Formato fixado em 2026-08-08 pela decisão de rumo da seção 0: X9.143, que é
-o que um payShield consome e produz. TR-31 "genérico" não existe como alvo —
+o formato que os HSM de pagamento comerciais consomem e produzem. TR-31
+"genérico" não existe como alvo —
 o que existe é a versão D do padrão, e é ela.*
 
 - KBEK e KBAK derivados da LMK por CMAC (derivação por propósito)
@@ -346,7 +348,7 @@ trilha forense.
 **Fase 4 — NV storage.** Blobs wrapped na SPI flash, MAC de integridade,
 contador anti-rollback, recuperação de estado no boot. Modelo real de HSM.
 
-**Fase 5 — API de host: command set ASCII estilo payShield.** *Decisão de rumo
+**Fase 5 — API de host: command set ASCII de HSM de pagamento.** *Decisão de rumo
 tomada em 2026-08-08 — ver "Alvo declarado" na seção 0.* Em vez de um subconjunto
 PKCS#11 como `.so`, um command set ASCII sobre socket, no formato de um HSM de
 pagamento: código de comando de dois caracteres, código de resposta = comando + 1,
@@ -368,7 +370,7 @@ firmware.
 
 **Fase 8 — criptografia de pagamento (esboço, decidido em 2026-08-08).**
 Depois que a hierarquia de chaves e a API existirem, é o que falta para o
-projeto encostar de verdade no assunto de um payShield. Nem tudo é
+projeto encostar de verdade no assunto. Nem tudo é
 ensinável aqui; o que separa é o **hardware** e a **procedência dos
 vetores**, não a dificuldade.
 
@@ -376,7 +378,7 @@ vetores**, não a dificuldade.
 |---|---|---|
 | **PIN block ISO 9564 formato 4** | **sim** | é AES, que já temos. Formatação, XOR com o PAN, cifra |
 | **PIN block formato 0** | **sim** | 3DES no uso real, mas a *estrutura* é a mesma e o ataque não depende da cifra |
-| **PIN translate** | **sim** | é o `CA` de um payShield e o alvo clássico de ataque de API |
+| **PIN translate** | **sim** | o comando de tradução é o alvo clássico de ataque de API |
 | **Ataque de tabela de decimalização** | **sim, e é o melhor item da lista** | Bond/Clulow. Não precisa de 3DES nem de vetor da Visa: o ataque é sobre a *API*, e reproduz num esquema nosso com AES |
 | **DUKPT AES (X9.24-3)** | **sim** | cabe no hardware AES-only. Ensina gerenciamento de chave em escala |
 | **CVV / CVC** | **não sem 3DES** | inerentemente 3DES nos esquemas de cartão. Não existe variante AES em uso |
@@ -399,6 +401,20 @@ exatamente o que a regra proíbe. Onde não houver vetor público, o item
 ⚠ **Nenhum PAN real, nunca**, pela mesma razão que nenhuma chave de
 produção. Gerar CVV ou PIN para um número de cartão que existe deixa de ser
 exercício.
+
+⚠ **Não nomear fabricante nem produto, e não copiar documentação deles.**
+O modelo de referência é a *categoria* — HSM de pagamento — e a documentação
+deste projeto fala dela sem citar marca. Não há vínculo, endosso nem
+alegação de compatibilidade com equipamento comercial algum.
+
+O conteúdo técnico sai de **normas públicas** (ISO 9564, ANSI X9.24 e
+X9.143, NIST) e de **literatura acadêmica publicada**. Tabela de comandos,
+código de erro e esquema de chave de manual de fabricante são material
+licenciado e **não entram aqui em nenhuma hipótese**.
+
+Quando a fase 5 definir o command set ASCII, ele será **nosso**: o formato
+geral (código de dois caracteres, resposta = comando + 1) é público e
+observável, e é só dele que a inspiração vem.
 
 **Fase 7 — assimétrico.** RSA-2048 por Montgomery nos 90 DSP48E1; P-256 depois.
 Deixar por último: o aprendizado de HSM está nas fases 3 a 5.

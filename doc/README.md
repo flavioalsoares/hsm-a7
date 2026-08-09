@@ -38,6 +38,18 @@ assunto.
 - **[`fase2-notas.md`](fase2-notas.md)** — vetores KAT e sua procedência,
   cores de cripto, o que falta na fase e **como retomar depois de desligar**.
 
+## Criptografia de pagamento
+
+A **Parte VII** do manual ([`manual/07-pagamento.md`](manual/07-pagamento.md))
+cobre o domínio para o qual o projeto passou a apontar: PIN blocks ISO 9564
+(formatos 0, 1, 3 e 4), tradução de PIN, verificação por PVV e IBM 3624, a
+tabela de decimalização, e DUKPT nas variantes TDES e AES.
+
+A seção 38 é a que mais importa para quem for mexer no código: ela separa o
+que deste domínio é implementável aqui do que não é, e o critério **não é
+dificuldade** — é a ausência de 3DES (decisão de arquitetura) e a
+indisponibilidade de vetores de teste públicos.
+
 ## Referência
 
 | Arquivo | Assunto |

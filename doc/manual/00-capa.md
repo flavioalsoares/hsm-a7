@@ -18,15 +18,20 @@ O documento tem duas metades que se encontram no meio. As Partes I a IV
 explicam **como um HSM funciona e por quê**, independentemente deste projeto:
 arquitetura, ameaças, ataques históricos e certificação. A Parte V explica
 **o que foi construído** e liga cada peça de código ao conceito
-correspondente. A Parte VI é o roteiro do que falta.
+correspondente. A Parte VI é o roteiro do que falta. A Parte VII trata do
+domínio para o qual o projeto passou a apontar: **criptografia de
+pagamento** — PIN blocks, tradução de PIN, verificação por PVV e 3624,
+DUKPT — e diz, sem rodeio, o que deste domínio é ensinável aqui e o que
+não é.
 
 Estado na data desta edição: **Fase 1 completa e validada em hardware; Fase
-2 em andamento**, com os cores de AES-256 e SHA-256 verificados contra os
-vetores oficiais do NIST em simulação.
+2 validada na placa** — AES-256, SHA-256, HMAC, CMAC, TRNG com health tests
+da SP 800-90B e CTR_DRBG, todos verificados contra vetores oficiais do NIST
+e do IETF, com POST rodando a cada boot. **Fase 3 iniciada.**
 
-Quem quer só entender o assunto pode parar na Parte IV. Quem quer reproduzir
-o trabalho começa na Parte V e volta às anteriores conforme a dúvida
-aparecer.
+Quem quer só entender o assunto pode parar na Parte IV — ou seguir para a
+VII, se o interesse for pagamento. Quem quer reproduzir o trabalho começa na
+Parte V e volta às anteriores conforme a dúvida aparecer.
 
 :::
 

@@ -119,7 +119,8 @@ digamos, PKCS#11 e certificados.
 ### HSM de pagamentos
 
 O mais antigo e o mais rígido. Protege PINs de cartão, chaves de terminal e
-criptogramas EMV. Exemplos: Thales payShield, Utimaco Atalla.
+criptogramas EMV. Há poucos fabricantes, e os equipamentos são certificados
+sob o PCI PTS HSM.
 
 É onde nasceram os conceitos de **LMK** (chave mestra local), **key block**
 e a exigência operacional de dual control e split knowledge. As regras não
@@ -132,7 +133,7 @@ block desta chave para aquela", "gere uma chave de terminal".
 ### HSM de propósito geral
 
 Protege chaves de PKI, assinatura de código, TLS, bancos de dados,
-blockchain. Exemplos: Entrust nShield, Thales Luna, Utimaco SecurityServer,
+blockchain. Vários fabricantes, tipicamente validados em FIPS 140-3,
 YubiHSM.
 
 A interface padrão é **PKCS#11** — `C_GenerateKey`, `C_Sign`, `C_WrapKey` —

@@ -9,15 +9,18 @@ producao entra aqui.
 
 ## Para aprender o assunto
 
-**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 46 paginas.
+**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 54 paginas.
 
   I-II   como um HSM funciona: fronteira, hierarquia de chaves, cerimonia
-         de LMK, TR-31, maquina de estados, aleatoriedade, self-test
+         de LMK, key blocks, maquina de estados, aleatoriedade, self-test
   III    como HSMs sao atacados: ataques de API, canais laterais, injecao
          de falha, antitamper
   IV     certificacao: FIPS 140-3, PCI, Common Criteria
   V      cada peca deste projeto e o que ela e num HSM real
   VI     o caminho ate a fase 7
+  VII    criptografia de pagamento: PIN blocks ISO 9564 (formatos 0, 1, 3
+         e 4), traducao de PIN, PVV e IBM 3624, decimalizacao, DUKPT TDES
+         e AES -- e o que deste dominio da para ensinar aqui, e o que nao
 
 Fonte do manual em [`doc/manual/`](doc/manual/) (Markdown); o PDF sai de
 `./scripts/mkpdf.sh`. Roteiro de leitura completo em
