@@ -139,6 +139,27 @@ module tb_diag;
 
     reg [15:0] er_lido, ew_lido;
     reg [31:0] z_lido;
+    reg        ba_lido, bb_lido;
+
+    // " B" seguido de dois digitos 0/1 -- estado dos botoes de dual
+    // control. Existe para fechar o [TBD] da ordem fisica no silk.
+    task le_botoes(output ba, output bb);
+        reg [7:0] c;
+        begin
+            uart_get(c);
+            if (c !== " ") begin
+                $display("[tb_diag] ERRO: esperava espaco antes de B, veio 0x%02x", c);
+                erros = erros + 1;
+            end
+            uart_get(c);
+            if (c !== "B") begin
+                $display("[tb_diag] ERRO: esperava marca B, veio 0x%02x", c);
+                erros = erros + 1;
+            end
+            uart_get(c); ba = (c == "1");
+            uart_get(c); bb = (c == "1");
+        end
+    endtask
 
     // Le a mensagem inteira e devolve o campo de sequencia.
     task ler_mensagem(output [15:0] seq_lida, input integer verifica_texto);
@@ -177,6 +198,7 @@ module tb_diag;
             le_placar("R", er_lido);
             le_placar("W", ew_lido);
             le_palavra32("Z", z_lido);
+            le_botoes(ba_lido, bb_lido);
 
             uart_get(c);
             if (c !== 8'h0D) begin
@@ -336,6 +358,18 @@ module tb_diag;
             erros = erros + 1;
         end else begin
             $display("[tb_diag] eco de 0xA5 ok");
+        end
+
+        // Os botoes do testbench estao em 1 (nao pressionados, ativo
+        // baixo), entao a mensagem tem de reportar 0 e 0. Se reportasse 1,
+        // a inversao estaria trocada -- e a medida em hardware apontaria o
+        // botao errado, que e o defeito que este [TBD] existe para evitar.
+        if (ba_lido !== 1'b0 || bb_lido !== 1'b0) begin
+            $display("[tb_diag] ERRO: botoes soltos reportados como %b%b, esperado 00",
+                     ba_lido, bb_lido);
+            erros = erros + 1;
+        end else begin
+            $display("[tb_diag] botoes soltos reportam 00, inversao correta");
         end
 
         // 4 -- controle do display pelo host

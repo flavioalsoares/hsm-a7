@@ -262,7 +262,45 @@ module hsm_diag_top #(
     //   rrrr  erros da BRAM inicializada pelo bitstream (o caso da IMEM)
     //   wwww  erros de escrita/leitura em BRAM
     // Os dois placares em zero e a prova de que a Block RAM esta boa.
-    localparam integer MSG_LEN = 37;
+    // "HSM-DIAG nnnn Rrrrr Wwwww Zzzzzzzzz Bab" + CR + LF
+    localparam integer MSG_LEN = 41;
+
+    // ------------------------------------------------------------------
+    // Botoes -- para fechar o ultimo [TBD] de bancada
+    //
+    // Nao se sabe qual botao FISICO na serigrafia corresponde a SW2 (M6) e
+    // qual a SW5 (P6). Vira critico na fase 3: o dual control da cerimonia
+    // de LMK exige dois operadores em botoes distintos, e trocar os dois
+    // nao e detectavel por software -- o dispositivo aceitaria a cerimonia
+    // com uma pessoa so apertando os dois, que e exatamente o que o dual
+    // control existe para impedir.
+    //
+    // Aqui sai o estado dos dois na mensagem periodica: aperta-se um de
+    // cada vez e le-se qual mudou.
+    //
+    // Ativos BAIXOS na daughterboard (pull-up, fecham para GND). A
+    // mensagem reporta PRESSIONADO = 1, que e o que se correlaciona com a
+    // acao de quem esta olhando.
+    //
+    // Sincronizador de dois estagios porque a entrada e assincrona e
+    // mecanica. Sem debounce de proposito: aqui interessa o estado, nao a
+    // borda, e ressalto nao atrapalha leitura a 2 Hz.
+    // ------------------------------------------------------------------
+    (* ASYNC_REG = "TRUE" *) reg [1:0] btn_a_sync = 2'b00;
+    (* ASYNC_REG = "TRUE" *) reg [1:0] btn_b_sync = 2'b00;
+
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            btn_a_sync <= 2'b00;
+            btn_b_sync <= 2'b00;
+        end else begin
+            btn_a_sync <= {btn_a_sync[0], ~btn_a_i};
+            btn_b_sync <= {btn_b_sync[0], ~btn_b_i};
+        end
+    end
+
+    wire btn_a = btn_a_sync[1];   // 1 = pressionado
+    wire btn_b = btn_b_sync[1];
 
     wire        mem_done;
     wire [15:0] mem_erros_rom, mem_erros_rw;
@@ -283,7 +321,7 @@ module hsm_diag_top #(
 
     function [7:0] msg_char(input [5:0] i, input [15:0] s,
                             input [15:0] er, input [15:0] ew,
-                            input [31:0] z);
+                            input [31:0] z, input ba, input bb);
         case (i)
             6'd0:  msg_char = "H";
             6'd1:  msg_char = "S";
@@ -320,7 +358,11 @@ module hsm_diag_top #(
             6'd32: msg_char = hexdig(z[11:8]);
             6'd33: msg_char = hexdig(z[7:4]);
             6'd34: msg_char = hexdig(z[3:0]);
-            6'd35: msg_char = 8'h0D;
+            6'd35: msg_char = " ";
+            6'd36: msg_char = "B";
+            6'd37: msg_char = ba ? "1" : "0";
+            6'd38: msg_char = bb ? "1" : "0";
+            6'd39: msg_char = 8'h0D;
             default: msg_char = 8'h0A;
         endcase
     endfunction
@@ -363,7 +405,8 @@ module hsm_diag_top #(
                     tx_load   <= 1'b1;
                     echo_pend <= 1'b0;
                 end else if (msg_run) begin
-                    tx_data <= msg_char(msg_idx, seq, mem_erros_rom, mem_erros_rw, mem_primeira);
+                    tx_data <= msg_char(msg_idx, seq, mem_erros_rom, mem_erros_rw,
+                                        mem_primeira, btn_a, btn_b);
                     tx_load <= 1'b1;
                     if (msg_idx == (MSG_LEN - 1)) begin
                         msg_run <= 1'b0;
@@ -379,7 +422,7 @@ module hsm_diag_top #(
     // ------------------------------------------------------------------
     // Nao usados. Amarrados para o XDC continuar valendo sem alteracao.
     // ------------------------------------------------------------------
-    wire _unused = &{1'b0, btn_a_i, btn_b_i, mmcm_locked, mem_done, 1'b0};
+    wire _unused = &{1'b0, mmcm_locked, mem_done, 1'b0};
 
     // ------------------------------------------------------------------
     // Display de 7 segmentos -- CONTROLE DIRETO PELO HOST

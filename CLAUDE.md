@@ -308,9 +308,9 @@ microSD. Não copiar sem ler `doc/pinout.md`.
 
 ## Coisas que faltam e que você não deve inventar
 
-- **Ordem física dos botões no silk** (SW2 e SW5). Vira crítico na fase 3:
-  o dual control depende de saber qual é qual, e trocar os dois **não é
-  detectável por software**.
+Nada de pinagem: LEDs, 7 segmentos e ordem dos botões foram todos
+verificados em hardware. Ver `doc/pinout.md`.
+
 - Vetores KAT **já estão em `vectors/`**, com URL e SHA-256 em
   `vectors/MANIFEST.txt` — AES, SHA-256, HMAC, CMAC e CTR_DRBG. Para
   qualquer algoritmo novo, buscar na fonte oficial e registrar o hash.

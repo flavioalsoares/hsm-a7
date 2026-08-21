@@ -65,7 +65,7 @@ O que observar:
 ```
 D1              pisca a 1 Hz            MMCM travado, 100 MHz vivo
 D2..D5          luz corrida, ~4 Hz      cada pino de LED, um a um
-UART 115200     "HSM-DIAG nnnn Rrrrr Wwwww Zzzzzzzzz"
+UART 115200     "HSM-DIAG nnnn Rrrrr Wwwww Zzzzzzzzz Bab"
 eco de qualquer byte recebido           T15, o sentido de entrada
 ```
 
@@ -92,6 +92,19 @@ p=next(x.device for x in lp.comports() if x.vid==0x10c4)
 s=serial.Serial(p,115200); time.sleep(0.15)
 s.write(bytes([0xAA, 0xA4, 0b111])); s.close()"     # desenha '222'
 ```
+
+**Estado dos botões de dual control.** A mensagem periódica traz o campo
+`Bab` no fim, com `1 = pressionado` para `M6`/`btn_a` e `P6`/`btn_b`. Foi
+com ele que a ordem física no silk foi fechada.
+
+⚠ A mensagem sai a cada **500 ms**: um toque curto cai entre duas amostras e
+some. **Segure** o botão por mais de um segundo, ou repita. Duas tentativas
+pareceram negativas por causa disso, e a conclusão apressada teria sido
+"este botão não está neste pino".
+
+Truque que resolveu: em vez de pedir "aperte o SW2" e torcer para a janela
+coincidir, usar um **padrão codificado** — uma pressão isolada num botão,
+pausa, três no outro. O padrão se identifica sozinho, sem sincronizar nada.
 
 Foi assim que a polaridade e o mapeamento do display foram determinados
 (`doc/pinout.md`). A alternativa — varredura fixa em RTL — custaria um

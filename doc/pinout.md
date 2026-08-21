@@ -70,10 +70,39 @@ fecham para GND. [HW][SCH]
 | Silk | Pino | Uso no HSM |
 |---|---|---|
 | SW1 | **B7** | `rst_n_i` (reset do sistema) |
-| SW2 | **M6** | `btn_a_i` — dual control A |
+| SW2 | **M6** | `btn_a_i` — dual control A — **[HW]** 2026-08-21 |
 | SW3 | N6 | livre |
 | SW4 | R5 | livre |
-| SW5 | **P6** | `btn_b_i` — dual control B |
+| SW5 | **P6** | `btn_b_i` — dual control B — **[HW]** 2026-08-21 |
+
+**[HW] Ordem física no silk — verificada 2026-08-21.** Fecha o último TBD de
+bancada, e ele importava: o dual control da cerimônia de LMK exige dois
+operadores em botões distintos, e **trocar SW2 com SW5 não é detectável por
+software** — o dispositivo aceitaria a cerimônia com uma pessoa só apertando
+os dois, que é exatamente o que o dual control existe para impedir.
+
+Medido com o `rtl/diag/`, que passou a reportar o estado dos dois botões na
+mensagem periódica (campo `Bab`, 1 = pressionado).
+
+**Como foi medido, e por que não do jeito óbvio.** Pedir "aperte o SW2" e
+observar não funcionou: em duas tentativas nada registrou, e a conclusão
+apressada seria "SW5 não está em P6". O que resolveu foi um **padrão
+codificado** — uma pressão isolada no primeiro botão, pausa, três no
+segundo:
+
+```
+ 2,5 s   M6 pressionado   uma vez, no inicio    -> SW2
+13,0 s   P6 pressionado
+15,5 s   P6 pressionado   repetido, apos pausa  -> SW5
+```
+
+O padrão se identifica sozinho, sem depender de sincronizar a janela de
+leitura com quem está apertando.
+
+⚠ **Limitação do instrumento:** a mensagem sai a cada 500 ms, então um
+toque curto cai entre duas amostras e some. Foi isso que fez as primeiras
+tentativas parecerem negativas. Para leitura confiável, **segurar** o botão
+por mais de um segundo — ou repetir, como no padrão acima.
 
 **Por que SW2 e SW5 e não dois adjacentes:** são os extremos da fileira, o que
 dificulta pressionar ambos com uma mão só. `LMK_LOAD_COMPONENT` exige os dois
@@ -256,8 +285,11 @@ achando que se está piscando um LED.
 
 ## O que continua [TBD] neste projeto
 
-- **Ordem física dos botões no silk**, para validar a escolha SW2/SW5. Vira
-  crítico na fase 3: o dual control da cerimônia de LMK depende de saber
-  qual botão é qual, e trocar os dois não é detectável por software.
+Nada de pinagem. Os três TBD que restavam — cores dos LEDs, polaridade do
+7 segmentos e ordem física dos botões — foram fechados por medida em
+hardware entre 2026-08-09 e 2026-08-21.
+
+Registrado abaixo apenas por precaução, não é pendência:
+
 - **Pinos do microSD** — não usados pelo HSM, mas registrados aqui para evitar
   colisão: J5 (CS), K5 (MOSI), E6 (CLK), B5 (MISO), B6/J4/A7 (DAT1/DAT2/CD).
