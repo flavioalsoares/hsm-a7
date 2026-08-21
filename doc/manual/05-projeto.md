@@ -454,6 +454,23 @@ uma expectativa errada" e "ajustei o teste ao resultado observado" é
 invisível no diff e enorme na prática — é a mesma disciplina da regra
 inviolável número 5.
 
+**E há o caso inverso, que delimita a regra.** O testbench do toplevel
+conferia que o display de 7 segmentos estava apagado com as linhas de dígito
+em `111`. Passou meses verde. O valor vinha de um parâmetro no código que
+nunca fora medido — um **palpite**, e o palpite estava invertido: o dígito
+habilita com `1`, então desabilitado é `000`.
+
+Corrigir o valor esperado, nesse caso, **não** é enfraquecer o teste. O
+teste conferia contra uma *suposição*; a suposição foi refutada por
+experimento, e o valor esperado passou a ter procedência. A regra proíbe
+ajustar o vetor para o código passar — não proíbe trocar palpite por medida.
+
+O critério prático que separa os dois casos: pergunte de onde veio o valor
+esperado. Se veio de uma norma, de um vetor oficial ou de uma medida, ele
+manda no código. Se veio de alguém supondo, o código e o teste estão
+supondo juntos — e um teste que afirma a mesma suposição do código não
+testa coisa alguma.
+
 ### Hardware expõe o que simulação estruturalmente não pode
 
 A ferramenta de host escolhia a primeira porta serial encontrada. Na bancada

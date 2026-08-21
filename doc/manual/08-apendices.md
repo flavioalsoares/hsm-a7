@@ -189,11 +189,11 @@ em `doc/pinout.md`.
 | Clock 50 MHz | N11 | verificado em hardware |
 | Reset (SW1) | B7 | esquemático; ativo baixo |
 | UART RX / TX | T15 / T14 | verificado em hardware |
-| Dual control A (SW2) | M6 | esquemático; ativo baixo |
-| Dual control B (SW5) | P6 | esquemático; ativo baixo |
-| LEDs D1–D5 | R6, T5, R7, T7, R8 | D1 e D2 verificados; **ativos baixos** |
-| 7 segmentos | T10, K13, P11, R11, R10, N9, K12, P9 | pinos oficiais |
-| Dígitos (varredura) | T9, P10, T8 | 3 dígitos |
+| Dual control A (SW2) | M6 | verificado em hardware; ativo baixo |
+| Dual control B (SW5) | P6 | verificado em hardware; ativo baixo |
+| LEDs D1–D5 | R6, T5, R7, T7, R8 | verificados; **ativos baixos**; todos vermelhos |
+| 7 segmentos | T10, K13, P11, R11, R10, N9, K12, P9 | `a`…`g`, `dp`; **acende com 0** |
+| Dígitos (varredura) | T9, P10, T8 | 3 dígitos; **habilita com 1** |
 
 **Armadilha registrada:** com o gravador ligado existem **duas** portas
 seriais. O adaptador JTAG usado é um FT232H que também cria `/dev/ttyUSB*`, e
@@ -201,9 +201,21 @@ costuma enumerar **antes** da placa. Escolher a porta por ordem alfabética
 acerta o cabo de gravação, e o sintoma é um timeout sem explicação. A
 ferramenta de host escolhe por identificador USB por causa disso.
 
-**Pendências:** cores dos LEDs (a Fase 3 precisa saber se D5 é vermelho para
-o `TAMPERED`), polaridade do display de 7 segmentos, e a ordem física dos
-botões no silk.
+**Nenhuma pendência de pinagem.** As três que existiam — cores dos LEDs,
+polaridade do display e ordem física dos botões — foram fechadas por medida
+em hardware, e duas delas mudaram o projeto:
+
+- **Os cinco LEDs são vermelhos.** O requisito "LED vermelho para
+  `TAMPERED`" está atendido e ao mesmo tempo vazio: **cor não distingue nada
+  nesta placa**. Um indicador de estado tem de se separar por *posição* e
+  *padrão* — e é o display que carrega a informação de verdade.
+- **A polaridade do display estava invertida no código**, por palpite. O
+  segmento acende com `0` e o dígito habilita com `1`; o toplevel supunha o
+  contrário. Não aparecia porque, com os segmentos desligados, habilitar ou
+  não os dígitos dá no mesmo — apareceria no primeiro estado exibido.
+
+O detalhe que fecha o assunto: **um testbench conferia o valor errado e
+passou meses verde**, porque afirmava a suposição em vez de uma medida.
 
 ## D. Reproduzir o trabalho
 

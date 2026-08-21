@@ -9,7 +9,7 @@ producao entra aqui.
 
 ## Para aprender o assunto
 
-**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 54 paginas.
+**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 55 paginas.
 
   I-II   como um HSM funciona: fronteira, hierarquia de chaves, cerimonia
          de LMK, key blocks, maquina de estados, aleatoriedade, self-test

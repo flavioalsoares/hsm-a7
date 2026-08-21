@@ -24,10 +24,15 @@ pagamento** — PIN blocks, tradução de PIN, verificação por PVV e 3624,
 DUKPT — e diz, sem rodeio, o que deste domínio é ensinável aqui e o que
 não é.
 
-Estado na data desta edição: **Fase 1 completa e validada em hardware; Fase
-2 validada na placa** — AES-256, SHA-256, HMAC, CMAC, TRNG com health tests
-da SP 800-90B e CTR_DRBG, todos verificados contra vetores oficiais do NIST
-e do IETF, com POST rodando a cada boot. **Fase 3 iniciada.**
+Estado na data desta edição: **Fases 1 e 2 completas e validadas em
+hardware** — AES-256, SHA-256, HMAC, CMAC, TRNG com health tests da
+SP 800-90B e CTR_DRBG, todos verificados contra vetores oficiais do NIST e
+do IETF, com POST rodando a cada boot e levando o dispositivo a `TAMPERED`
+se reprovar.
+
+**Fase 3 em andamento:** o key store em BRAM já existe, com 16 slots
+modelados nos campos do header X9.143 e a chave mestra em região separada.
+Faltam a cerimônia de carga, os key blocks e os comandos que os manipulam.
 
 Quem quer só entender o assunto pode parar na Parte IV — ou seguir para a
 VII, se o interesse for pagamento. Quem quer reproduzir o trabalho começa na

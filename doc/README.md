@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 54 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 55 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
