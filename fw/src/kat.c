@@ -12,11 +12,13 @@
 #include "cmac.h"
 #include "drbg.h"
 #include "hsm_cfs.h"
+#include "keystore.h"
 #include "sha.h"
 #include "wipe.h"
 
 static unsigned g_ultimo = KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC |
-                           KAT_FALHA_CMAC | KAT_FALHA_DRBG | KAT_FALHA_TRNG;
+                           KAT_FALHA_CMAC | KAT_FALHA_DRBG | KAT_FALHA_TRNG |
+                           KAT_FALHA_KS;
 
 /* Comparação de tempo constante.
  *
@@ -221,6 +223,101 @@ static unsigned kat_trng(void)
     return (hsm_trng_startup() == 0) ? 0u : KAT_FALHA_TRNG;
 }
 
+
+/* Key store -- teste de FUNCAO CRITICA, nao KAT. Ver o cabecalho de kat.h.
+ *
+ * A resposta conhecida do KCV nao precisa de vetor novo, e isso vale
+ * explicar: KCV e AES-ECB da chave sobre um bloco de ZEROS, e o vetor
+ * ECBKeySbox256 do CAVP tem exatamente PLAINTEXT = 0. Entao o KCV da
+ * chave daquele vetor E, por definicao, os tres primeiros bytes do
+ * criptograma dele -- que ja esta em kat_vectors.h como kat_aes1_in.
+ *
+ * Procedencia do NIST, zero bytes a mais na IMEM, e nenhum numero
+ * calculado por este projeto.
+ */
+static unsigned kat_keystore(void)
+{
+    ks_handle_t h_nao, h_sim, h_cifra;
+    ks_info_t   info;
+    uint8_t     saida[KS_KEY_MAX];
+    unsigned    falha = 0u;
+
+    keystore_init();
+
+    /* --- instala com exportabilidade 'N' e confere o KCV --- */
+    h_nao = keystore_instala((const uint8_t *)KS_USO_DADOS, KS_ALG_AES,
+                             KS_MODO_AMBOS, KS_EXP_NAO,
+                             kat_aes1_key, KS_KEY_MAX);
+    if (h_nao == KS_HANDLE_INVALIDO) {
+        falha = KAT_FALHA_KS;
+    } else if (keystore_info(h_nao, &info) != 0) {
+        falha = KAT_FALHA_KS;
+    } else if (!iguais(info.kcv, kat_aes1_in, KS_KCV_LEN)) {
+        falha = KAT_FALHA_KS;
+    }
+
+    /* --- 'N' NAO pode sair. E a propriedade que mais importa aqui: se
+     *     esta falhar, o dispositivo entrega chave marcada como nao
+     *     exportavel e nada a jusante percebe. --- */
+    if (falha == 0u) {
+        if (keystore_exporta(h_nao, saida) != 0u) {
+            falha = KAT_FALHA_KS;
+        }
+    }
+
+    /* --- 'E' pode, e volta igual --- */
+    if (falha == 0u) {
+        h_sim = keystore_instala((const uint8_t *)KS_USO_KEK, KS_ALG_AES,
+                                 KS_MODO_AMBOS, KS_EXP_SIM,
+                                 kat_aes1_key, KS_KEY_MAX);
+        if (h_sim == KS_HANDLE_INVALIDO) {
+            falha = KAT_FALHA_KS;
+        } else if (keystore_exporta(h_sim, saida) != KS_KEY_MAX) {
+            falha = KAT_FALHA_KS;
+        } else if (!iguais(saida, kat_aes1_key, KS_KEY_MAX)) {
+            falha = KAT_FALHA_KS;
+        }
+    }
+
+    /* --- separacao de uso: chave so de cifrar recusa decifrar --- */
+    if (falha == 0u) {
+        h_cifra = keystore_instala((const uint8_t *)KS_USO_DADOS, KS_ALG_AES,
+                                   KS_MODO_CIFRA, KS_EXP_NAO,
+                                   kat_aes1_key, KS_KEY_MAX);
+        if (h_cifra == KS_HANDLE_INVALIDO) {
+            falha = KAT_FALHA_KS;
+        } else if (keystore_usa_aes(h_cifra, KS_MODO_CIFRA) != 0) {
+            falha = KAT_FALHA_KS;
+        } else if (keystore_usa_aes(h_cifra, KS_MODO_DECIFRA) == 0) {
+            falha = KAT_FALHA_KS;        /* deveria ter recusado */
+        }
+    }
+
+    /* --- header invalido e recusado: 3DES nao existe neste hardware --- */
+    if (falha == 0u) {
+        if (keystore_instala((const uint8_t *)KS_USO_DADOS, KS_ALG_3DES,
+                             KS_MODO_AMBOS, KS_EXP_NAO,
+                             kat_aes1_key, KS_KEY_MAX) != KS_HANDLE_INVALIDO) {
+            falha = KAT_FALHA_KS;
+        }
+    }
+
+    /* --- apagar de verdade: depois disso o handle nao resolve --- */
+    if (falha == 0u) {
+        if (keystore_apaga(h_nao) != 0) {
+            falha = KAT_FALHA_KS;
+        } else if (keystore_info(h_nao, &info) == 0) {
+            falha = KAT_FALHA_KS;        /* handle morto ainda responde */
+        }
+    }
+
+    /* Nao deixa material de teste para tras. */
+    keystore_init();
+    wipe(saida, sizeof saida);
+    (void)hsm_cfs_wipe();
+    return falha;
+}
+
 unsigned kat_post(void)
 {
     unsigned r = 0u;
@@ -235,6 +332,7 @@ unsigned kat_post(void)
     r |= kat_cmac();
     r |= kat_drbg();
     r |= kat_trng();
+    r |= kat_keystore();
 
     /* O DRBG do dispositivo só é semeado depois que a fonte passou. Semear
      * a partir de uma fonte reprovada seria produzir chaves com entropia

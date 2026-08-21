@@ -12,6 +12,7 @@
 #include "cmd.h"
 #include "hsm_cfs.h"
 #include "kat.h"
+#include "keystore.h"
 #include "state.h"
 
 /* PLANO.md secao 2. Nao confundir com os 19200 do bootloader do NEORV32. */
@@ -55,6 +56,11 @@ int main(void)
 
     state_init();
     cmd_init();
+
+    /* Key store zerado ANTES do POST. O POST o exercita e o deixa limpo de
+     * novo; inicializar aqui garante estado definido mesmo se o POST
+     * reprovar antes de chegar nele. */
+    keystore_init();
 
     MARCO(LED_STATE, "state+cmd");
 

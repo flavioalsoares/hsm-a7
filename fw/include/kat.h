@@ -35,6 +35,19 @@
  *
  * A distinção importa: se um KAT passa no testbench e falha no POST, o
  * problema está no barramento ou no silício, não no algoritmo.
+ *
+ * ---------------------------------------------------------------------
+ * O KEY STORE NÃO É UM KAT, E ENTRA MESMO ASSIM
+ *
+ * O FIPS 140-3 separa *self-tests criptográficos* de **testes de funções
+ * críticas**. O key store cai no segundo grupo: não há "resposta
+ * conhecida" para instalar uma chave, mas há propriedades que, se
+ * falharem, tornam o dispositivo perigoso sem parecer quebrado —
+ * `exportability='N'` deixando a chave sair, um slot apagado devolvendo
+ * material, uma chave de decifrar sendo aceita para cifrar.
+ *
+ * Testar isso a cada boot custa microssegundos. Descobrir em campo custa
+ * a chave.
  */
 #ifndef KAT_H
 #define KAT_H
@@ -48,6 +61,7 @@
 #define KAT_FALHA_DRBG  0x08u
 #define KAT_FALHA_TRNG  0x10u
 #define KAT_FALHA_CMAC  0x20u
+#define KAT_FALHA_KS    0x40u   /* key store -- teste de funcao critica */
 
 /* Roda o POST inteiro. Devolve KAT_OK ou a união dos bits que falharam.
  *

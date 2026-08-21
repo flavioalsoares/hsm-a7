@@ -61,6 +61,7 @@ indisponibilidade de vetores de teste públicos.
 | [`submodulos.md`](submodulos.md) | Política de código de terceiros e a escada de decisão para modificá-lo |
 | [`../patches/`](../patches/) | Modificações em código de terceiros, com a justificativa junto do diff |
 | [`puf-experimento.md`](puf-experimento.md) | Experimento de RO-PUF da Fase 6 — mede por que um PUF de FPGA é ruim |
+| `utilization_fase3.txt`, `timing_fase3.txt` | Recursos e timing com o key store dentro |
 | `utilization_fase1.txt` | Relatório de utilização (linha base de recursos) |
 | `timing_fase1.txt` | Relatório de timing |
 | `utilization_fase2.txt` | Utilização com o CFS (AES, SHA, DNA) |
