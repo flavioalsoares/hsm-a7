@@ -233,7 +233,10 @@ segundos.
 - [x] Forçar falha artificial no RCT leva o dispositivo a `TAMPERED` —
       `tb_post_tamper`: POST reprova, LED de tamper acende, `PING` é
       recusado com `WRONG_STATE` e o `SELFTEST` acusa o TRNG.
-- [ ] Utilização e timing arquivados
+- [x] Utilização e timing arquivados — `doc/utilization_fase2.txt` e
+      `doc/timing_fase2.txt`, atualizados em 2026-08-09 com o TRNG dentro:
+      **7392 LUT** (35,5%), **7475 FF** (18,0%), 5 BRAM, 0 DSP,
+      **WNS +0,359 ns**, WHS +0,026.
 
 ---
 
