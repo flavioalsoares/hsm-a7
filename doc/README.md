@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 46 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 54 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
@@ -21,6 +21,7 @@ gerado por `./scripts/mkpdf.sh`.
 | **IV — Certificação** | FIPS 140-3 e seus quatro níveis, PCI, Common Criteria, e o que "certificado" não significa |
 | **V — O projeto hsm-a7** | Cada peça construída e o que ela corresponde num HSM real; resultados medidos; lições |
 | **VI — O caminho adiante** | Fases 2 a 7 |
+| **VII — Criptografia de pagamento** | PIN blocks ISO 9564, tradução de PIN, PVV e IBM 3624, decimalização, DUKPT — e o que deste domínio dá para ensinar aqui |
 | **Apêndices** | Glossário, especificação do protocolo, pinagem, como reproduzir, leitura |
 
 As Partes I a IV valem por si e não dependem deste projeto. Quem quer só
@@ -79,9 +80,15 @@ indisponibilidade de vetores de teste públicos.
 
 ## Estado
 
-Fase 1 completa e validada em hardware. **Fase 2 em andamento**: AES-256,
-SHA-256 e o `DNA_PORT` já estão no coprocessador (CFS), verificados contra
-os vetores oficiais do NIST em simulação — nos cores e também através do
-barramento de registradores. `GET_DNA`, última sobra da Fase 1, está fechado.
-Falta o TRNG com health tests, o CTR_DRBG e o POST. Ver
-[`fase2-notas.md`](fase2-notas.md).
+**Fase 1 e fase 2 completas e validadas em hardware.** O POST roda a cada
+boot e cobre AES-256, SHA-256, HMAC-SHA-256, CMAC-AES-256, CTR_DRBG, os
+testes de partida do TRNG e o key store — todos contra vetores oficiais do
+NIST e do IETF. Falha leva a `TAMPERED`. Da fase 2 falta apenas
+`dieharder -a`, que não está instalado nesta máquina.
+
+**Fase 3 em andamento.** CMAC e key store prontos; faltam a cerimônia de
+LMK, os key blocks X9.143 e os comandos `0x20`–`0x2F`. Ver
+[`fase3-notas.md`](fase3-notas.md).
+
+Nenhum `[TBD]` de pinagem: cores dos LEDs, polaridade do display de 7
+segmentos e ordem física dos botões foram todos verificados em hardware.
