@@ -16,7 +16,7 @@ precisa gravar nada para voltar ao ponto:
 
 ```bash
 python3 host/hsmtool.py version     # deve responder v0.1.0, UNINITIALIZED
-python3 host/hsmtool.py post        # os seis testes devem passar
+python3 host/hsmtool.py post        # os SETE testes devem passar
 ```
 
 Se não responder, o problema é físico — `doc/bancada.md` tem a tabela de
@@ -112,14 +112,21 @@ em `kat_vectors.h`.
 
 ## O que falta, na ordem
 
-### 1. Cerimônia de LMK
+### 1. Cerimônia de LMK — **é o próximo passo**
+
+A metade de baixo já existe: `lmk_componente()` acumula por XOR,
+`lmk_kcv()` devolve o check value, `lmk_zeroiza()` apaga tudo junto. Falta
+a metade de cima — o comando e o dual control.
 
 Três componentes por XOR, cada custodiante carregando só o seu. Dual control
-pelos **dois botões físicos** (SW2 e SW5, já debounced e ligados ao GPIO —
-`rtl/top/hsm_top.v`).
+pelos **dois botões físicos**, e agora se sabe quais são: **`SW2` → `M6` →
+`btn_a`** e **`SW5` → `P6` → `btn_b`**, verificados em hardware em
+2026-08-21 (`doc/pinout.md`). Já estão debounced e ligados ao GPIO de
+entrada (`rtl/top/hsm_top.v`), bits 0 e 1.
 
 O `LMK_LOAD_COMPONENT` tem de ser **recusado** sem os dois botões, e isso
-precisa de teste.
+precisa de teste. Atenção ao ler o GPIO: o toplevel já inverte, então no
+firmware **1 = pressionado**.
 
 ### 2. Key blocks ANSI X9.143 (TR-31 versão D)
 

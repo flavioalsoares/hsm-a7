@@ -245,7 +245,12 @@ segundos.
 **Objetivo:** entender por que a API de um HSM é do jeito que é — descobrindo, na
 prática, o que ela precisa impedir.
 
-### Key store
+### Key store — **implementado em 2026-08-21** (`fw/src/keystore.c`)
+
+16 slots mais a LMK em região separada, com teste de função crítica no POST.
+A API é assimétrica: `keystore_usa_aes()` carrega a chave no coprocessador
+sem devolvê-la, e `keystore_exporta()` é o **único** caminho que devolve
+bytes — é onde `exportability` decide. Ver `doc/fase3-notas.md`.
 
 Modelar os campos no header TR-31 **desde o início**. Refatorar isso depois é
 doloroso porque o MAC cobre o header inteiro.

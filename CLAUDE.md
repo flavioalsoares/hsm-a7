@@ -87,7 +87,7 @@ Antes de implementar, responder no PR/commit:
 - [ ] Respeita `exportability` do slot?
 - [ ] Entra no log de auditoria **antes** da execução?
 
-## Estado atual (atualizado 2026-08-06)
+## Estado atual (atualizado 2026-08-21)
 
 **Fase 2 em andamento. O CFS está pronto.** AES-256, SHA-256 e o `DNA_PORT`
 são coprocessadores dentro da fronteira criptográfica, verificados contra os
@@ -141,9 +141,22 @@ header à mão** — ele é a única coisa que sustenta a regra nº 5.
 comando que aceita chave em claro não pode coexistir com chave de verdade.
 A fase 3 os **substitui** por versões que falam por handle.
 
-**Fase 3 começou.** `CMAC-AES-256` (`fw/src/cmac.c`, SP 800-38B) está
-pronto e no POST — é ele que deriva KBEK/KBAK da LMK e autentica o key
-block X9.143. Vetores do CAVP em `vectors/cmac/`.
+**Fase 3 em andamento.** Prontos:
+
+- `CMAC-AES-256` (`fw/src/cmac.c`, SP 800-38B) — deriva KBEK/KBAK da LMK e
+  autentica o key block X9.143. Vetores do CAVP em `vectors/cmac/`.
+- **Key store em BRAM** (`fw/src/keystore.c`) — 16 slots com os campos do
+  header X9.143, mais a LMK em região separada.
+
+⚠ **A API do key store é assimétrica de propósito, e não é para
+"simplificar".** `keystore_usa_aes()` carrega a chave no coprocessador e
+**não a devolve**; `keystore_exporta()` é a **única** função que devolve
+bytes, checa `exportabilidade` e existe só para a camada de key block. Um
+`keystore_get_key()` genérico transformaria a checagem em convenção. O tipo
+que contém chave nem aparece no header.
+
+⚠ **A LMK fica FORA do vetor de slots** — sem handle, e zeroizá-la apaga
+todos os slots junto. Chave derivada não sobrevive à chave que a protege.
 
 ⚠ **Os vetores de CMAC do CAVS 11.0 só têm tags truncadas** (Tlen 5 e 10).
 O KAT compara os primeiros Tlen bytes, o que é normatizado — mas **não

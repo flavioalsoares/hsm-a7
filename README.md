@@ -29,11 +29,9 @@ Fonte do manual em [`doc/manual/`](doc/manual/) (Markdown); o PDF sai de
 Antes de mexer no codigo, leia **PLANO.md** -- em especial a secao 0
 (restricoes invioláveis: nada de eFUSE, nunca).
 
-Estado: **fase 1 completa e validada em hardware** (10.000 pings, 0 erros).
-**Fase 2 praticamente completa e validada na placa**: AES-256, SHA-256,
-HMAC-SHA-256, TRNG com health tests da SP 800-90B, CTR_DRBG e o **POST**
-rodando a cada boot contra vetores oficiais do NIST e do IETF. Falha do POST
-leva o dispositivo a `TAMPERED`. Ver `doc/fase2-notas.md`.
+Estado: **fases 1 e 2 completas e validadas em hardware.** O POST roda a
+cada boot contra vetores oficiais do NIST e do IETF; falha leva o
+dispositivo a `TAMPERED`, e a partir dai so o `SELFTEST` responde.
 
 ```
 python3 host/hsmtool.py post        # reroda o POST no dispositivo
@@ -42,7 +40,13 @@ python3 host/hsmtool.py post        # reroda o POST no dispositivo
   HMAC-SHA-256           ok
   CTR_DRBG               ok
   TRNG / health tests    ok
+  CMAC-AES-256           ok
+  key store              ok
 ```
+
+**Fase 3 em andamento**: CMAC e o key store em BRAM estao prontos; faltam a
+cerimonia de LMK, os key blocks X9.143 e os comandos `0x20`-`0x2F`. Ver
+`doc/fase3-notas.md`.
 
 ⚠ **Grave na flash, nao na SRAM** -- `./scripts/program.sh flash`. Nesta
 bancada a configuracao por JTAG **nao aplica a inicializacao das Block
