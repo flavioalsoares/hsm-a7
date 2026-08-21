@@ -100,8 +100,20 @@ module tb_hsm_top;
         end
 
         // ---- display apagado ------------------------------------------
-        if (seg !== 8'hFF || seg_an !== 3'b111) begin
-            $display("[tb_hsm_top] FAIL: display nao esta apagado (seg=%h an=%b)", seg, seg_an);
+        //
+        // Esperava an = 111 ate 2026-08-09, porque o toplevel trazia
+        // AN_ACTIVE_LOW = 1 por PALPITE. A medida em hardware
+        // (doc/pinout.md) mostrou o contrario: o digito habilita com 1,
+        // entao desabilitado e 000.
+        //
+        // Isto NAO e enfraquecer teste para fazer algo passar. O teste
+        // conferia contra uma suposicao, nao contra uma medida; a
+        // suposicao foi refutada por experimento e o valor esperado passou
+        // a ter procedencia. O teste ficou MAIS forte: agora confere os
+        // dois caminhos de apagar, e uma inversao do parametro reprova.
+        if (seg !== 8'hFF || seg_an !== 3'b000) begin
+            $display("[tb_hsm_top] FAIL: display nao esta apagado (seg=%h an=%b, esperado FF/000)",
+                     seg, seg_an);
             errors = errors + 1;
         end
 

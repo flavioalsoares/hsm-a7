@@ -19,11 +19,18 @@ module hsm_top #(
     // encolher o divisor do heartbeat sem simular meio segundo.
     parameter integer CLK_HZ = 100_000_000,
 
-    // TODO: polaridade do display NAO verificada em hardware -- doc/pinout.md.
-    // Enquanto for desconhecida o display fica apagado; estes parametros
-    // existem para o bring-up trocar sem mexer na logica.
+    // Display de 7 segmentos -- VERIFICADO EM HARDWARE 2026-08-09, com o
+    // esquematico concordando. Ver doc/pinout.md.
+    //
+    //   segmento acende com 0   -> SEG_ACTIVE_LOW = 1
+    //   digito habilita com 1   -> AN_ACTIVE_LOW  = 0
+    //
+    // O AN estava em 1 por palpite, e o palpite estava INVERTIDO. Nao
+    // aparecia porque o display fica apagado nesta fase de qualquer jeito:
+    // com os segmentos todos desligados, habilitar ou nao os digitos da no
+    // mesmo. Apareceria na fase 3, no primeiro estado exibido.
     parameter SEG_ACTIVE_LOW = 1'b1,
-    parameter AN_ACTIVE_LOW  = 1'b1
+    parameter AN_ACTIVE_LOW  = 1'b0
 )(
     // clock e reset
     input  wire       sys_clk_i,    // N11, 50 MHz
@@ -179,9 +186,14 @@ module hsm_top #(
     // ------------------------------------------------------------------
     // Display 7 segmentos -- apagado ate a fase 3
     //
-    // Nao ha maquina de estados ainda, e a polaridade nao foi verificada.
-    // Apagar e a unica saida honesta: acender um padrao chutado so produz
-    // um resultado bonito que nao prova nada.
+    // Nao ha maquina de estados para exibir ainda. A polaridade e o
+    // mapeamento JA estao verificados (ver os parametros acima), entao o
+    // que falta e so o conteudo.
+    //
+    // Apagado por dois caminhos ao mesmo tempo, de proposito: segmentos
+    // desligados E digitos desabilitados. Qualquer um dos dois bastaria; os
+    // dois juntos fazem o display continuar apagado mesmo se um parametro
+    // for trocado por engano.
     // ------------------------------------------------------------------
     assign seg_o    = SEG_ACTIVE_LOW ? 8'hFF : 8'h00;
     assign seg_an_o = AN_ACTIVE_LOW  ? 3'b111 : 3'b000;

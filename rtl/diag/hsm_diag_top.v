@@ -381,7 +381,50 @@ module hsm_diag_top #(
     // ------------------------------------------------------------------
     wire _unused = &{1'b0, btn_a_i, btn_b_i, mmcm_locked, mem_done, 1'b0};
 
-    assign seg_o    = 8'hFF;   // apagado (ativo baixo)
-    assign seg_an_o = 3'b111;
+    // ------------------------------------------------------------------
+    // Display de 7 segmentos -- CONTROLE DIRETO PELO HOST
+    //
+    // Existe para fechar um [TBD] que arrasta desde a fase 1: nao se sabe
+    // se o display e anodo ou catodo comum, nem qual bit de seg_o vai para
+    // qual segmento fisico. Os PINOS estao certos (vieram do esquematico);
+    // a tabela de fontes e que nao pode ser escrita de palpite.
+    //
+    // Varredura fixa em RTL resolveria devagar e as cegas: cada hipotese
+    // custaria um bitstream novo. Aqui o host manda os valores CRUS e quem
+    // olha responde -- o ciclo de experimento cai de vinte minutos para
+    // dois segundos.
+    //
+    // Protocolo, sobre a mesma UART do eco:
+    //
+    //     0xAA  <seg>  <an>     ->  seg_o = seg, seg_an_o = an
+    //
+    // Qualquer outro byte segue ecoando normalmente. 0xAA foi escolhido
+    // porque nenhum teste existente o envia, e porque 10101010 e facil de
+    // reconhecer num analisador.
+    //
+    // Repouso: tudo em 1. Se o display for anodo comum (ativo baixo em
+    // seg_o) isso o deixa apagado; se for catodo comum, aceso. Qual dos
+    // dois acontece na energizacao ja e a primeira medida.
+    // ------------------------------------------------------------------
+    reg [7:0] seg_manual = 8'hFF;
+    reg [2:0] an_manual  = 3'b111;
+    reg [1:0] seg_st     = 2'd0;
+
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            seg_manual <= 8'hFF;
+            an_manual  <= 3'b111;
+            seg_st     <= 2'd0;
+        end else if (rx_valid) begin
+            case (seg_st)
+                2'd0: if (rx_byte == 8'hAA) seg_st <= 2'd1;
+                2'd1: begin seg_manual <= rx_byte; seg_st <= 2'd2; end
+                default: begin an_manual <= rx_byte[2:0]; seg_st <= 2'd0; end
+            endcase
+        end
+    end
+
+    assign seg_o    = seg_manual;
+    assign seg_an_o = an_manual;
 
 endmodule

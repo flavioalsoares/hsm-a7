@@ -82,6 +82,24 @@ buffer.
 Se a memória tiver um ciclo a mais que o esperado, um placar de erros alto
 e uma memória zerada dão o mesmo número — mas dão valores diferentes em `Z`.
 
+**Controle direto do display de 7 segmentos.** A UART aceita três bytes
+`0xAA <seg> <an>` e aplica os valores **crus** nos pinos:
+
+```bash
+python3 -c "
+import serial,time,serial.tools.list_ports as lp
+p=next(x.device for x in lp.comports() if x.vid==0x10c4)
+s=serial.Serial(p,115200); time.sleep(0.15)
+s.write(bytes([0xAA, 0xA4, 0b111])); s.close()"     # desenha '222'
+```
+
+Foi assim que a polaridade e o mapeamento do display foram determinados
+(`doc/pinout.md`). A alternativa — varredura fixa em RTL — custaria um
+bitstream por hipótese; aqui o ciclo de experimento é de dois segundos.
+Qualquer byte que não seja `0xAA` continua ecoando normalmente, então o
+teste de eco não é afetado.
+
+
 ---
 
 ## Discriminadores
@@ -157,6 +175,18 @@ resultado tinha cara de defeito de hardware:
    e não realinhava no carregamento do byte. Em simulação passava porque
    `MSG_DIV` era múltiplo de `BAUD_DIV` e a fase caía certa *por acidente*.
 
-Nos dois casos o defeito só apareceu em hardware, e o teste **não era capaz
+3. **Um teste que afirmava um palpite.** `tb_hsm_top` conferia que o display
+   estava apagado com `seg_an_o = 111` — valor que vinha de
+   `AN_ACTIVE_LOW = 1` no toplevel, que era **chute**. A medida em hardware
+   mostrou o contrário: o dígito habilita com `1`, então desabilitado é
+   `000`. O teste passou meses verde afirmando algo falso.
+
+   Este caso é diferente dos outros dois e por isso merece nota: corrigir o
+   valor esperado **não** é enfraquecer teste. O teste conferia contra uma
+   *suposição*; a suposição foi refutada por experimento, e o valor esperado
+   passou a ter procedência. A regra nº 5 proíbe ajustar o vetor para o
+   código passar — não proíbe substituir palpite por medida.
+
+Nos três casos o defeito só apareceu em hardware, e o teste **não era capaz
 de reprová-lo**. Depois de consertar, verificar revertendo o conserto: se o
 teste não falha, ele não testa nada.

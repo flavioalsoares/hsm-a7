@@ -338,7 +338,39 @@ module tb_diag;
             $display("[tb_diag] eco de 0xA5 ok");
         end
 
-        // 4 -- luz corrida: deu tempo de sobra para as quatro posicoes
+        // 4 -- controle do display pelo host
+        //
+        // E o instrumento que fecha o [TBD] da polaridade do 7-seg. Se ele
+        // estiver errado, a medida em hardware vira palpite com cara de
+        // resultado -- exatamente o que ja aconteceu duas vezes nesta
+        // bancada.
+        if (seg !== 8'hFF || seg_an !== 3'b111) begin
+            $display("[tb_diag] ERRO: display nao nasceu em repouso (seg=%02h an=%b)",
+                     seg, seg_an);
+            erros = erros + 1;
+        end
+
+        uart_put(8'hAA);   // marca
+        uart_put(8'h7E);   // seg
+        uart_put(8'h05);   // an
+        #(BIT_NS * 2);
+        if (seg !== 8'h7E || seg_an !== 3'b101) begin
+            $display("[tb_diag] ERRO: seg=%02h an=%b, esperado 7E / 101", seg, seg_an);
+            erros = erros + 1;
+        end else begin
+            $display("[tb_diag] display: host escreveu seg=7E an=101");
+        end
+
+        // Um byte solto NAO pode mexer no display -- se mexesse, o eco de
+        // qualquer teste anterior teria apagado o padrao sob observacao.
+        uart_put(8'h3C);
+        #(BIT_NS * 2);
+        if (seg !== 8'h7E) begin
+            $display("[tb_diag] ERRO: byte solto alterou o display (seg=%02h)", seg);
+            erros = erros + 1;
+        end
+
+        // 5 -- luz corrida: deu tempo de sobra para as quatro posicoes
         if (vistos !== 4'b1111) begin
             $display("[tb_diag] ERRO: LEDs que nunca acenderam, mascara=%b", vistos);
             erros = erros + 1;

@@ -109,10 +109,27 @@ toplevel está correta.
 O heartbeat a 1 Hz cronometrado a olho também confirma a divisão do MMCM: o
 contador é `CLK_HZ/2` e só bate 1 Hz se o clock for mesmo 100 MHz.
 
-**[TBD] As cores dos LEDs continuam sem documentação.** O PLANO §3 pede "LED
-vermelho" para `TAMPERED`, hoje mapeado em D5. Conferir visualmente e
-remapear se D5 não for vermelho — D3/D4/D5 ainda não foram acesos por
-firmware nenhum.
+**[HW] Cores dos LEDs — verificado 2026-08-09: os cinco são VERMELHOS.**
+
+Isso fecha o TBD e, junto, invalida o requisito como estava escrito. O
+`PLANO.md` §3 pedia "LED vermelho" para `TAMPERED`; D5 é vermelho, mas todos
+são — logo **cor não carrega informação nenhuma nesta placa**.
+
+Consequência de projeto, e ela não é cosmética: um indicador de estado tem
+de se distinguir por **posição** e por **padrão**, não por cor. Em
+particular:
+
+- `TAMPERED` em D5 aceso **fixo** é fraco: D2 aceso fixo (firmware vivo) é
+  visualmente do mesmo tipo, e quem olha de longe não distingue.
+- O que distingue sem ambiguidade é **piscar** — nenhum outro LED do design
+  pisca além de D1 (heartbeat, 1 Hz, hardware). Um D5 piscando em ritmo
+  diferente do heartbeat é inconfundível.
+- E o caminho de verdade é o **display de 7 segmentos**, que soletra o
+  estado (`Uni`/`Aut`/`OPE`/`tPr`). A cor uniforme dos LEDs torna o display
+  mais importante, não menos.
+
+Verificado com o bitstream de diagnóstico (`rtl/diag/`), que acende D2–D5
+separados no tempo em luz corrida — cada LED isolado, um de cada vez.
 
 ---
 
@@ -138,10 +155,45 @@ Daughterboard, **3 dígitos multiplexados**. Pinos dos XDCs oficiais (Test06).
 **3 dígitos casam exatamente** com os mnemônicos de estado do PLANO §4:
 `Uni` / `Aut` / `OPE` / `tPr`. Nenhuma adaptação necessária.
 
-**[TBD] Polaridade:** o mapeamento bit→segmento (a..g,dp) e se o display é
-anodo ou catodo comum **não foram verificados em hardware** — o MSXInArt não
-chegou a usar o 7-seg. Confirmar no manual da daughterboard antes de escrever a
-tabela de fontes, ou descobrir empiricamente acendendo um segmento por vez.
+**[HW] Polaridade e mapeamento — verificados 2026-08-09.**
+
+```
+segmento acende com 0        ->  SEG_ACTIVE_LOW = 1
+digito  habilita  com 1      ->  AN_ACTIVE_LOW  = 0
+
+seg_o[0]=a  [1]=b  [2]=c  [3]=d  [4]=e  [5]=f  [6]=g  [7]=dp
+```
+
+**Como foi medido.** Não por varredura fixa em RTL — cada hipótese custaria
+um bitstream. O `rtl/diag/` ganhou **controle direto pelo host**: a UART
+aceita `0xAA <seg> <an>` e aplica os valores crus nos pinos, então o ciclo
+de experimento caiu de vinte minutos para dois segundos.
+
+As quatro combinações de polaridade, uma por vez:
+
+| `seg_o` | `seg_an_o` | resultado |
+|---|---|---|
+| `0x00` | `000` | apagado |
+| `0xFF` | `000` | apagado |
+| `0xFF` | `111` | apagado |
+| `0x00` | `111` | **tudo aceso** |
+
+Depois, `0xA4` com `an=111` desenhou **`222`** nos três dígitos — o padrão
+do algarismo 2 (a, b, g, e, d). Glifo assimétrico de propósito: qualquer
+troca entre segmentos apareceria como outro caractere.
+
+**O esquemático concorda.** O `7SEG_Test.xdc` oficial confere pino a pino
+com o nosso, e `DB-FPGA-XC7A35T-DDR3-V03.pdf` lista `SEG_A … SEG_G, DP`
+nessa ordem. Medida e documento em acordo — que é o padrão de procedência
+mais forte que este projeto tem.
+
+⚠ **O palpite anterior estava invertido.** `hsm_top.v` trazia
+`AN_ACTIVE_LOW = 1'b1`. Não aparecia porque, com os segmentos todos
+desligados, habilitar ou não os dígitos dá no mesmo — apareceria na fase 3,
+no primeiro estado exibido. Corrigido.
+
+A tabela de fontes para `Uni`/`Aut`/`OPE`/`tPr` **já pode ser escrita**, e
+agora sobre medida em vez de palpite.
 
 ---
 
@@ -204,8 +256,8 @@ achando que se está piscando um LED.
 
 ## O que continua [TBD] neste projeto
 
-- **Polaridade e mapeamento de segmentos do 7-seg** (acima).
-- **Cores dos LEDs** (acima).
-- **Ordem física dos botões no silk**, para validar a escolha SW2/SW5.
+- **Ordem física dos botões no silk**, para validar a escolha SW2/SW5. Vira
+  crítico na fase 3: o dual control da cerimônia de LMK depende de saber
+  qual botão é qual, e trocar os dois não é detectável por software.
 - **Pinos do microSD** — não usados pelo HSM, mas registrados aqui para evitar
   colisão: J5 (CS), K5 (MOSI), E6 (CLK), B5 (MISO), B6/J4/A7 (DAT1/DAT2/CD).

@@ -308,9 +308,10 @@ microSD. Não copiar sem ler `doc/pinout.md`.
 
 ## Coisas que faltam e que você não deve inventar
 
-- **Polaridade do 7-seg** (anodo/catodo comum) e o mapeamento bit→segmento não
-  foram verificados em hardware. Os pinos estão certos; a tabela de fontes não
-  pode ser escrita de palpite.
-- **Cores dos LEDs** não documentadas — o `TAMPERED` precisa ser vermelho.
-- Vetores KAT em `vectors/` ainda não foram baixados. Não escrever vetores "de
-  memória" — buscar nas fontes oficiais (CAVP, FIPS 180-4, RFC 4231).
+- **Ordem física dos botões no silk** (SW2 e SW5). Vira crítico na fase 3:
+  o dual control depende de saber qual é qual, e trocar os dois **não é
+  detectável por software**.
+- Vetores KAT **já estão em `vectors/`**, com URL e SHA-256 em
+  `vectors/MANIFEST.txt` — AES, SHA-256, HMAC, CMAC e CTR_DRBG. Para
+  qualquer algoritmo novo, buscar na fonte oficial e registrar o hash.
+  Nunca escrever vetor "de memória": é o que sustenta a regra nº 5.
