@@ -16,8 +16,10 @@
 
 #include "cmd.h"
 #include "drbg.h"
+#include "dualctl.h"
 #include "hsm_cfs.h"
 #include "kat.h"
+#include "keystore.h"
 #include "sha.h"
 #include "state.h"
 #include "wipe.h"
@@ -331,6 +333,222 @@ static hsm_status_t h_selftest(const uint8_t *in, uint16_t in_len,
     return STATUS_OK;
 }
 
+/* ==================================================================== */
+/* Fase 3 -- cerimonia de LMK                                           */
+/*                                                                      */
+/* Aqui o dispositivo passa a GUARDAR chave, e a diferenca em relacao a  */
+/* fase 2 e visivel na assinatura dos comandos: nada do que entra sai de */
+/* volta. Entram componentes, sai KCV.                                   */
+/* ==================================================================== */
+
+/* LMK_LOAD_COMPONENT -- um componente da chave mestra.
+ *
+ * Payload: n(1) || componente(32)
+ * Resposta: kcv_do_componente(3) || carregados(1) || estado(1)
+ *
+ * Checklist do CLAUDE.md:
+ *
+ *   estados      SO ST_UNINIT. Uma LMK so se carrega em dispositivo sem
+ *                LMK. Depois do terceiro componente o estado vira
+ *                AUTHORIZED e este comando se desliga sozinho, pela
+ *                mascara -- nao ha caminho para trocar a chave mestra por
+ *                cima da existente, o que seria substituir chave sem
+ *                apagar as derivadas dela.
+ *
+ *   dual control SIM. E o unico comando da fase que exige presenca fisica,
+ *                e o motivo e que ele e o unico que CRIA a raiz. Ver
+ *                dualctl.h para o que este mecanismo prova e o que nao
+ *                prova.
+ *
+ *   vazamento    em laco com entradas escolhidas, devolve o KCV de
+ *                componentes que o proprio chamador escolheu -- que ele
+ *                calcularia sozinho com qualquer biblioteca de AES. Sobre
+ *                a LMK acumulada nao devolve nada: o KCV que sai aqui e do
+ *                COMPONENTE, nunca do acumulado.
+ *
+ *                O caminho que merece atencao e outro: quem carregar os
+ *                componentes 1 e 2 sabendo o 0 obtem, pelo LMK_STATUS, um
+ *                oraculo de 3 bytes sobre a LMK inteira. Sao 3 bytes --
+ *                sobram 2^232 candidatos, e nao ha ataque. Mas e por essa
+ *                razao que uma cerimonia de verdade tem todos os
+ *                custodiantes presentes o tempo todo, e nao um de cada vez.
+ *
+ *   exportability nao se aplica -- a LMK nao tem slot e nao e exportavel
+ *                por caminho nenhum (keystore.h).
+ *
+ *   log          fase 3, junto com audit_log.c. Este e o primeiro comando
+ *                do projeto que PRECISA de trilha: quem carregou qual
+ *                componente e quando.
+ *
+ * A honestidade que falta: num HSM de verdade o componente entra por
+ * teclado local ou smart card, e nao pela mesma porta serial por onde o
+ * host fala. Aqui a porta e uma so, entao o componente atravessa o link do
+ * host em claro. E a maior distancia entre este projeto e o modelo -- e
+ * esta escrita aqui, e nao escondida.
+ */
+static hsm_status_t h_lmk_load_component(const uint8_t *in, uint16_t in_len,
+                                         uint8_t *out, uint16_t *out_len)
+{
+    uint8_t kcv[KS_KCV_LEN];
+    uint8_t n;
+
+    *out_len = 0u;
+
+    if (in_len != (uint16_t)(1u + KS_KEY_MAX)) {
+        return STATUS_BAD_PARAM;
+    }
+    n = in[0];
+
+    /* Valida ANTES de consumir a autorizacao. Um erro de indice do host nao
+     * pode custar um aperto de botao ao operador -- se custasse, cada
+     * tentativa malfeita exigiria repetir o gesto, e a cerimonia viraria
+     * um jogo de paciencia. */
+    if ((n >= KS_LMK_N_COMPONENTES) || (n != lmk_componentes_carregados())) {
+        return STATUS_BAD_PARAM;
+    }
+
+    if (!dualctl_autoriza()) {
+        return STATUS_NOT_AUTHORIZED;
+    }
+
+    /* KCV do componente, para o custodiante conferir que digitou o dele e
+     * nao o do vizinho. E o unico jeito de errar e descobrir na hora: sem
+     * isso, um componente trocado so aparece no KCV final, quando ja nao
+     * da para saber qual dos tres estava errado. */
+    if (keystore_kcv(&in[1], KS_KEY_MAX, kcv) != 0) {
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    if (lmk_componente(n, &in[1]) != 0) {
+        wipe(kcv, sizeof kcv);
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    /* Terceiro componente: a raiz existe. O estado muda AQUI e nao por
+     * comando separado -- "tenho LMK" e "estou em AUTHORIZED" tem de ser a
+     * mesma afirmacao, ou o estado passa a ser uma opiniao. */
+    if (lmk_completa()) {
+        state_set(HSM_AUTHORIZED);
+    }
+
+    out[0] = kcv[0];
+    out[1] = kcv[1];
+    out[2] = kcv[2];
+    out[3] = lmk_componentes_carregados();
+    out[4] = (uint8_t)state_get();
+    *out_len = 5u;
+
+    wipe(kcv, sizeof kcv);
+    return STATUS_OK;
+}
+
+/* LMK_STATUS -- quantos componentes entraram, e o KCV se estiver completa.
+ *
+ * Checklist:
+ *   estados      ST_NORMAL. E o comando que o operador usa para conferir a
+ *                cerimonia, e ele precisa funcionar antes, durante e
+ *                depois.
+ *   dual control nao. Nao muda nada.
+ *   vazamento    3 bytes derivados da LMK, e so quando ela esta completa.
+ *                E o unico dado derivado dela que atravessa a fronteira,
+ *                por decisao explicita (keystore.h): sem KCV o operador
+ *                nao tem como saber se carregou a chave certa, e com 3
+ *                bytes ninguem recupera 256 bits.
+ *   exportability nao se aplica.
+ *
+ * Comprimento FIXO, com o KCV zerado enquanto a LMK esta incompleta. Uma
+ * resposta que encolhe quando nao ha KCV anunciaria o mesmo fato pelo
+ * tamanho do frame -- aqui isso nao seria segredo nenhum, mas o habito de
+ * nao deixar o comprimento falar e barato de manter e caro de adquirir
+ * depois.
+ */
+static hsm_status_t h_lmk_status(const uint8_t *in, uint16_t in_len,
+                                 uint8_t *out, uint16_t *out_len)
+{
+    uint8_t i;
+
+    (void)in;
+    *out_len = 0u;
+
+    if (in_len != 0u) {
+        return STATUS_BAD_PARAM;
+    }
+
+    out[0] = lmk_componentes_carregados();
+    out[1] = (uint8_t)lmk_completa();
+
+    for (i = 0u; i < KS_KCV_LEN; i++) {
+        out[2u + i] = 0x00u;
+    }
+    if (lmk_completa()) {
+        if (lmk_kcv(&out[2]) != 0) {
+            wipe(out, 2u + KS_KCV_LEN);
+            return STATUS_INTERNAL_ERROR;
+        }
+    }
+
+    *out_len = (uint16_t)(2u + KS_KCV_LEN);
+    return STATUS_OK;
+}
+
+/* SET_STATE -- ativa o dispositivo depois da cerimonia.
+ *
+ * Payload: estado_alvo(1). Resposta: estado_atual(1).
+ *
+ * Checklist:
+ *   estados      SO ST_AUTH, e o unico alvo aceito e OPERATIONAL.
+ *
+ *                Nao ha caminho de volta por aqui. Voltar a UNINITIALIZED
+ *                e trabalho do ZEROIZE, que APAGA -- um SET_STATE capaz de
+ *                "desinicializar" deixaria a LMK viva com o estado
+ *                dizendo que nao ha chave, e o estado deixaria de ser
+ *                verdade sobre o dispositivo. Entrar em TAMPERED por
+ *                comando tambem nao: TAMPERED e um veredito do
+ *                dispositivo sobre si mesmo.
+ *
+ *   dual control SIM. Ativar e o momento em que o dispositivo passa a
+ *                atender operacao com chave real; e uma decisao de
+ *                cerimonia, nao de host.
+ *
+ *   vazamento    devolve o proprio estado, que o GET_VERSION ja da.
+ *   exportability nao se aplica.
+ *
+ * O efeito colateral que interessa e o que DESAPARECE: em OPERATIONAL, os
+ * comandos da fase 2 que recebem chave em claro (AES_ENC, AES_DEC, HMAC)
+ * param de responder, porque a mascara deles e ST_UNINIT. Nao ha linha de
+ * codigo desligando nada -- a tabela e que nao os permite mais.
+ */
+static hsm_status_t h_set_state(const uint8_t *in, uint16_t in_len,
+                                uint8_t *out, uint16_t *out_len)
+{
+    *out_len = 0u;
+
+    if (in_len != 1u) {
+        return STATUS_BAD_PARAM;
+    }
+    if (in[0] != (uint8_t)HSM_OPERATIONAL) {
+        return STATUS_BAD_PARAM;
+    }
+
+    /* Defesa em profundidade: a mascara ja garante AUTHORIZED, e AUTHORIZED
+     * so se alcanca com a LMK completa. Conferir de novo custa uma
+     * comparacao e cobre o caso em que alguem, um dia, acrescente outro
+     * caminho para AUTHORIZED sem perceber o que ele implica. */
+    if (!lmk_completa()) {
+        return STATUS_WRONG_STATE;
+    }
+
+    if (!dualctl_autoriza()) {
+        return STATUS_NOT_AUTHORIZED;
+    }
+
+    state_set(HSM_OPERATIONAL);
+
+    out[0]   = (uint8_t)state_get();
+    *out_len = 1u;
+    return STATUS_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tabela de comandos                                                  */
 /* ------------------------------------------------------------------ */
@@ -366,6 +584,23 @@ static const cmd_entry_t g_cmds[] = {
 
     /* SELFTEST responde ate em TAMPERED, de proposito. Ver o handler. */
     { CMD_SELFTEST,    ST_NORMAL | ST_TAMPERED, h_selftest    },
+
+    /* Fase 3 -- cerimonia de LMK.
+     *
+     * LOAD_COMPONENT so em UNINITIALIZED e SET_STATE so em AUTHORIZED: as
+     * duas mascaras juntas desenham a cerimonia como uma ESCADA de uma via.
+     * Carregou os tres -> AUTHORIZED, e o comando de carregar some. Ativou
+     * -> OPERATIONAL, e o de ativar some. Nenhum degrau se repete, e nao ha
+     * como descer sem apagar (ZEROIZE).
+     *
+     * Os dois exigem dual control, e isso NAO esta na tabela de proposito:
+     * a mascara diz "em que estado", nao "quem autoriza". Misturar as duas
+     * coisas numa coluna so faria a leitura da tabela depender de saber
+     * qual bit significa o que. O dual control fica dentro do handler,
+     * onde ele pode recusar sem gastar o rearme. */
+    { CMD_LMK_LOAD_COMPONENT, ST_UNINIT, h_lmk_load_component },
+    { CMD_LMK_STATUS,         ST_NORMAL, h_lmk_status         },
+    { CMD_SET_STATE,          ST_AUTH,   h_set_state          },
 };
 
 #define N_CMDS (sizeof(g_cmds) / sizeof(g_cmds[0]))

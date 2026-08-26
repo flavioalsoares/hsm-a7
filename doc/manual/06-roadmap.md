@@ -1,6 +1,6 @@
 # Parte VI — O caminho adiante
 
-## 27. Fase 2 — engines e self-test *(em andamento)*
+## 27. Fase 2 — engines e self-test *(concluída)*
 
 **Objetivo:** primitivas corretas e verificáveis. Correção antes de
 desempenho.
@@ -10,8 +10,8 @@ desempenho.
 | AES-256 | secworks/aes | **no CFS, verificado** |
 | SHA-256 | secworks/sha256 | **no CFS, verificado** |
 | `DNA_PORT` | primitiva Xilinx | **no CFS, verificado** |
-| TRNG | neoTRNG (do NEORV32) | a fazer |
-| CTR_DRBG | firmware | a fazer |
+| TRNG | neoTRNG (do NEORV32) | **no CFS, com health tests em RTL** |
+| CTR_DRBG | firmware | **implementado, no POST** |
 
 ### O que já está feito
 
@@ -147,35 +147,84 @@ A modificação entrou como **patch versionado e revisável**, não como fork
 nem reescrita: `third_party/` continua byte a byte igual ao upstream, e o
 diff do que mudou está no repositório, legível, ao lado da justificativa.
 
-### O que falta
+### Como a fase terminou, e a surpresa dela
 
-Vêm agora o neoTRNG e o conteúdo real da fase: os **testes de saúde**
-(seção 10) e o **POST** (seção 11). RCT e APT sobre a fonte bruta, e KAT de
-AES, SHA, HMAC e DRBG antes de aceitar qualquer comando.
+O plano dizia que RCT e APT (seção 10) ficariam em **firmware**. Não dá, e
+descobrir por quê foi a lição da fase: a SP 800-90B exige que os testes
+*contínuos* vejam **toda** amostra, e a fonte produz uma por ciclo de
+100 MHz. A CPU veria uma em mil.
 
-**Cuidado térmico registrado no plano:** manter o array de osciladores em
-anel pequeno, meia dúzia de anéis. Centenas geram calor e ruído de
-alimentação localizados sem ganho de entropia.
+A divisão que sobrou é melhor do que a planejada:
 
-Critérios restantes: KAT passando também no POST; 1 MB de saída do gerador
-passando em `ent` e `dieharder` (sanidade, não validação); e forçar falha
-artificial no RCT levando o dispositivo a `TAMPERED`.
+- **hardware** faz os testes contínuos, amostra a amostra, e congela um
+  retrato de 1024 amostras brutas consecutivas;
+- **firmware** faz os testes de partida sobre esse retrato e é dono da
+  política — reprovou, o dispositivo vai para `TAMPERED`.
 
-## 28. Fase 3 — hierarquia de chaves
+Os dois testes acabam implementados **duas vezes, de forma independente**, e
+uma discordância entre eles denuncia erro de interpretação da norma. Não foi
+custo: foi a verificação saindo de graça.
+
+**Cuidado térmico registrado no plano, e respeitado:** meia dúzia de anéis
+osciladores, não centenas. Array grande gera calor e ruído de alimentação
+localizados sem ganho de entropia.
+
+O **POST** (seção 11) roda antes de aceitar qualquer comando e cobre AES-256,
+SHA-256, HMAC-SHA-256, CMAC-AES-256, CTR_DRBG, os testes de partida da fonte
+e o key store — todos contra vetores oficiais. Custo medido: **5,94 ms** de
+boot. Falha leva a `TAMPERED`, e o dispositivo passa a atender **só** ao
+`SELFTEST`, que é o único jeito de o operador saber *o que* reprovou em vez
+de olhar um LED vermelho.
+
+Da fase sobrou apenas `dieharder -a`, que não está instalado na máquina de
+trabalho — e que é sanidade estatística, não validação de gerador.
+
+## 28. Fase 3 — hierarquia de chaves *(em andamento)*
 
 O coração do projeto, e onde os conceitos das Partes II e III viram código.
 
-- **Key store** com os campos do cabeçalho TR-31 modelados desde o início —
+- ✅ **Key store** com os campos do cabeçalho TR-31 modelados desde o início —
   refatorar isso depois é doloroso porque o MAC cobre o cabeçalho inteiro.
-- **Máquina de estados** completa, com display de 7 segmentos mostrando
-  `Uni` / `Aut` / `OPE` / `tPr`.
-- **Cerimônia de LMK** com três componentes XOR, KCV a cada passo, e dual
+- ✅ **Cerimônia de LMK** com três componentes XOR, KCV a cada passo, e dual
   control exigindo os dois botões.
+- **Máquina de estados** — as transições existem; falta o display de 7
+  segmentos mostrando `Uni` / `Aut` / `OPE` / `tPr`.
 - **Key blocks TR-31 versão D**: KBEK e KBAK derivadas por CMAC, corpo em
   AES-CBC, autenticação por CMAC sobre cabeçalho e corpo.
 - **Zeroize** com prova por dump.
 - **Log de auditoria** gravado antes da execução, em flash, com contador
   monotônico.
+
+### A cerimônia, e o que o dual control prova
+
+A LMK entra em **três componentes** que se acumulam por XOR: cada custodiante
+carrega o seu e nenhum vê os demais, e nenhum componente isolado revela nada
+sobre a chave. A cada passo volta o KCV **do componente** — não do acumulado
+— para que quem digitou errado descubra na hora, e não no fim, quando já não
+dá para saber qual dos três estava trocado.
+
+Os dois botões físicos autorizam, e há um detalhe que só aparece quando se
+tenta atacar o próprio mecanismo: **não basta que os dois estejam
+pressionados**. Entre uma autorização e a seguinte, os dois têm de ser vistos
+**soltos**. Sem essa exigência, fita adesiva sobre os dois botões carregaria
+a LMK inteira sozinha, e o dual control seria teatro — e, pior, um botão
+travado em "pressionado" passaria a autorizar tudo em vez de nada.
+
+A escada de estados é de **uma via só**. Carregou os três componentes, o
+dispositivo vai a `AUTHORIZED` e o comando de carregar deixa de existir —
+não há caminho para trocar a chave mestra por cima da existente. Ativou, vai
+a `OPERATIONAL` e o comando de ativar some. Descer exige apagar.
+
+O efeito colateral mais instrutivo é o que **desaparece**: em `OPERATIONAL`
+os comandos da Fase 2 que recebem chave em claro no payload param de
+responder. Nenhuma linha de código os desliga — a máscara de estados deles
+diz `UNINITIALIZED`, e o dispositivo simplesmente não está mais lá.
+
+E a honestidade que fecha a seção: num HSM de verdade o componente entra por
+teclado local ou cartão do custodiante, **nunca pela mesma porta por onde o
+host fala**. Aqui a porta é uma só, e o componente atravessa o link em claro.
+É a maior distância entre este projeto e o modelo — e está escrita, não
+escondida.
 
 O critério de aceitação que mais importa:
 
@@ -246,7 +295,30 @@ fases 3 a 5. E há um gancho direto com a seção 17.1 — implementar RSA-CRT
 sem verificar a assinatura antes de emitir é reproduzir o ataque Bellcore no
 próprio equipamento.
 
-## 33. Ordem de trabalho, e a regra que a sustenta
+## 33. Fase 8 — criptografia de pagamento
+
+Acrescentada ao plano em 2026-08-08, quando o modelo de referência do projeto
+passou a ser a categoria dos HSMs de pagamento. É a última porque depende de
+tudo o que vem antes: sem hierarquia de chaves (Fase 3) e sem API de serviço
+(Fase 5), não há onde encaixar um comando de tradução de PIN.
+
+O conteúdo dela é a **Parte VII** deste manual. O que decide se um item é
+implementável aqui não é a dificuldade — é o **hardware** e a **procedência
+dos vetores**:
+
+- o que é AES cabe (PIN block formato 4, DUKPT AES);
+- o que é inerentemente 3DES não cabe, porque o coprocessador é AES-256 sem
+  caminho de downgrade, e isso é decisão de arquitetura e não tarefa pendente;
+- o que não tem vetor público não entra, ou entra marcado como não
+  verificado — a regra nº 5 exige procedência, e "implementei e parece certo"
+  é exatamente o que ela proíbe.
+
+O melhor item da lista é o **ataque de tabela de decimalização** (seção
+37.3), e por um motivo que vale registrar: ele não precisa de 3DES nem de
+vetor de bandeira nenhuma. O ataque é sobre a **API**, não sobre a cifra, e
+reproduz inteiro num esquema nosso com AES.
+
+## 34. Ordem de trabalho, e a regra que a sustenta
 
 Uma regra vale para todas as fases:
 

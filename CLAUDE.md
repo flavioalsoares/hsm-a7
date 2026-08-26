@@ -87,7 +87,7 @@ Antes de implementar, responder no PR/commit:
 - [ ] Respeita `exportability` do slot?
 - [ ] Entra no log de auditoria **antes** da execução?
 
-## Estado atual (atualizado 2026-08-21)
+## Estado atual (atualizado 2026-08-26)
 
 **Fase 2 em andamento. O CFS está pronto.** AES-256, SHA-256 e o `DNA_PORT`
 são coprocessadores dentro da fronteira criptográfica, verificados contra os
@@ -147,6 +147,9 @@ A fase 3 os **substitui** por versões que falam por handle.
   autentica o key block X9.143. Vetores do CAVP em `vectors/cmac/`.
 - **Key store em BRAM** (`fw/src/keystore.c`) — 16 slots com os campos do
   header X9.143, mais a LMK em região separada.
+- **Cerimônia de LMK** (`fw/src/dualctl.c`, comandos `0x20`/`0x21`/`0x26`) —
+  três componentes por XOR, KCV a cada passo, dual control pelos dois botões
+  e a escada `UNINITIALIZED → AUTHORIZED → OPERATIONAL`.
 
 ⚠ **A API do key store é assimétrica de propósito, e não é para
 "simplificar".** `keystore_usa_aes()` carrega a chave no coprocessador e
@@ -158,14 +161,32 @@ que contém chave nem aparece no header.
 ⚠ **A LMK fica FORA do vetor de slots** — sem handle, e zeroizá-la apaga
 todos os slots junto. Chave derivada não sobrevive à chave que a protege.
 
+⚠ **Dual control exige um aperto NOVO a cada autorização.** Não basta que os
+dois botões estejam pressionados: entre duas autorizações eles têm de ser
+vistos **soltos** (`fw/src/dualctl.c`). Sem isso, fita adesiva sobre os dois
+carregaria a LMK inteira sozinha. Por isso o rearme mora no laço principal de
+`main.c`, não no handler — o evento acontece *entre* comandos, e um handler
+só enxerga o instante em que foi chamado.
+
+⚠ **Dual control não está na tabela de comandos, de propósito.** A máscara de
+estados responde "em que estado", não "quem autoriza". A checagem fica dentro
+do handler, onde pode recusar **sem gastar o rearme** — se a recusa
+consumisse, um host hostil negaria a cerimônia chamando o comando em laço.
+
+⚠ **A LMK não sobrevive a um desligamento** (BRAM é volátil, e é o que a
+regra nº 2 pede). Toda sessão de bancada que precise de LMK refaz a
+cerimônia. A persistência é a fase 4, e a ordem é essa de propósito: guardar
+chave antes de saber embrulhá-la seria guardar chave em claro.
+
 ⚠ **Os vetores de CMAC do CAVS 11.0 só têm tags truncadas** (Tlen 5 e 10).
 O KAT compara os primeiros Tlen bytes, o que é normatizado — mas **não
 verifica os últimos 6 bytes da tag**. Não há vetor público de tag cheia.
 
 Falta da fase 2 apenas `dieharder -a`, que não está instalado.
 Detalhes em `doc/fase2-notas.md`; **o próximo passo e como retomar estão em
-`doc/fase3-notas.md`** — o próximo é o **key store em BRAM**, e a estrutura
-do slot precisa nascer com os campos do header X9.143 já modelados.
+`doc/fase3-notas.md`** — o próximo são os **key blocks ANSI X9.143**, com o
+parser escrito duas vezes (C no firmware, Python no host) para os dois se
+validarem mutuamente.
 
 **Timing fecha em +0,487 ns** (Fmax ≈ 105 MHz), 0 erros e 0 critical
 warnings. Não fechava: o CFS entrou com **−2,388 ns**, e 49 dos 58 endpoints

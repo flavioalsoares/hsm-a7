@@ -69,6 +69,35 @@
  * resposta; para 1 MB o host chama em laco. */
 #define CMD_RANDOM_MAX    256u
 
+/* ---------------------------------------------------------------------
+ * Fase 3 -- hierarquia de chaves
+ *
+ * A partir daqui o dispositivo GUARDA chave, e a diferenca aparece na
+ * tabela: estes comandos nao recebem material de chave para usar e
+ * devolver, eles constroem estado interno que so sai como KCV ou handle.
+ * ------------------------------------------------------------------- */
+
+/* Cerimonia de LMK. Exige dual control -- ver dualctl.h.
+ *   pedido    n(1) || componente(32)
+ *   resposta  kcv_do_componente(3) || carregados(1) || estado(1)  */
+#define CMD_LMK_LOAD_COMPONENT  0x20u
+
+/*   pedido    vazio
+ *   resposta  carregados(1) || completa(1) || kcv_da_lmk(3)
+ * O KCV vem zerado enquanto a LMK nao estiver completa. Comprimento fixo
+ * de proposito: resposta curta e resposta longa distinguiveis de fora sao
+ * um canal, ainda que estreito. */
+#define CMD_LMK_STATUS          0x21u
+
+/* Transicao de estado operada por gente. Exige dual control.
+ *   pedido    estado_alvo(1)
+ *   resposta  estado_atual(1)
+ * A unica transicao aceita e AUTHORIZED -> OPERATIONAL. Voltar para
+ * UNINITIALIZED e trabalho do ZEROIZE, que apaga; um SET_STATE que
+ * "desinicializasse" deixaria a chave viva com o estado mentindo. */
+#define CMD_SET_STATE           0x26u
+
+
 void         cmd_init(void);
 void         cmd_poll(void);
 uint32_t     crc32_hsm(const uint8_t *data, uint32_t len);

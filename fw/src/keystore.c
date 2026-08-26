@@ -28,7 +28,10 @@ static uint8_t g_lmk[KS_KEY_MAX];
 static uint8_t g_lmk_comps;      /* quantos componentes entraram */
 static uint8_t g_lmk_kcv[KS_KCV_LEN];
 
-#define LMK_N_COMPONENTES  3u
+/* Uma so fonte de verdade: o host e a tabela de comandos precisam do mesmo
+ * numero, e um `3` repetido em dois arquivos e um `4` pela metade esperando
+ * acontecer. */
+#define LMK_N_COMPONENTES  KS_LMK_N_COMPONENTES
 
 /* ------------------------------------------------------------------ */
 

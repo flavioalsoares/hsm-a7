@@ -10,6 +10,7 @@
 #include <neorv32.h>
 
 #include "cmd.h"
+#include "dualctl.h"
 #include "hsm_cfs.h"
 #include "kat.h"
 #include "keystore.h"
@@ -56,6 +57,10 @@ int main(void)
 
     state_init();
     cmd_init();
+
+    /* Dual control comeca DESARMADO -- ver dualctl.h. Um dispositivo que
+     * ligou com um botao colado nao autoriza nada ate alguem solta-lo. */
+    dualctl_init();
 
     /* Key store zerado ANTES do POST. O POST o exercita e o deixa limpo de
      * novo; inicializar aqui garante estado definido mesmo se o POST
@@ -134,6 +139,17 @@ int main(void)
      * mexendo nos mesmos buffers. */
     while (1) {
         cmd_poll();
+
+        /* Rearme do dual control: e aqui que o firmware VE os botoes serem
+         * soltos. Fica no laco, e nao dentro do handler, porque a condicao
+         * que interessa e um evento que acontece ENTRE comandos -- um
+         * handler so ve o instante em que foi chamado, e nesse instante os
+         * botoes ja estao pressionados de novo.
+         *
+         * Consequencia pratica na cerimonia: nao adianta segurar os dois
+         * botoes durante os tres componentes. Cada um exige soltar e
+         * apertar, que e exatamente o gesto que se quer contar. */
+        dualctl_poll();
     }
 
     return 0;

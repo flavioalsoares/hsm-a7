@@ -376,6 +376,9 @@ assinatura sair errada, implemente contramedidas (dupla execução, verificaçã
 resultado). Bitstream encriptado com chave em BBRAM como confidencialidade de
 firmware.
 
+**Fase 7 — assimétrico.** RSA-2048 por Montgomery nos 90 DSP48E1; P-256 depois.
+Deixar por último: o aprendizado de HSM está nas fases 3 a 5.
+
 **Fase 8 — criptografia de pagamento (esboço, decidido em 2026-08-08).**
 Depois que a hierarquia de chaves e a API existirem, é o que falta para o
 projeto encostar de verdade no assunto. Nem tudo é
@@ -423,9 +426,6 @@ licenciado e **não entram aqui em nenhuma hipótese**.
 Quando a fase 5 definir o command set ASCII, ele será **nosso**: o formato
 geral (código de dois caracteres, resposta = comando + 1) é público e
 observável, e é só dele que a inspiração vem.
-
-**Fase 7 — assimétrico.** RSA-2048 por Montgomery nos 90 DSP48E1; P-256 depois.
-Deixar por último: o aprendizado de HSM está nas fases 3 a 5.
 
 ---
 

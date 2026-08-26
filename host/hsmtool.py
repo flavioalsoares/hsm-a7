@@ -22,10 +22,16 @@ Uso:
     hsmtool.py version
     hsmtool.py bench -n 10000        # criterio de aceitacao da fase 1
     hsmtool.py raw --op 0x01
+
+Cerimonia de LMK (fase 3) -- exige os dois botoes da placa:
+    hsmtool.py lmk-status
+    hsmtool.py lmk-load 0 --random
+    hsmtool.py activate
 """
 
 import argparse
 import glob
+import os
 import sys
 import time
 import zlib
@@ -65,6 +71,20 @@ CMD_SHA256 = 0x12
 CMD_HMAC = 0x13
 CMD_RANDOM = 0x14
 CMD_SELFTEST = 0x15
+
+# Fase 3 -- hierarquia de chaves.
+#
+# LMK_LOAD_COMPONENT e SET_STATE exigem DUAL CONTROL: os dois botoes da
+# placa (SW2 e SW5) pressionados no instante em que o frame chega. Nao ha
+# como o host suprir isso, e e esse o ponto -- o unico comando do projeto
+# cuja autorizacao nao esta neste link.
+CMD_LMK_LOAD_COMPONENT = 0x20
+CMD_LMK_STATUS = 0x21
+CMD_SET_STATE = 0x26
+
+LMK_N_COMPONENTES = 3
+LMK_KEY_LEN = 32
+KCV_LEN = 3
 
 # Bits devolvidos pelo SELFTEST -- espelham fw/include/kat.h
 KAT_BITS = [
@@ -506,6 +526,131 @@ def cmd_selftest_dev(client, args):
     return 1
 
 
+# --------------------------------------------------------------------
+# Cerimonia de LMK -- fase 3
+#
+# FRONTEIRA: o componente atravessa este arquivo em claro, e e a maior
+# distancia entre este projeto e um HSM de verdade. Num equipamento real o
+# componente entra por teclado local ou smart card do custodiante, nunca
+# pela mesma porta por onde o host fala. Aqui a porta e uma so.
+#
+# Esta escrito, e nao escondido: o valor didatico esta em ver exatamente
+# onde o brinquedo deixa de imitar o original.
+# --------------------------------------------------------------------
+
+
+def _pede_dual_control(o_que):
+    """Pede o gesto fisico e espera.
+
+    O host NAO consegue verificar nem simular isso -- e o ponto. Se os
+    botoes nao estiverem apertados quando o frame chegar, o dispositivo
+    devolve STATUS_NOT_AUTHORIZED, e essa recusa e a unica prova de que o
+    dual control existe de verdade.
+
+    Cada autorizacao exige um aperto NOVO: entre um componente e o
+    seguinte, os dois botoes precisam ser vistos SOLTOS. Segurar os dois
+    durante a cerimonia inteira nao carrega tres componentes -- carrega um.
+    """
+    print()
+    print(o_que)
+    print("  SOLTE os dois botoes, depois SEGURE SW2 e SW5 juntos")
+    print("  e tecle Enter sem soltar.")
+    try:
+        input()
+    except EOFError:
+        print("  (sem terminal interativo -- enviando assim mesmo)",
+              file=sys.stderr)
+
+
+def cmd_lmk_status(client, args):
+    p = client.command(CMD_LMK_STATUS)
+    if len(p) != 2 + KCV_LEN:
+        print("payload inesperado: %r" % p)
+        return 1
+
+    carregados, completa = p[0], p[1]
+    kcv = p[2:]
+
+    print("componentes : %d de %d" % (carregados, LMK_N_COMPONENTES))
+    if completa:
+        print("KCV da LMK  : %s" % kcv.hex().upper())
+    else:
+        # O firmware devolve o KCV zerado quando incompleta, de proposito:
+        # resposta de comprimento fixo nao anuncia nada pelo tamanho.
+        print("KCV da LMK  : -- (incompleta)")
+    return 0
+
+
+def cmd_lmk_load(client, args):
+    """Carrega um componente da LMK. Exige dual control."""
+    n = args.n
+    if not 0 <= n < LMK_N_COMPONENTES:
+        print("componente %d fora de 0..%d" % (n, LMK_N_COMPONENTES - 1),
+              file=sys.stderr)
+        return 2
+
+    if args.random:
+        # os.urandom, e nao o RANDOM do dispositivo: um componente gerado
+        # pelo proprio modulo que vai guarda-lo nao e split knowledge
+        # nenhuma -- o modulo saberia os tres. Num HSM de verdade cada
+        # componente nasce com o seu custodiante.
+        comp = os.urandom(LMK_KEY_LEN)
+        print("componente %d gerado aqui no host:" % n)
+        print("  %s" % comp.hex().upper())
+        print("  Anote. Isto e um brinquedo: material de chave na tela e")
+        print("  exatamente o que um HSM existe para evitar.")
+    else:
+        if not args.key:
+            print("informe o componente em hex, ou use --random",
+                  file=sys.stderr)
+            return 2
+        try:
+            comp = bytes.fromhex(args.key)
+        except ValueError:
+            print("componente nao e hex valido", file=sys.stderr)
+            return 2
+        if len(comp) != LMK_KEY_LEN:
+            print("componente tem %d bytes, esperado %d"
+                  % (len(comp), LMK_KEY_LEN), file=sys.stderr)
+            return 2
+
+    _pede_dual_control("Carregar o componente %d da LMK." % n)
+
+    p = client.command(CMD_LMK_LOAD_COMPONENT, bytes([n]) + comp)
+    if len(p) != KCV_LEN + 2:
+        print("payload inesperado: %r" % p)
+        return 1
+
+    kcv, carregados, estado = p[:KCV_LEN], p[KCV_LEN], p[KCV_LEN + 1]
+
+    # O KCV que volta e do COMPONENTE, nao da LMK acumulada. E o que permite
+    # ao custodiante conferir que digitou o dele: sem isso, um componente
+    # trocado so apareceria no KCV final, quando ja nao da para saber qual
+    # dos tres estava errado.
+    print("KCV do componente : %s" % kcv.hex().upper())
+    print("componentes       : %d de %d" % (carregados, LMK_N_COMPONENTES))
+    print("estado            : %s (%d)"
+          % (STATE_NAMES.get(estado, "?"), estado))
+    return 0
+
+
+def cmd_activate(client, args):
+    """AUTHORIZED -> OPERATIONAL. Exige dual control.
+
+    Nao ha comando para o caminho inverso. Voltar a UNINITIALIZED e
+    trabalho do ZEROIZE, que apaga: um "desativar" que preservasse a LMK
+    deixaria o estado mentindo sobre o dispositivo.
+    """
+    _pede_dual_control("Ativar o dispositivo (AUTHORIZED -> OPERATIONAL).")
+
+    p = client.command(CMD_SET_STATE, bytes([2]))   # HSM_OPERATIONAL
+    if len(p) != 1:
+        print("payload inesperado: %r" % p)
+        return 1
+    print("estado : %s (%d)" % (STATE_NAMES.get(p[0], "?"), p[0]))
+    return 0
+
+
 def cmd_raw(client, args):
     payload = bytes.fromhex(args.payload) if args.payload else b""
     status, data = client.transact(args.op, payload)
@@ -603,6 +748,20 @@ def main(argv=None):
 
     sub.add_parser("post", help="reroda o POST no dispositivo")
 
+    # Cerimonia de LMK -- fase 3. Os dois primeiros exigem dual control.
+    sub.add_parser("lmk-status", help="quantos componentes e o KCV da LMK")
+
+    p_lmk = sub.add_parser("lmk-load",
+                           help="carrega um componente da LMK (dual control)")
+    p_lmk.add_argument("n", type=int, help="indice do componente (0..2)")
+    p_lmk.add_argument("key", nargs="?", default=None,
+                       help="componente: 32 bytes em hex")
+    p_lmk.add_argument("--random", action="store_true",
+                       help="gera o componente aqui e imprime (brinquedo)")
+
+    sub.add_parser("activate",
+                   help="AUTHORIZED -> OPERATIONAL (dual control)")
+
     p_raw = sub.add_parser("raw", help="envia um opcode arbitrario")
     p_raw.add_argument("--op", type=lambda s: int(s, 0), required=True)
     p_raw.add_argument("--payload", default="", help="payload em hex")
@@ -633,6 +792,9 @@ def main(argv=None):
         "hmac": cmd_hmac,
         "random": cmd_random,
         "post": cmd_selftest_dev,
+        "lmk-status": cmd_lmk_status,
+        "lmk-load": cmd_lmk_load,
+        "activate": cmd_activate,
     }
 
     try:
@@ -640,6 +802,13 @@ def main(argv=None):
             return handlers[args.cmd](client, args)
     except HsmError as e:
         print("dispositivo recusou: %s" % e, file=sys.stderr)
+        if e.status == 0x21:
+            print("  Dual control: os dois botoes (SW2 e SW5) precisam estar",
+                  file=sys.stderr)
+            print("  pressionados no instante em que o comando chega, e cada",
+                  file=sys.stderr)
+            print("  autorizacao exige um aperto NOVO -- solte antes.",
+                  file=sys.stderr)
         return 1
     except ProtocolError as e:
         print("erro de protocolo: %s" % e, file=sys.stderr)

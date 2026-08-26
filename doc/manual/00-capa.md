@@ -31,12 +31,17 @@ do IETF, com POST rodando a cada boot e levando o dispositivo a `TAMPERED`
 se reprovar.
 
 **Fase 3 em andamento:** o key store em BRAM já existe, com 16 slots
-modelados nos campos do header X9.143 e a chave mestra em região separada.
-Faltam a cerimônia de carga, os key blocks e os comandos que os manipulam.
+modelados nos campos do header X9.143 e a chave mestra em região separada, e
+a **cerimônia de carga da chave mestra** também — três componentes por XOR,
+KCV conferido a cada passo e dual control exigindo dois botões físicos, com
+a escada de estados `UNINITIALIZED → AUTHORIZED → OPERATIONAL`. Faltam os
+key blocks e os comandos que manipulam chave.
 
 Quem quer só entender o assunto pode parar na Parte IV — ou seguir para a
 VII, se o interesse for pagamento. Quem quer reproduzir o trabalho começa na
-Parte V e volta às anteriores conforme a dúvida aparecer.
+Parte V e volta às anteriores conforme a dúvida aparecer. Quem tem a placa
+na mão e quer operá-la vá direto ao **apêndice E**, que percorre uma sessão
+inteira: ligar, autoteste, cerimônia de LMK e ativação.
 
 :::
 

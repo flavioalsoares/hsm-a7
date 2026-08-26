@@ -32,7 +32,7 @@ semeado por entropia física, especificado na SP 800-90A.
 
 **CVV / CVC** — três dígitos derivados de PAN, validade e código de serviço
 sob um par de chaves. Inerentemente 3DES, e por isso fora do alcance deste
-projeto (seção 38).
+projeto (seção 39).
 
 **Decimalização** — mapear os dígitos hexadecimais que uma cifra produz
 para dígitos decimais, para formar um PIN. A tabela que faz esse mapeamento
@@ -74,10 +74,10 @@ clocks. Aqui, 50 → 100 MHz.
 
 **PAN** — *Primary Account Number*. O número do cartão. Entra na formação
 do PIN block para amarrar o PIN à conta. **Nunca usar um PAN real neste
-projeto** (seção 38.4).
+projeto** (seção 39.4).
 
 **PIN block** — formato que combina PIN e número da conta para transporte.
-Os formatos da ISO 9564 e suas fraquezas estão na seção 34; os ataques
+Os formatos da ISO 9564 e suas fraquezas estão na seção 35; os ataques
 clássicos, na 15.3.
 
 **PVV** — *PIN Verification Value*. Quatro dígitos derivados de PAN e PIN
@@ -150,6 +150,46 @@ um cabo JTAG lê o mesmo número, e ele nunca muda. Serve para identificar a
 placa em log e inventário. Derivar chave dele é um erro clássico, porque
 público e constante são exatamente as duas propriedades que uma chave não
 pode ter.
+
+### Comandos da Fase 2 — primitivas
+
+| Opcode | Nome | Payload do pedido | Payload da resposta |
+|---|---|---|---|
+| `0x10` | `AES_ENC` | chave(32) ‖ bloco(16) | bloco(16) |
+| `0x11` | `AES_DEC` | chave(32) ‖ bloco(16) | bloco(16) |
+| `0x12` | `SHA256` | mensagem | digest(32) |
+| `0x13` | `HMAC` | klen(1) ‖ chave ‖ mensagem | mac(32) |
+| `0x14` | `RANDOM` | n(2), máximo 256 | n bytes do CTR_DRBG |
+| `0x15` | `SELFTEST` | vazio | máscara de falhas(1) |
+
+⚠ **`AES_ENC`, `AES_DEC` e `HMAC` recebem a chave em claro no payload**, e
+por isso só respondem em `UNINITIALIZED`. Não é convenção: é a máscara de
+estados na tabela de comandos. Um comando que aceita chave em claro não pode
+coexistir com chave de verdade no mesmo dispositivo — e no instante em que a
+LMK é carregada, os três param de responder sozinhos. A Fase 3 os
+**substitui** por versões que falam por handle de slot.
+
+O `SELFTEST` é o único comando que responde em `TAMPERED`, e a exceção é
+deliberada: sem ele, um dispositivo que reprovou no boot ficaria mudo sobre
+*o que* reprovou, e o operador teria apenas um LED vermelho.
+
+### Comandos da Fase 3 — hierarquia de chaves
+
+| Opcode | Nome | Payload do pedido | Payload da resposta |
+|---|---|---|---|
+| `0x20` | `LMK_LOAD_COMPONENT` | n(1) ‖ componente(32) | kcv(3) ‖ carregados(1) ‖ estado(1) |
+| `0x21` | `LMK_STATUS` | vazio | carregados(1) ‖ completa(1) ‖ kcv(3) |
+| `0x26` | `SET_STATE` | estado alvo(1) | estado atual(1) |
+
+O `0x20` e o `0x26` exigem **dual control**: os dois botões pressionados no
+instante em que o frame chega, e um aperto *novo* a cada autorização (seção
+28). São os únicos comandos do projeto cuja autorização não está no link do
+host — o que é o ponto inteiro deles.
+
+O KCV que o `0x20` devolve é o do **componente**, não o da LMK acumulada. O
+`0x21` devolve o da LMK, e só quando ela está completa; enquanto incompleta,
+os três bytes vêm zerados, e a resposta mantém o comprimento fixo para que o
+tamanho do frame não anuncie nada.
 
 ### Códigos de status
 
@@ -268,7 +308,243 @@ Ordem para mudar código externo:
 Detalhes em `doc/submodulos.md`. O espelho offline reproduzível dos cores
 externos sai de `./scripts/mirror-deps.sh`.
 
-## E. Leitura
+## E. Operar o dispositivo
+
+O apêndice D ensina a **construir**. Este ensina a **usar** — uma sessão
+inteira, do power-on até o dispositivo operacional, com o que cada resposta
+significa.
+
+Tudo daqui é feito com `host/hsmtool.py`, que fala o protocolo do apêndice B
+pela UART do CP2102 (115200 8N1, a mesma porta USB que alimenta o core
+board).
+
+### E.1 Ligar e conferir
+
+O bitstream mora na **flash SPI**, então a placa sobe sozinha na
+energização. Não há nada a carregar.
+
+```bash
+python3 host/hsmtool.py version
+```
+
+```
+firmware : v0.1.0
+estado   : UNINITIALIZED (0)
+```
+
+`UNINITIALIZED` é o estado de fábrica: o dispositivo funciona, mas não
+guarda chave nenhuma.
+
+**Antes de qualquer outra coisa, o autoteste.** Ele já rodou no boot — o
+`SELFTEST` apenas o repete, e é assim que se confere que o módulo continua
+calculando certo *agora*, não só quando ligou:
+
+```bash
+python3 host/hsmtool.py post
+```
+
+```
+AES-256                ok
+SHA-256                ok
+HMAC-SHA-256           ok
+CTR_DRBG               ok
+TRNG / health tests    ok
+CMAC-AES-256           ok
+key store              ok
+```
+
+Sete linhas, sete verdades diferentes. As quatro primeiras são respostas
+conhecidas contra vetores oficiais (seção 11). A quinta são os testes de
+partida da fonte de entropia sobre um retrato de 1024 amostras brutas
+(seção 10). A sétima é um teste de *função crítica*, não de algoritmo:
+verifica que uma chave marcada como não exportável não sai, que um slot
+apagado não responde, e que uma chave de cifrar não é aceita para decifrar.
+
+**Se alguma reprovar**, o dispositivo vai para `TAMPERED` e passa a atender
+**só** ao `SELFTEST`. Isso é o comportamento correto, e a exceção é
+deliberada: sem ela o operador teria apenas um LED vermelho e nenhuma
+informação sobre *o que* falhou.
+
+### E.2 O que dá para fazer antes de haver chave
+
+Em `UNINITIALIZED` o dispositivo é uma caixa de primitivas. Estes comandos
+recebem a chave **no payload**, o que um HSM de verdade jamais aceitaria:
+
+```bash
+python3 host/hsmtool.py sha256 616263          # SHA-256 de "abc"
+python3 host/hsmtool.py aes <chave-hex> <bloco-hex>
+python3 host/hsmtool.py random -n 32           # bytes do CTR_DRBG
+```
+
+Eles existem para exercitar o hardware antes de existir key store, e **param
+de responder no instante em que houver LMK** — não por uma linha de código
+que os desligue, mas porque a máscara de estados deles diz `UNINITIALIZED` e
+o dispositivo não estará mais lá. Guarde isso: é a demonstração mais limpa
+de por que estado importa num HSM.
+
+O `random` é o único dos quatro que continua funcionando depois. Ele não
+recebe chave nenhuma.
+
+### E.3 A cerimônia de LMK
+
+A **Local Master Key** é a raiz da hierarquia (seção 7): é ela que embrulha
+todas as demais. Ela não é digitada por uma pessoa. Ela nasce de **três
+componentes**, cada um sob a guarda de um custodiante diferente, que se
+combinam por XOR dentro do dispositivo.
+
+Por que XOR e por que três: nenhum componente isolado revela **nada** sobre
+a chave — nem um bit — e conhecer dois de três não ajuda. Três é prática
+operacional, não criptografia: dois custodiantes não dão margem se um faltar
+no dia, e mais de três transforma a cerimônia em logística.
+
+**O gesto físico.** Cada componente exige os dois botões da placa — `SW2` e
+`SW5` — pressionados no instante em que o comando chega. E exige um aperto
+**novo**: entre um componente e o seguinte, os dois têm de ser vistos
+**soltos**. Segurar os dois durante a cerimônia inteira carrega **um**
+componente, não três (seção 28).
+
+```bash
+python3 host/hsmtool.py lmk-status
+```
+
+```
+componentes : 0 de 3
+KCV da LMK  : -- (incompleta)
+```
+
+Agora cada componente, um de cada vez:
+
+```bash
+python3 host/hsmtool.py lmk-load 0 --random
+```
+
+O `--random` gera o componente **no host** e o imprime na tela. Isso é uma
+concessão de brinquedo, e o próprio comando avisa: material de chave na tela
+é exatamente o que um HSM existe para evitar. Num equipamento real cada
+componente nasce com o seu custodiante, num cartão ou num dispositivo de
+entrada dedicado. Para fornecer um componente existente, passe-o em hex no
+lugar de `--random`.
+
+A ferramenta então pede o gesto e espera:
+
+```
+Carregar o componente 0 da LMK.
+  SOLTE os dois botoes, depois SEGURE SW2 e SW5 juntos
+  e tecle Enter sem soltar.
+```
+
+Segure os dois, tecle Enter sem soltar, e a resposta volta:
+
+```
+KCV do componente : 539062
+componentes       : 1 de 3
+estado            : UNINITIALIZED (0)
+```
+
+**O KCV que volta é o do componente, não o da LMK.** É o que permite ao
+custodiante conferir, ali, que digitou o dele e não o do vizinho. Sem esse
+passo, um componente trocado só apareceria no KCV final — quando já não dá
+para saber qual dos três estava errado. Confira contra o valor que o
+custodiante trouxe anotado; se não bater, **pare a cerimônia**.
+
+Repita para os componentes `1` e `2`. Ao terceiro:
+
+```
+componentes       : 3 de 3
+estado            : AUTHORIZED (1)
+```
+
+O estado muda no mesmo comando que completa a chave, e não num comando
+separado: *"tenho LMK"* e *"estou em AUTHORIZED"* precisam ser a mesma
+afirmação, ou o estado vira opinião.
+
+```bash
+python3 host/hsmtool.py lmk-status
+```
+
+```
+componentes : 3 de 3
+KCV da LMK  : 46F2FB
+```
+
+Anote esse KCV. Ele é a única coisa derivada da LMK que atravessa a
+fronteira, e é como se confere, em qualquer sessão futura, que o dispositivo
+tem a chave certa — sem que ninguém veja a chave. Três bytes dão uma
+colisão em 16 milhões: basta para pegar erro de digitação, e não basta para
+atacar.
+
+**Se `STATUS_NOT_AUTHORIZED` voltar**, os botões não estavam apertados — ou
+estavam apertados desde a autorização anterior. Solte, aperte e repita. Essa
+recusa é a única prova de que o dual control existe de verdade: é o único
+comando do dispositivo cuja autorização não está no link do host.
+
+### E.4 Ativar
+
+`AUTHORIZED` significa "tenho a raiz". `OPERATIONAL` significa "estou em
+serviço". A passagem é um ato de cerimônia, também com dual control:
+
+```bash
+python3 host/hsmtool.py activate
+```
+
+```
+estado : OPERATIONAL (2)
+```
+
+**Repare no que desapareceu.** Tente agora:
+
+```bash
+python3 host/hsmtool.py aes <chave> <bloco>
+```
+
+```
+dispositivo recusou: STATUS_WRONG_STATE (0x20)
+```
+
+O comando que aceitava chave em claro não existe mais neste estado. E a
+própria cerimônia também não se repete — não há caminho para trocar a chave
+mestra por cima da existente, o que seria substituir a raiz sem apagar o que
+ela protege. A escada é de **uma via só**, e descer exige apagar.
+
+### E.5 Os indicadores da placa
+
+Cinco LEDs, e **todos são vermelhos**: a cor não carrega informação nenhuma,
+só a posição.
+
+| LED | Significado |
+|---|---|
+| **D1** | pisca a 1 Hz — o clock de 100 MHz está vivo. É **hardware**, independente da CPU |
+| **D2** | aceso — o POST passou e o dispositivo está no laço de comandos |
+| **D5** | aceso — `TAMPERED` |
+
+D1 ser hardware é deliberado: se o firmware travar, D1 continua piscando, e
+isso distingue "clock morto" de "firmware pendurado". Num dispositivo sem
+console, essa distinção é a diferença entre depurar e adivinhar.
+
+Fora isso, o dispositivo é **mudo até ser perguntado**. Um terminal aberto
+na porta serial não mostra absolutamente nada, e esse é o comportamento
+correto: um módulo criptográfico que conversa sozinho está contando alguma
+coisa a alguém.
+
+### E.6 O que ainda não existe
+
+Honestidade sobre o estado do projeto, para que ninguém procure um comando
+que não foi escrito:
+
+- **A LMK não sobrevive ao desligamento.** Ela vive em Block RAM, que é
+  volátil — e é exatamente o que a regra de projeto pede. Toda sessão que
+  precise de LMK refaz a cerimônia. Persistência é a Fase 4, e a ordem é
+  essa de propósito: guardar chave antes de saber embrulhá-la seria guardar
+  chave em claro.
+- **Não há geração, exportação nem importação de chave** (`GEN_KEY`,
+  `EXPORT_KEY`, `IMPORT_KEY`). O key store existe e a LMK existe; falta o
+  key block X9.143 que embrulha uma na outra.
+- **Não há `ZEROIZE` por comando.** Desligar a placa apaga tudo, o que
+  funciona mas não é a mesma coisa: um zeroize de verdade prova que apagou.
+- **Não há log de auditoria.** É transversal e chega junto com os comandos
+  de chave.
+
+## F. Leitura
 
 ### Normas
 

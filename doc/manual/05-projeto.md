@@ -122,11 +122,23 @@ transição no meio zera a contagem.
 **Num HSM real:** integridade da autorização física (seção 7). O mecanismo
 precisa refletir intenção humana, não estado elétrico de contato.
 
-Os dois botões escolhidos são SW2 e SW5 — os extremos da fileira — para
-dificultar pressionar ambos com uma mão só.
+Os dois botões escolhidos são SW2 e SW5, com a intenção de que fiquem
+afastados um do outro e dificultem pressionar ambos com uma mão só. O
+mapeamento elétrico foi medido em hardware — `SW2` → `M6`, `SW5` → `P6` —
+mas que o silk seja mesmo uma fileira `SW1`…`SW5` continua sendo suposição
+não conferida (`doc/pinout.md`). Se não for, o par certo é outro, e o
+critério de escolha é que permanece.
+
+**A camada de política acima deste filtro existe** e está na seção 28: os
+dois botões autorizam a cerimônia de carga da chave mestra, e não basta que
+estejam pressionados — cada autorização exige um aperto *novo*. O `debounce`
+garante que o contato parou quieto; a política garante que o operador
+soltou.
 
 **Falta:** autenticação de custodiante (smartcard + PIN) e registro de *quem*
-autorizou, não só de que houve autorização.
+autorizou, não só de que houve autorização. Dois botões na mesma placa cabem
+nas duas mãos de uma pessoa — isto prova presença física, não consentimento
+de duas pessoas.
 
 ### 24.3 `neorv32_wrapper.vhd` — segurança é o que se desliga
 
@@ -246,19 +258,33 @@ de cabo.
 
 ### 24.7 `state.c` — a chave de switch
 
-Hoje só o enum e a consulta: o dispositivo nasce e permanece em
-`UNINITIALIZED`.
-
-Existe agora, com um estado só, porque **a tabela de comandos já carrega a
-máscara de estados permitidos**. Retroajustar verificação de estado em cada
-handler depois é como se esquece um.
+Na Fase 1 este arquivo era só o enum e a consulta: o dispositivo nascia e
+permanecia em `UNINITIALIZED`. Existia assim, com um estado só, porque **a
+tabela de comandos já carregava a máscara de estados permitidos** desde o
+começo — retroajustar verificação de estado em cada handler depois é como se
+esquece um.
 
 ```c
 #define ST_NORMAL  (ST_UNINIT | ST_AUTH | ST_OPER)
 ```
 
 `TAMPERED` fica fora de propósito: dispositivo comprometido responde o
-mínimo possível.
+mínimo possível. A única exceção é o `SELFTEST`, e ela é deliberada — sem
+ela o operador teria um LED vermelho e nenhuma informação sobre o quê
+reprovou.
+
+**A aposta se pagou na Fase 3**, e vale registrar porque é raro uma decisão
+de infraestrutura cobrar tão pouco depois. Quando a cerimônia de carga da
+chave mestra chegou (seção 28), a máquina de estados ganhou transições
+reais — `UNINITIALIZED` → `AUTHORIZED` → `OPERATIONAL` — e **nenhum handler
+existente precisou de uma linha nova**. Os comandos da Fase 2 que aceitam
+chave em claro no payload têm máscara `ST_UNINIT`; no instante em que existe
+uma chave mestra, eles param de responder sozinhos. Não há código
+desligando nada: a tabela simplesmente não os permite mais.
+
+É a diferença entre política declarada e política executada. Um `if` dentro
+de cada handler seria a mesma regra escrita treze vezes, e treze é
+exatamente o número de lugares onde alguém esquece uma.
 
 ### 24.8 `wipe.c` — zeroização antes de haver chave
 

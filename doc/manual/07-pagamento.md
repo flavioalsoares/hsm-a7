@@ -6,7 +6,7 @@ esses equipamentos fazem o dia inteiro é o que separa "sei o que é uma
 fronteira criptográfica" de "sei por que aquele comando existe".
 
 Aviso que vale para o capítulo inteiro: **este projeto não implementa nada
-do que está aqui.** A seção 38 explica o que dele é implementável e o que
+do que está aqui.** A seção 39 explica o que dele é implementável e o que
 não é, e por quê. O material abaixo é para entender o domínio, não para
 copiar em código.
 
@@ -30,7 +30,7 @@ copiar em código.
 
 ---
 
-## 34. PIN blocks — por que um PIN não viaja sozinho
+## 35. PIN blocks — por que um PIN não viaja sozinho
 
 Um PIN de quatro dígitos tem 10.000 valores possíveis. Cifrar isso
 diretamente com uma chave, sozinho, é um desastre: o mesmo PIN produz sempre
@@ -48,7 +48,7 @@ importam:
 
 A ISO 9564-1 padroniza vários formatos. Interessam três.
 
-### 34.1 Formato 0 (ANSI X9.8) — o que existe em todo lugar
+### 35.1 Formato 0 (ANSI X9.8) — o que existe em todo lugar
 
 O mais antigo e o mais difundido. A ideia:
 
@@ -72,7 +72,7 @@ Bloco de 64 bits, porque nasceu para DES.
   controla o PAN que entra no XOR, ele controla metade do bloco — e é daí
   que saem os ataques de tradução da seção 15.3.
 
-### 34.2 Formato 1 — quando não há conta
+### 35.2 Formato 1 — quando não há conta
 
 Usa preenchimento **aleatório** e não inclui o PAN. Existe para o caso em
 que o número da conta não está disponível no momento de formar o bloco.
@@ -82,13 +82,13 @@ a conta nenhuma**. Um PIN block formato 1 capturado vale para qualquer conta
 que aceite formato 1. Por isso ele é restrito a trechos onde outra coisa
 garante o vínculo.
 
-### 34.3 Formato 3 — o remendo intermediário
+### 35.3 Formato 3 — o remendo intermediário
 
 Como o formato 0, mas com preenchimento **aleatório** em vez de fixo. Tapa o
 buraco do "atacante já conhece metade do bloco" sem mexer no resto. Continua
 com bloco de 64 bits e continua não autenticado.
 
-### 34.4 Formato 4 — o de AES, e o único que este projeto poderia fazer
+### 35.4 Formato 4 — o de AES, e o único que este projeto poderia fazer
 
 Reprojetado para AES, bloco de 128 bits. A estrutura tem **duas passagens de
 cifra**, e é isso que importa:
@@ -118,7 +118,7 @@ porque é o único que usa AES — e AES é o que existe no fabric.
 
 ---
 
-## 35. Tradução de PIN — o comando mais perigoso que existe
+## 36. Tradução de PIN — o comando mais perigoso que existe
 
 Uma transação com cartão atravessa domínios de chave diferentes: terminal,
 adquirente, bandeira, emissor. Cada domínio tem a sua chave. O PIN precisa
@@ -145,7 +145,7 @@ este.
 
 ---
 
-## 36. Verificação de PIN — PVV e IBM 3624
+## 37. Verificação de PIN — PVV e IBM 3624
 
 O emissor precisa decidir se o PIN digitado está certo. Guardar os PINs
 numa base seria insano, então guarda-se um **valor derivado** de quatro
@@ -153,7 +153,7 @@ dígitos, e a verificação recalcula e compara.
 
 Duas famílias dominam.
 
-### 36.1 PVV (Visa)
+### 37.1 PVV (Visa)
 
 Combinam-se dígitos do PAN, um índice de chave e o PIN; cifra-se o conjunto
 com um par de chaves PVK; **decimaliza-se** o resultado; guardam-se quatro
@@ -164,7 +164,7 @@ Repare no que ele **não** faz: não guarda o PIN e não permite recuperá-lo.
 Quatro dígitos de PVV não determinam o PIN — várias entradas colidem, e é
 proposital.
 
-### 36.2 IBM 3624 e o *offset*
+### 37.2 IBM 3624 e o *offset*
 
 Cifra-se um dado de validação derivado do PAN, decimaliza-se, e obtêm-se
 alguns dígitos: o **PIN natural**. Como o cliente quer escolher o próprio
@@ -174,7 +174,7 @@ o PIN escolhido e o natural.
 O offset **não é secreto**: ele pode ser impresso, transportado, guardado em
 claro. Sem a chave, ele não diz nada sobre o PIN.
 
-### 36.3 A decimalização, e por que ela é o ponto fraco
+### 37.3 A decimalização, e por que ela é o ponto fraco
 
 Cifrar produz **hexadecimal**. PIN é **decimal**. A ponte entre os dois é
 uma tabela:
@@ -200,7 +200,7 @@ novo, *o que ele vaza se for chamado em laço com entradas escolhidas*.
 
 ---
 
-## 37. DUKPT — uma chave por transação
+## 38. DUKPT — uma chave por transação
 
 Imagine um milhão de terminais em campo. Se todos compartilham a mesma
 chave, um terminal aberto na bancada de alguém compromete a rede inteira.
@@ -227,7 +227,7 @@ As três propriedades que isso compra:
 3. **Nada para distribuir.** O HSM rederiva; não existe base de um milhão de
    chaves para sincronizar.
 
-### 37.1 X9.24-1 (TDES) e X9.24-3 (AES)
+### 38.1 X9.24-1 (TDES) e X9.24-3 (AES)
 
 | | TDES DUKPT (X9.24-1) | AES DUKPT (X9.24-3) |
 |---|---|---|
@@ -246,7 +246,7 @@ o assunto da próxima seção.
 
 ---
 
-## 38. O que este projeto pode e o que não pode ensinar
+## 39. O que este projeto pode e o que não pode ensinar
 
 A separação não é por dificuldade. É por **hardware** e por **procedência
 de vetor de teste**.
@@ -262,7 +262,7 @@ de vetor de teste**.
 | PVV | **não** | idem — mas o *ataque* sobre ele se ensina sem ele |
 | DUKPT TDES (X9.24-1) | **não** | idem |
 
-### 38.1 Um HSM precisa de 3DES?
+### 39.1 Um HSM precisa de 3DES?
 
 A resposta depende de qual HSM, e a diferença ensina mais que a resposta.
 
@@ -293,7 +293,7 @@ descuido: é o custo real de mover um ecossistema.
 interoperar com ninguém, então não há a pressão que mantém o 3DES vivo lá
 fora. A restrição vira lição em vez de limitação.
 
-### 38.2 Por que não há 3DES aqui
+### 39.2 Por que não há 3DES aqui
 
 Não é omissão: é decisão registrada. O coprocessador deste projeto amarra o
 tamanho de chave em **AES-256, sem caminho para AES-128** — porque um modo
@@ -305,7 +305,7 @@ princípio no mesmo bloco.
 honestamente o que um HSM de pagamento real tem, porque o mundo ainda roda
 3DES. Mas é escolha consciente, e fica para quando a fase chegar.
 
-### 38.3 O obstáculo maior são os vetores
+### 39.3 O obstáculo maior são os vetores
 
 A regra inviolável deste projeto diz que, se um teste de resposta conhecida
 falha, **o erro está no código, não no vetor** — e isso só vale se a
@@ -322,7 +322,7 @@ ou entra explicitamente marcado como não verificado. Preferir a lacuna
 honesta à cobertura fingida é o mesmo critério que orienta o resto do
 documento.
 
-### 38.4 Uma regra que não se negocia
+### 39.4 Uma regra que não se negocia
 
 ⚠ **Nenhum número de cartão real, nunca.** Pela mesma razão que nenhuma
 chave de produção. Gerar CVV ou PIN para um PAN que existe deixa de ser

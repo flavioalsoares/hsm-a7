@@ -9,7 +9,7 @@ producao entra aqui.
 
 ## Para aprender o assunto
 
-**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 55 paginas.
+**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 61 paginas.
 
   I-II   como um HSM funciona: fronteira, hierarquia de chaves, cerimonia
          de LMK, key blocks, maquina de estados, aleatoriedade, self-test
@@ -44,9 +44,10 @@ python3 host/hsmtool.py post        # reroda o POST no dispositivo
   key store              ok
 ```
 
-**Fase 3 em andamento**: CMAC e o key store em BRAM estao prontos; faltam a
-cerimonia de LMK, os key blocks X9.143 e os comandos `0x20`-`0x2F`. Ver
-`doc/fase3-notas.md`.
+**Fase 3 em andamento**: CMAC, o key store em BRAM e a **cerimonia de LMK**
+estao prontos -- tres componentes por XOR, KCV a cada passo e dual control
+pelos dois botoes fisicos. Faltam os key blocks X9.143, o zeroize e os
+comandos `0x22`-`0x2F`. Ver `doc/fase3-notas.md`.
 
 ⚠ **Grave na flash, nao na SRAM** -- `./scripts/program.sh flash`. Nesta
 bancada a configuracao por JTAG **nao aplica a inicializacao das Block
@@ -95,7 +96,20 @@ python3 host/hsmtool.py ping            # com placa (115200 8N1)
 python3 host/hsmtool.py version
 python3 host/hsmtool.py dna             # identidade do die (57 bits)
 python3 host/hsmtool.py bench -n 10000  # criterio de aceitacao da fase 1
+
+python3 host/hsmtool.py lmk-status      # cerimonia de LMK (fase 3)
+python3 host/hsmtool.py lmk-load 0 --random
+python3 host/hsmtool.py activate
 ```
+
+⚠ A cerimonia exige **dual control**: os dois botoes (SW2 e SW5) segurados
+no instante em que o comando chega, e um aperto **novo** a cada componente
+-- segurar os dois o tempo todo carrega um, nao tres. O `hsmtool.py` pede o
+gesto e espera o Enter; se vier `STATUS_NOT_AUTHORIZED`, e porque os botoes
+nao estavam apertados, e essa recusa e a prova de que o mecanismo existe.
+
+⚠ A LMK vive em BRAM e **nao sobrevive ao desligamento**. E o que a regra
+n° 2 pede; persistencia e a fase 4.
 
 O dispositivo e mudo ate ser perguntado: terminal aberto nao mostra nada, e
 isso e o comportamento correto.

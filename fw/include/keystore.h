@@ -146,6 +146,14 @@ uint8_t keystore_exporta(ks_handle_t h, uint8_t out[KS_KEY_MAX]);
  * linha com consequência total.
  * ------------------------------------------------------------------- */
 
+/* Quantos componentes formam a LMK.
+ *
+ * Três é a prática usual, e a razão é operacional, não criptográfica: dois
+ * custodiantes não dão margem nenhuma se um faltar no dia, e mais de três
+ * transforma a cerimônia em logística. O XOR não fica mais forte com mais
+ * partes -- ele já é perfeito com duas. */
+#define KS_LMK_N_COMPONENTES  3u
+
 /* Acumula um componente por XOR. Split knowledge: cada custodiante carrega
  * o seu e não vê os demais, e nenhum componente isolado revela nada.
  *
