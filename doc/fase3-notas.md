@@ -229,6 +229,24 @@ projeto: a varredura pela USB tem jitter de milissegundos e não apaga entre
 dígitos. O `seg_display.v` tem contador determinístico e janela de
 apagamento de ~104 µs por troca.
 
+✅ **Validado em hardware, 2026-08-26.** Mostra `Uni` legível e na ordem
+certa, e o ponto decimal acende ao apertar os dois botões.
+
+Vale registrar **o que** essa confirmação fecha, porque não é o display: é a
+única corrente do projeto que nenhum testbench pode percorrer inteira.
+
+```
+dualctl_pronto()  ->  gpio_out[6]  ->  dual_ok_i  ->  segmento dp
+       ^                                                    |
+       |                                                    v
+   os dois botoes fisicos  <----  o dedo do operador  <---- o olho
+```
+
+A simulação verifica cada elo, e não fecha o círculo: o botão que o firmware
+lê é o mesmo que a mão apertou, e o dígito que acendeu é o que o olho
+esperava. Software nenhum detecta uma troca aí. É o mesmo argumento pelo qual
+a ordem física dos botões teve de ser medida, um nível acima.
+
 ⚠ **Custo em timing: −0,133 ns.** A folga foi de +0,380 para **+0,247 ns**.
 Ainda fecha, com 0 endpoints falhando — mas a série é +0,637 → +0,487 →
 +0,380 → +0,247, e ela só desce.

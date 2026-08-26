@@ -152,7 +152,8 @@ A fase 3 os **substitui** por versões que falam por handle.
   e a escada `UNINITIALIZED → AUTHORIZED → OPERATIONAL`.
 - **Display de 7 segmentos** (`rtl/top/seg_display.v`) — soletra
   `Uni`/`Aut`/`OPE`/`tPr`, e o ponto decimal acende enquanto o dual control
-  está satisfeito.
+  está satisfeito. ✅ **Validado em hardware 2026-08-26**: mostra `Uni` na
+  ordem certa e o ponto responde aos botões.
 
 ⚠ **A API do key store é assimétrica de propósito, e não é para
 "simplificar".** `keystore_usa_aes()` carrega a chave no coprocessador e
