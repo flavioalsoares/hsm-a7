@@ -553,8 +553,17 @@ def _pede_dual_control(o_que):
     """
     print()
     print(o_que)
-    print("  SOLTE os dois botoes, depois SEGURE SW2 e SW5 juntos")
-    print("  e tecle Enter sem soltar.")
+    print()
+    print("  Os botoes sao os DOIS MAIS AFASTADOS da fileira de cinco, sem")
+    print("  contar o reset. Contando a partir do reset:")
+    print()
+    print("      [reset]  [ * ]   [   ]   [   ]   [ * ]")
+    print("        SW1     SW2     SW3     SW4     SW5")
+    print("                 ^                       ^")
+    print("                 2o                     5o (ultimo)")
+    print()
+    print("  SOLTE os dois, depois SEGURE os dois juntos e tecle Enter")
+    print("  SEM SOLTAR.")
     try:
         input()
     except EOFError:
@@ -803,11 +812,13 @@ def main(argv=None):
     except HsmError as e:
         print("dispositivo recusou: %s" % e, file=sys.stderr)
         if e.status == 0x21:
-            print("  Dual control: os dois botoes (SW2 e SW5) precisam estar",
+            print("  Dual control: o 2o e o 5o botao da fileira (o 1o e o",
                   file=sys.stderr)
-            print("  pressionados no instante em que o comando chega, e cada",
+            print("  reset) precisam estar pressionados no instante em que o",
                   file=sys.stderr)
-            print("  autorizacao exige um aperto NOVO -- solte antes.",
+            print("  comando chega, e cada autorizacao exige um aperto NOVO",
+                  file=sys.stderr)
+            print("  -- solte os dois antes de apertar de novo.",
                   file=sys.stderr)
         return 1
     except ProtocolError as e:

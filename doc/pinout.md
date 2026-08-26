@@ -104,12 +104,30 @@ toque curto cai entre duas amostras e some. Foi isso que fez as primeiras
 tentativas parecerem negativas. Para leitura confiável, **segurar** o botão
 por mais de um segundo — ou repetir, como no padrão acima.
 
-**Por que SW2 e SW5 e não dois adjacentes:** são os extremos da fileira, o que
-dificulta pressionar ambos com uma mão só. `LMK_LOAD_COMPONENT` exige os dois
-simultaneamente (PLANO §4) — o ponto pedagógico é separar fisicamente "quem
-digita" de "quem autoriza", e dois botões coláveis com um polegar só enfraquecem
-a demonstração. **A confirmar visualmente** que a ordem no silk é mesmo uma
-fileira SW1→SW5; se não for, escolher outro par pelo mesmo critério.
+**[HW] A fileira é mesmo SW1→SW5 — confirmada visualmente em 2026-08-26.**
+Fecha o TBD que restava aqui. O mapeamento elétrico já estava medido desde
+2026-08-21; o que faltava era a *posição*, e ela só se fecha com o olho.
+
+**Por que SW2 e SW5 e não dois adjacentes:** são o par mais afastado
+**disponível**, o que dificulta pressionar ambos com uma mão só.
+
+⚠ Não são "os extremos da fileira" — os extremos são SW1 e SW5, e **SW1 é o
+reset**. Sobram SW2, SW3, SW4 e SW5, e o par mais separado entre eles é
+SW2↔SW5: três posições de distância numa fileira de cinco.
+
+Esta nota existe porque a afirmação errada — "os extremos" — chegou a
+circular no manual como se fosse fato. Ela era plausível, era quase
+verdadeira, e ninguém a mediu. É o mesmo defeito que a §26 do manual ensina
+a evitar, cometido no arquivo que existe justamente para registrar
+procedência.
+
+`LMK_LOAD_COMPONENT` exige os dois simultaneamente (PLANO §4) — o ponto
+pedagógico é separar fisicamente "quem digita" de "quem autoriza", e dois
+botões coláveis com um polegar só enfraquecem a demonstração.
+
+**Para o operador:** contando do reset, `btn_a` é o **2º** botão e `btn_b` é
+o **5º** — o último da fileira. É por posição, e não pelo rótulo impresso,
+que o `hsmtool.py` descreve os dois.
 
 Como são ativos baixos, o firmware lê `!btn` para "pressionado". Debounce é
 obrigatório: um botão mecânico gera dezenas de transições, e um glitch aqui

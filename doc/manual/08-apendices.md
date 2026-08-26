@@ -397,8 +397,18 @@ a chave — nem um bit — e conhecer dois de três não ajuda. Três é prátic
 operacional, não criptografia: dois custodiantes não dão margem se um faltar
 no dia, e mais de três transforma a cerimônia em logística.
 
-**O gesto físico.** Cada componente exige os dois botões da placa — `SW2` e
-`SW5` — pressionados no instante em que o comando chega. E exige um aperto
+**O gesto físico.** Cada componente exige dois botões da placa pressionados
+no instante em que o comando chega. São o **2º e o 5º** de uma fileira de
+cinco, cujo primeiro é o reset:
+
+```
+    [reset]  [ * ]   [   ]   [   ]   [ * ]
+      SW1     SW2     SW3     SW4     SW5
+```
+
+O par mais afastado disponível, para dificultar apertar os dois com uma mão
+só. O `hsmtool.py` desenha esse mapa a cada pedido, porque ler silkscreen
+minúsculo no meio de uma cerimônia é como se aperta o botão errado. E exige um aperto
 **novo**: entre um componente e o seguinte, os dois têm de ser vistos
 **soltos**. Segurar os dois durante a cerimônia inteira carrega **um**
 componente, não três (seção 28).

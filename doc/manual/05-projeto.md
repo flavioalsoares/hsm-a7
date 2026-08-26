@@ -122,12 +122,16 @@ transição no meio zera a contagem.
 **Num HSM real:** integridade da autorização física (seção 7). O mecanismo
 precisa refletir intenção humana, não estado elétrico de contato.
 
-Os dois botões escolhidos são SW2 e SW5, com a intenção de que fiquem
-afastados um do outro e dificultem pressionar ambos com uma mão só. O
-mapeamento elétrico foi medido em hardware — `SW2` → `M6`, `SW5` → `P6` —
-mas que o silk seja mesmo uma fileira `SW1`…`SW5` continua sendo suposição
-não conferida (`doc/pinout.md`). Se não for, o par certo é outro, e o
-critério de escolha é que permanece.
+Os dois botões escolhidos são o **2º e o 5º** de uma fileira de cinco, cujo
+primeiro é o reset — o par mais afastado disponível, o que dificulta
+pressionar ambos com uma mão só. Mapeamento elétrico e posição física foram
+os dois medidos, em datas diferentes: `SW2` → `M6` e `SW5` → `P6` em
+2026-08-21, com um padrão codificado de pressões; a fileira ser mesmo
+`SW1`…`SW5`, por conferência visual, em 2026-08-26 (`doc/pinout.md`).
+
+Vale a pena separar as duas medidas, porque a distinção é fácil de perder:
+saber em que **pino** um botão está não diz **onde ele fica na placa**, e é
+a posição que o operador usa. Software nenhum detecta a troca.
 
 **A camada de política acima deste filtro existe** e está na seção 28: os
 dois botões autorizam a cerimônia de carga da chave mestra, e não basta que
