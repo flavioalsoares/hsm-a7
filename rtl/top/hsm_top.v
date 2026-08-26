@@ -30,7 +30,15 @@ module hsm_top #(
     // com os segmentos todos desligados, habilitar ou nao os digitos da no
     // mesmo. Apareceria na fase 3, no primeiro estado exibido.
     parameter SEG_ACTIVE_LOW = 1'b1,
-    parameter AN_ACTIVE_LOW  = 1'b0
+    parameter AN_ACTIVE_LOW  = 1'b0,
+
+    // Qual anodo e o digito da ESQUERDA. Ver rtl/top/seg_display.v.
+    //
+    // VERIFICADO EM HARDWARE 2026-08-26: seg_an_o[0] e o digito da
+    // esquerda. A medida de 2026-08-09 nao servia para isto -- ela desenhou
+    // "222" nos tres digitos ao mesmo tempo, o que confirma polaridade e
+    // mapeamento de segmento mas nao distingue ORDEM. Ver doc/pinout.md.
+    parameter DIGITO0_A_ESQUERDA = 1'b1
 )(
     // clock e reset
     input  wire       sys_clk_i,    // N11, 50 MHz
@@ -152,6 +160,12 @@ module hsm_top #(
     assign gpio_in[1]   = btn_b_db;     // SW5 -- dual control B
     assign gpio_in[7:2] = 6'b000000;
 
+    // Saidas do firmware, alem dos LEDs (ver fw/src/main.c):
+    //   gpio_out[3:0]  D2..D5
+    //   gpio_out[5:4]  estado da maquina, para o display
+    //   gpio_out[6]    dual control satisfeito -> ponto decimal
+    //   gpio_out[7]    livre
+
     neorv32_wrapper u_soc (
         .clk_i       (clk),
         .rstn_i      (rst_n),
@@ -184,18 +198,30 @@ module hsm_top #(
     assign led_o = ~led_int;
 
     // ------------------------------------------------------------------
-    // Display 7 segmentos -- apagado ate a fase 3
+    // Display 7 segmentos -- estado da maquina
     //
-    // Nao ha maquina de estados para exibir ainda. A polaridade e o
-    // mapeamento JA estao verificados (ver os parametros acima), entao o
-    // que falta e so o conteudo.
+    // Soletra Uni / Aut / OPE / tPr, e acende o ponto decimal quando o dual
+    // control esta satisfeito. Os cinco LEDs desta placa sao todos
+    // vermelhos, entao a cor nao distingue nada e e este display que
+    // carrega informacao de estado. Ver rtl/top/seg_display.v.
     //
-    // Apagado por dois caminhos ao mesmo tempo, de proposito: segmentos
-    // desligados E digitos desabilitados. Qualquer um dos dois bastaria; os
-    // dois juntos fazem o display continuar apagado mesmo se um parametro
-    // for trocado por engano.
+    // Note que o display NAO le a maquina de estados diretamente -- ela
+    // vive no firmware. Chegam dois bits pelo GPIO, e so. Um caminho de
+    // hardware ate a estrutura de estado seria caminho de hardware ate o
+    // que esta ao lado dela na DMEM.
     // ------------------------------------------------------------------
-    assign seg_o    = SEG_ACTIVE_LOW ? 8'hFF : 8'h00;
-    assign seg_an_o = AN_ACTIVE_LOW  ? 3'b111 : 3'b000;
+    seg_display #(
+        .CLK_HZ              (CLK_HZ),
+        .SEG_ACTIVE_LOW      (SEG_ACTIVE_LOW),
+        .AN_ACTIVE_LOW       (AN_ACTIVE_LOW),
+        .DIGITO0_A_ESQUERDA  (DIGITO0_A_ESQUERDA)
+    ) u_seg (
+        .clk_i     (clk),
+        .rst_n_i   (rst_n),
+        .estado_i  (gpio_out[5:4]),
+        .dual_ok_i (gpio_out[6]),
+        .seg_o     (seg_o),
+        .seg_an_o  (seg_an_o)
+    );
 
 endmodule

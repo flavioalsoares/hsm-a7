@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 61 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 62 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
@@ -104,11 +104,14 @@ testes de partida do TRNG e o key store — todos contra vetores oficiais do
 NIST e do IETF. Falha leva a `TAMPERED`. Da fase 2 falta apenas
 `dieharder -a`, que não está instalado nesta máquina.
 
-**Fase 3 em andamento.** CMAC, key store e a **cerimônia de LMK** prontos —
-três componentes por XOR, KCV a cada passo e dual control pelos dois botões
-físicos, com a escada `UNINITIALIZED → AUTHORIZED → OPERATIONAL`. Faltam os
-key blocks X9.143, o zeroize e o resto dos comandos `0x22`–`0x2F`. Ver
+**Fase 3 em andamento.** CMAC, key store, a **cerimônia de LMK** e o
+**display de estado** prontos — três componentes por XOR, KCV a cada passo,
+dual control pelos dois botões físicos, a escada
+`UNINITIALIZED → AUTHORIZED → OPERATIONAL`, e a placa soletrando o estado com
+o ponto decimal confirmando a autorização. Faltam os key blocks X9.143, o
+zeroize e o resto dos comandos `0x22`–`0x2F`. Ver
 [`fase3-notas.md`](fase3-notas.md).
 
-Nenhum `[TBD]` de pinagem: cores dos LEDs, polaridade do display de 7
-segmentos e ordem física dos botões foram todos verificados em hardware.
+Nenhum `[TBD]` de pinagem. Cores dos LEDs, polaridade do display, ordem
+física dos botões e **ordem dos dígitos do display** foram todos fechados
+por medida em hardware.

@@ -55,6 +55,16 @@ void dualctl_poll(void)
     }
 }
 
+int dualctl_pronto(void)
+{
+    /* Consulta pura. Se um dia esta funcao ganhar efeito colateral, ela
+     * deixa de ser consulta e o painel vira caminho de autorizacao. */
+    if (g_armado == 0u) {
+        return 0;
+    }
+    return ambos_pressionados();
+}
+
 int dualctl_autoriza(void)
 {
     if (g_armado == 0u) {

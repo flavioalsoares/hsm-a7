@@ -187,8 +187,9 @@ O coração do projeto, e onde os conceitos das Partes II e III viram código.
   refatorar isso depois é doloroso porque o MAC cobre o cabeçalho inteiro.
 - ✅ **Cerimônia de LMK** com três componentes XOR, KCV a cada passo, e dual
   control exigindo os dois botões.
-- **Máquina de estados** — as transições existem; falta o display de 7
-  segmentos mostrando `Uni` / `Aut` / `OPE` / `tPr`.
+- ✅ **Máquina de estados** com o display de 7 segmentos soletrando
+  `Uni` / `Aut` / `OPE` / `tPr`, mais o ponto decimal confirmando o dual
+  control.
 - **Key blocks TR-31 versão D**: KBEK e KBAK derivadas por CMAC, corpo em
   AES-CBC, autenticação por CMAC sobre cabeçalho e corpo.
 - **Zeroize** com prova por dump.
@@ -219,6 +220,39 @@ O efeito colateral mais instrutivo é o que **desaparece**: em `OPERATIONAL`
 os comandos da Fase 2 que recebem chave em claro no payload param de
 responder. Nenhuma linha de código os desliga — a máscara de estados deles
 diz `UNINITIALIZED`, e o dispositivo simplesmente não está mais lá.
+
+### O painel, e uma pergunta de bancada que virou projeto
+
+A cerimônia nasceu completa e **inoperável**: a ferramenta mandava "segure
+SW2 e SW5", e o operador não tinha como saber quais eram. Rótulo minúsculo,
+no meio de um procedimento, num par que o próprio projeto ainda não tinha
+confirmado.
+
+O conserto óbvio — descrever os botões por posição em vez de por rótulo —
+resolveu metade. A outra metade veio de perguntar quem *deveria* responder
+isso, e a resposta é o dispositivo. O display de 7 segmentos estava ocioso
+desde a Fase 1, com a pinagem verificada e nada para exibir.
+
+Agora ele soletra o estado, e o **ponto decimal acende enquanto o dual
+control está satisfeito**. O operador aperta e vê o dispositivo concordar,
+antes de gastar o comando. É a diferença entre uma autorização que se
+descobre pelo erro e uma que se confirma pelo gesto.
+
+Duas notas de projeto:
+
+- O display **não lê a máquina de estados**; ele recebe dois bits pelo GPIO.
+  Um caminho de hardware até a estrutura de estado seria caminho de hardware
+  até o que está ao lado dela na memória.
+- O `default` do decodificador é `tPr`, não `Uni` nem apagado. Estado
+  corrompido tem de aparecer como comprometido — falhar para o lado seguro
+  vale também para o painel.
+
+E há uma medida que faltava e ninguém tinha notado que faltava. A
+verificação de 2026-08-09 desenhou `222` nos três dígitos ao mesmo tempo, o
+que confirma polaridade e mapeamento de segmento — e **não distingue ordem**:
+três dígitos iguais são iguais em qualquer ordem. O experimento *parecia* ter
+coberto o display inteiro. Fechou desenhando `123`, com a varredura vindo do
+host, três comandos em laço.
 
 E a honestidade que fecha a seção: num HSM de verdade o componente entra por
 teclado local ou cartão do custodiante, **nunca pela mesma porta por onde o

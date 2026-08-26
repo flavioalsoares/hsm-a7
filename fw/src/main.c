@@ -27,6 +27,47 @@
 #define LED_STATE      2u
 #define LED_TAMPER     3u
 
+/* Painel de estado -- rtl/top/seg_display.v le estes bits.
+ *
+ *   4,5  estado da maquina (hsm_state_t, 2 bits)
+ *   6    dual control satisfeito AGORA -> ponto decimal
+ *
+ * O display NAO le a maquina de estados; ele recebe dois bits e mais nada.
+ * Um caminho de hardware ate a estrutura de estado seria caminho de
+ * hardware ate o que esta ao lado dela na DMEM. */
+#define GPIO_ESTADO_0  4u
+#define GPIO_ESTADO_1  5u
+#define GPIO_DUAL_OK   6u
+
+/* Atualiza o painel, e SO se algo mudou.
+ *
+ * Escrever os tres bits a cada volta do laco custaria tres stores por
+ * iteracao num laco que gira dezenas de milhoes de vezes por segundo. Nao
+ * quebraria nada -- nao ha contencao de barramento aqui -- mas gastar ciclo
+ * de CPU num display que muda tres vezes por cerimonia e desperdicio com
+ * cara de zelo.
+ *
+ * FRONTEIRA: dentro, e de propósito muito estreita. Esta funcao ve o
+ * ESTADO e a AUTORIZACAO, nunca chave. O que sai daqui vai para um display
+ * -- e display e o unico canal do dispositivo que nao aparece numa captura
+ * de UART. Se um dia ele mostrar KCV, vira canal lateral otico. */
+static void painel_atualiza(void)
+{
+    static uint8_t ultimo = 0xFFu;    /* valor impossivel: forca a 1a escrita */
+
+    uint8_t st  = (uint8_t)state_get();
+    uint8_t val = (uint8_t)((st & 0x3u) | (dualctl_pronto() ? 0x4u : 0x0u));
+
+    if (val == ultimo) {
+        return;
+    }
+    ultimo = val;
+
+    neorv32_gpio_pin_set(GPIO_ESTADO_0, (val >> 0) & 1u);
+    neorv32_gpio_pin_set(GPIO_ESTADO_1, (val >> 1) & 1u);
+    neorv32_gpio_pin_set(GPIO_DUAL_OK,  (val >> 2) & 1u);
+}
+
 /* Marco de boot -- so no build de diagnostico (make HSM_DIAG=1 image).
  *
  * Acende um LED E manda uma linha pela UART. Os dois, porque cada um
@@ -119,6 +160,11 @@ int main(void)
      * em TAMPERED e o SELFTEST, e sem ele o operador teria apenas um LED
      * vermelho e nenhuma informacao sobre o que reprovou.
      * ------------------------------------------------------------------ */
+    /* Painel antes do POST: o dispositivo mostra Uni desde o inicio, e nao
+     * fica com o display apagado durante os ~6 ms de autoteste. Display
+     * apagado e ambiguo -- e o mesmo sintoma de CPU parada. */
+    painel_atualiza();
+
     if (kat_post() != KAT_OK) {
 #ifdef HSM_DIAG
         neorv32_uart0_puts("[diag] POST REPROVOU\r\n");
@@ -150,6 +196,10 @@ int main(void)
          * botoes durante os tres componentes. Cada um exige soltar e
          * apertar, que e exatamente o gesto que se quer contar. */
         dualctl_poll();
+
+        /* Depois do dualctl_poll(), para que o ponto decimal reflita o
+         * mesmo instante que a proxima autorizacao veria. */
+        painel_atualiza();
     }
 
     return 0;

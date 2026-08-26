@@ -38,6 +38,16 @@ module tb_hsm_top;
     integer i;
     reg     hb_prev;
 
+    // Amostras da varredura do display, uma por anodo.
+    reg [7:0] visto_d0, visto_d1, visto_d2;
+    reg [2:0] vistos;
+
+    // Glifos de "Uni", ATIVO ALTO, escritos segmento a segmento.
+    // bit0=a bit1=b bit2=c bit3=d bit4=e bit5=f bit6=g
+    localparam [6:0] GL_U = 7'b011_1110;   // b c d e f
+    localparam [6:0] GL_n = 7'b101_0100;   // c e g
+    localparam [6:0] GL_i = 7'b000_0100;   // c
+
     // 50 MHz
     always #10 sys_clk = ~sys_clk;
 
@@ -99,22 +109,61 @@ module tb_hsm_top;
             errors = errors + 1;
         end
 
-        // ---- display apagado ------------------------------------------
+        // ---- display: fiacao do seg_display ate os pinos --------------
         //
-        // Esperava an = 111 ate 2026-08-09, porque o toplevel trazia
-        // AN_ACTIVE_LOW = 1 por PALPITE. A medida em hardware
-        // (doc/pinout.md) mostrou o contrario: o digito habilita com 1,
-        // entao desabilitado e 000.
+        // Ate 2026-08-26 este teste conferia que o display estava APAGADO,
+        // porque nao havia estado para exibir. Agora ha, e o que se
+        // verifica aqui e a FIACAO: que gpio_out[5:4] chega ao modulo,
+        // que a polaridade e aplicada uma vez so, e que os tres anodos
+        // saem na ordem certa nos pinos.
         //
-        // Isto NAO e enfraquecer teste para fazer algo passar. O teste
-        // conferia contra uma suposicao, nao contra uma medida; a
-        // suposicao foi refutada por experimento e o valor esperado passou
-        // a ter procedencia. O teste ficou MAIS forte: agora confere os
-        // dois caminhos de apagar, e uma inversao do parametro reprova.
-        if (seg !== 8'hFF || seg_an !== 3'b000) begin
-            $display("[tb_hsm_top] FAIL: display nao esta apagado (seg=%h an=%b, esperado FF/000)",
-                     seg, seg_an);
+        // Os glifos em si sao de tb_seg, com a tabela escrita segmento a
+        // segmento. Aqui basta "Uni", que e o estado do dispositivo antes
+        // de qualquer cerimonia -- e gpio_out vale 0 nesta janela, o que
+        // torna o valor esperado independente do firmware.
+        //
+        // A ORDEM FISICA dos digitos nao se verifica em simulacao: e fato
+        // do cobre, medido em 2026-08-26 desenhando "123" pelo rtl/diag/
+        // (doc/pinout.md). Aqui so se confere que o parametro chega.
+        vistos   = 3'b000;
+        visto_d0 = 8'h00;
+        visto_d1 = 8'h00;
+        visto_d2 = 8'h00;
+
+        for (i = 0; i < 200; i = i + 1) begin
+            @(posedge dut.clk);
+            case (seg_an)
+                3'b001: begin visto_d0 = ~seg; vistos[0] = 1'b1; end
+                3'b010: begin visto_d1 = ~seg; vistos[1] = 1'b1; end
+                3'b100: begin visto_d2 = ~seg; vistos[2] = 1'b1; end
+                3'b000: ;   // apagamento entre digitos
+                default: begin
+                    $display("[tb_hsm_top] FAIL: dois digitos acesos ao mesmo tempo (an=%b)",
+                             seg_an);
+                    errors = errors + 1;
+                end
+            endcase
+        end
+
+        if (vistos !== 3'b111) begin
+            $display("[tb_hsm_top] FAIL: varredura nao acendeu os tres digitos (vistos=%b)",
+                     vistos);
             errors = errors + 1;
+        end else if (visto_d0[6:0] !== GL_U || visto_d1[6:0] !== GL_n ||
+                     visto_d2[6:0] !== GL_i) begin
+            $display("[tb_hsm_top] FAIL: display mostra %b %b %b, esperado Uni (%b %b %b)",
+                     visto_d0[6:0], visto_d1[6:0], visto_d2[6:0], GL_U, GL_n, GL_i);
+            errors = errors + 1;
+        end else if (visto_d0[7] !== 1'b0 || visto_d1[7] !== 1'b0 ||
+                     visto_d2[7] !== 1'b0) begin
+            // Ponto decimal = dual control satisfeito. Os botoes ainda nao
+            // foram apertados nesta altura do teste, entao ele tem de estar
+            // apagado -- se acender aqui, o painel esta anunciando
+            // autorizacao que ninguem deu.
+            $display("[tb_hsm_top] FAIL: ponto decimal aceso com os botoes soltos");
+            errors = errors + 1;
+        end else begin
+            $display("[tb_hsm_top] display -> Uni, tres digitos, sem ponto decimal");
         end
 
         // ---- botoes: pino baixo = pressionado = 1 no GPIO -------------

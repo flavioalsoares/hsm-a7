@@ -150,6 +150,9 @@ A fase 3 os **substitui** por versões que falam por handle.
 - **Cerimônia de LMK** (`fw/src/dualctl.c`, comandos `0x20`/`0x21`/`0x26`) —
   três componentes por XOR, KCV a cada passo, dual control pelos dois botões
   e a escada `UNINITIALIZED → AUTHORIZED → OPERATIONAL`.
+- **Display de 7 segmentos** (`rtl/top/seg_display.v`) — soletra
+  `Uni`/`Aut`/`OPE`/`tPr`, e o ponto decimal acende enquanto o dual control
+  está satisfeito.
 
 ⚠ **A API do key store é assimétrica de propósito, e não é para
 "simplificar".** `keystore_usa_aes()` carrega a chave no coprocessador e
@@ -167,6 +170,17 @@ vistos **soltos** (`fw/src/dualctl.c`). Sem isso, fita adesiva sobre os dois
 carregaria a LMK inteira sozinha. Por isso o rearme mora no laço principal de
 `main.c`, não no handler — o evento acontece *entre* comandos, e um handler
 só enxerga o instante em que foi chamado.
+
+⚠ **O display recebe DOIS BITS pelo GPIO, não lê a máquina de estados.**
+`gpio_out[5:4]` = estado, `gpio_out[6]` = dual control satisfeito. Um caminho
+de hardware até a estrutura de estado seria caminho de hardware até o que
+está ao lado dela na DMEM. E o display nunca pode mostrar KCV ou handle:
+ótico é o único canal que não aparece numa captura de UART.
+
+⚠ **`dualctl_pronto()` NÃO autoriza.** É consulta pura, existe só para o
+ponto decimal. Usar o resultado dela para decidir se um comando pode rodar
+abriria uma janela entre a pergunta e a ação — TOCTOU. Quem autoriza é
+`dualctl_autoriza()`, que consome.
 
 ⚠ **Dual control não está na tabela de comandos, de propósito.** A máscara de
 estados responde "em que estado", não "quem autoriza". A checagem fica dentro
@@ -188,11 +202,12 @@ Detalhes em `doc/fase2-notas.md`; **o próximo passo e como retomar estão em
 parser escrito duas vezes (C no firmware, Python no host) para os dois se
 validarem mutuamente.
 
-**Timing fecha em +0,487 ns** (Fmax ≈ 105 MHz), 0 erros e 0 critical
-warnings. Não fechava: o CFS entrou com **−2,388 ns**, e 49 dos 58 endpoints
+**Timing fecha em +0,247 ns** (Fmax ≈ 102 MHz), 0 erros e 0 critical
+warnings. Já foi +0,637 (fase 1), +0,487 e +0,380 — a folga **cai a cada
+fase**, e o assimétrico da fase 7 é o que vai apertar de verdade. Não fechava: o CFS entrou com **−2,388 ns**, e 49 dos 58 endpoints
 falhando estavam no `sha256_core`. Resolvido com dois patches de retimagem
 em `patches/sha256/` (registrar `W` e `K`) mais `phys_opt_design` no fluxo.
-Recursos: 7035 LUTs (33,8%), 6235 FF (15,0%), BRAM 3,5, DSP 0.
+Recursos: 7427 LUTs (35,7%), 7495 FF (18,0%), BRAM 7, DSP 0.
 
 ⚠ **Cores de terceiros agora passam por `scripts/apply-patches.sh`**, que
 aplica os patches sobre uma **cópia** em `build/patched/`. `third_party/`

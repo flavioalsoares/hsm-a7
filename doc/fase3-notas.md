@@ -183,6 +183,56 @@ custaria 10 ms de simulação e a cerimônia sozinha passaria de 100 ms. O
 filtro de ressalto continua verificado no valor de produção pelo
 `tb_debounce`.
 
+### Display de estado (`rtl/top/seg_display.v`)
+
+Soletra `Uni`/`Aut`/`OPE`/`tPr` em três dígitos multiplexados a 600 Hz por
+dígito (quadro completo a 200 Hz), e o **ponto decimal acende enquanto o
+dual control está satisfeito**.
+
+Nasceu de uma pergunta de bancada — *"que botões?"* — e não de um item de
+plano. A ferramenta mandava segurar SW2 e SW5, e o operador não tinha como
+identificá-los. Descrever por posição resolveu metade; a outra metade é o
+dispositivo responder por si.
+
+**Interface com o firmware, e por que é tão estreita:**
+
+```
+gpio_out[5:4]   estado (hsm_state_t)
+gpio_out[6]     dual control satisfeito AGORA
+```
+
+O display **não lê a máquina de estados**. Um caminho de hardware até a
+estrutura de estado seria caminho de hardware até o que está ao lado dela na
+DMEM — e ótico é o único canal do dispositivo que não aparece numa captura
+de UART, então é onde um vazamento passaria despercebido por mais tempo.
+
+⚠ **`dualctl_pronto()` não autoriza.** É consulta pura, existe só para o
+ponto decimal. Decidir com ela se um comando pode rodar abriria uma janela
+entre a pergunta e a ação — TOCTOU. Quem autoriza é `dualctl_autoriza()`,
+que consome o rearme.
+
+⚠ **O `default` do decodificador de glifos é `tPr`.** Estado corrompido tem
+de aparecer como comprometido, não como `Uni` nem apagado. Falhar para o
+lado seguro vale também para o painel.
+
+**A medida que faltava, e que ninguém notou que faltava.** A verificação de
+2026-08-09 desenhou `222` nos três dígitos ao mesmo tempo: confirma
+polaridade e mapeamento de segmento, e **não distingue ordem** — três dígitos
+iguais são iguais em qualquer ordem. O experimento parecia ter coberto o
+display inteiro e deixou um TBD aberto em silêncio. Fechou em 2026-08-26
+desenhando `123`, com a varredura vindo **do host** (`0xAA <seg> <an>` em
+laço), porque o `rtl/diag/` aplica o mesmo glifo a todos os dígitos
+habilitados. `seg_an_o[0]` é o da esquerda.
+
+⚠ **Cintilação e ghosting daquela medida eram do instrumento**, não do
+projeto: a varredura pela USB tem jitter de milissegundos e não apaga entre
+dígitos. O `seg_display.v` tem contador determinístico e janela de
+apagamento de ~104 µs por troca.
+
+⚠ **Custo em timing: −0,133 ns.** A folga foi de +0,380 para **+0,247 ns**.
+Ainda fecha, com 0 endpoints falhando — mas a série é +0,637 → +0,487 →
++0,380 → +0,247, e ela só desce.
+
 ---
 
 ## O que falta, na ordem

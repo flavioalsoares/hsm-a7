@@ -229,6 +229,37 @@ Depois, `0xA4` com `an=111` desenhou **`222`** nos três dígitos — o padrão
 do algarismo 2 (a, b, g, e, d). Glifo assimétrico de propósito: qualquer
 troca entre segmentos apareceria como outro caractere.
 
+**[HW] Ordem dos dígitos — verificada 2026-08-26.** `seg_an_o[0]` é o
+dígito da **esquerda**, `[1]` o do meio, `[2]` o da direita.
+
+A medida de 2026-08-09 **não servia para isto**, e vale entender por quê: ela
+desenhou `222` nos **três dígitos ao mesmo tempo**, o que confirma polaridade
+e mapeamento de segmento — e não distingue ordem nenhuma. Três dígitos iguais
+são iguais em qualquer ordem. O TBD ficou aberto sem que ninguém notasse,
+porque o experimento *parecia* ter coberto o display inteiro.
+
+**Como foi medido:** desenhando `123`. O `rtl/diag/` aplica o mesmo valor de
+segmentos a todos os dígitos habilitados, então três glifos diferentes exigem
+varredura — e ela veio **do host**, três comandos em laço, um dígito por vez:
+
+```python
+UM   = 0b00000110   # b c
+DOIS = 0b01011011   # a b g e d
+TRES = 0b01001111   # a b g c d
+
+for glifo, an in [(UM, 0b001), (DOIS, 0b010), (TRES, 0b100)]:
+    s.write(bytes([0xAA, (~glifo) & 0xFF, an]))
+```
+
+A 115200 baud, três bytes levam ~260 µs, então o quadro sai em ~780 µs —
+cerca de 1,3 kHz, muito acima da cintilação. O olho lê `123` estático.
+
+⚠ **Conferência que a tabela de glifos precisava:** `~0b01011011 == 0xA4`, e
+`0xA4` é exatamente o byte que desenhou `222` na medida de 2026-08-09. Se o
+mapa de segmentos daqui estivesse errado, esse valor não bateria com o
+registro anterior. Duas medidas independentes concordando é o que fecha um
+TBD; uma medida sozinha só o adia.
+
 **O esquemático concorda.** O `7SEG_Test.xdc` oficial confere pino a pino
 com o nosso, e `DB-FPGA-XC7A35T-DDR3-V03.pdf` lista `SEG_A … SEG_G, DP`
 nessa ordem. Medida e documento em acordo — que é o padrão de procedência

@@ -84,4 +84,17 @@ void dualctl_poll(void);
  * operador chamando o comando em laco. */
 int dualctl_autoriza(void);
 
+/* 1 se, NESTE INSTANTE, uma autorizacao seria concedida -- os dois botoes
+ * pressionados e o rearme presente.
+ *
+ * NAO consome e NAO autoriza. Existe so para o painel: o ponto decimal do
+ * display acende quando isto e verdade, e o operador ve o dispositivo
+ * concordar no momento em que aperta, sem depender de ler o silk.
+ *
+ * Nao usar isto para decidir se um comando pode rodar. A decisao e do
+ * dualctl_autoriza(), que consome -- consultar aqui e agir depois abriria
+ * uma janela entre a pergunta e a acao, que e a forma classica de um
+ * TOCTOU. Este cabecalho diz "pronto", nao "pode". */
+int dualctl_pronto(void);
+
 #endif /* DUALCTL_H */

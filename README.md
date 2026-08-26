@@ -9,7 +9,7 @@ producao entra aqui.
 
 ## Para aprender o assunto
 
-**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 61 paginas.
+**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 62 paginas.
 
   I-II   como um HSM funciona: fronteira, hierarquia de chaves, cerimonia
          de LMK, key blocks, maquina de estados, aleatoriedade, self-test
@@ -44,10 +44,12 @@ python3 host/hsmtool.py post        # reroda o POST no dispositivo
   key store              ok
 ```
 
-**Fase 3 em andamento**: CMAC, o key store em BRAM e a **cerimonia de LMK**
-estao prontos -- tres componentes por XOR, KCV a cada passo e dual control
-pelos dois botoes fisicos. Faltam os key blocks X9.143, o zeroize e os
-comandos `0x22`-`0x2F`. Ver `doc/fase3-notas.md`.
+**Fase 3 em andamento**: CMAC, o key store em BRAM, a **cerimonia de LMK** e
+o **display de estado** estao prontos. Tres componentes por XOR, KCV a cada
+passo, dual control pelos dois botoes fisicos, e a placa soletrando
+`Uni`/`Aut`/`OPE`/`tPr` com o ponto decimal acendendo enquanto o dual control
+esta satisfeito. Faltam os key blocks X9.143, o zeroize e os comandos
+`0x22`-`0x2F`. Ver `doc/fase3-notas.md`.
 
 ⚠ **Grave na flash, nao na SRAM** -- `./scripts/program.sh flash`. Nesta
 bancada a configuracao por JTAG **nao aplica a inicializacao das Block
@@ -102,7 +104,12 @@ python3 host/hsmtool.py lmk-load 0 --random
 python3 host/hsmtool.py activate
 ```
 
-⚠ A cerimonia exige **dual control**: os dois botoes (SW2 e SW5) segurados
+⚠ **Aperte os dois botoes e olhe o display**: o ponto decimal acende
+enquanto o dual control esta satisfeito. E o jeito mais rapido de saber
+quais sao os botoes, e de conferir que o proximo comando sera autorizado
+antes de gasta-lo.
+
+⚠ A cerimonia exige **dual control**: os dois botoes (o 2o e o 5o) segurados
 no instante em que o comando chega, e um aperto **novo** a cada componente
 -- segurar os dois o tempo todo carrega um, nao tres. O `hsmtool.py` pede o
 gesto e espera o Enter; se vier `STATUS_NOT_AUTHORIZED`, e porque os botoes

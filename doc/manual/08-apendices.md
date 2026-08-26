@@ -323,6 +323,19 @@ board).
 O bitstream mora na **flash SPI**, então a placa sobe sozinha na
 energização. Não há nada a carregar.
 
+**Antes de digitar qualquer coisa, olhe o display.** Ele soletra o estado:
+
+```
+    U n i      UNINITIALIZED   sem chave mestra
+    A u t      AUTHORIZED      LMK carregada, ainda não em serviço
+    O P E      OPERATIONAL     em serviço
+    t P r      TAMPERED        reprovou, e não sai daí por software
+```
+
+Isso é o dispositivo dizendo em que estado está **sem que ninguém pergunte**
+— e é a única informação que ele oferece de graça. Confirme depois pela
+serial, que é o canal com autoridade:
+
 ```bash
 python3 host/hsmtool.py version
 ```
@@ -408,7 +421,25 @@ cinco, cujo primeiro é o reset:
 
 O par mais afastado disponível, para dificultar apertar os dois com uma mão
 só. O `hsmtool.py` desenha esse mapa a cada pedido, porque ler silkscreen
-minúsculo no meio de uma cerimônia é como se aperta o botão errado. E exige um aperto
+minúsculo no meio de uma cerimônia é como se aperta o botão errado.
+
+**E o dispositivo confirma.** Aperte os dois: o **ponto decimal** do dígito
+da direita acende. Solte: apaga.
+
+```
+    U n i.        os dois botões apertados, autorização disponível
+    U n i         não
+```
+
+Esse ponto é a resposta de bancada para "que botões?" — em vez de confiar
+num rótulo, aperte e veja o dispositivo concordar. Se acendeu, o comando
+seguinte vai ser autorizado; se não acendeu, seria recusado, e você descobre
+isso **antes** de gastar o comando em vez de depois.
+
+Ele não vaza nada: quem está apertando os botões já está na frente da placa,
+e não há observador remoto para quem a informação seja novidade.
+
+E exige um aperto
 **novo**: entre um componente e o seguinte, os dois têm de ser vistos
 **soltos**. Segurar os dois durante a cerimônia inteira carrega **um**
 componente, não três (seção 28).
@@ -518,8 +549,29 @@ ela protege. A escada é de **uma via só**, e descer exige apagar.
 
 ### E.5 Os indicadores da placa
 
-Cinco LEDs, e **todos são vermelhos**: a cor não carrega informação nenhuma,
-só a posição.
+**O display de 7 segmentos é o indicador que importa**, e há um motivo
+concreto: os cinco LEDs desta placa são **todos vermelhos**. A cor não
+carrega informação nenhuma, só a posição — o requisito "LED vermelho para
+`TAMPERED`" está atendido e vazio.
+
+| O que mostra | Significado |
+|---|---|
+| `Uni` `Aut` `OPE` `tPr` | o estado da máquina (seção 8) |
+| ponto decimal aceso | dual control satisfeito **neste instante** |
+
+Um detalhe de projeto que vale registrar: se os dois bits de estado
+chegarem corrompidos, o display mostra `tPr`. O `default` do decodificador é
+`TAMPERED`, e não `Uni` nem apagado — falhar para o lado seguro vale também
+para o painel. Um display que mostrasse "sem chave" quando não sabe seria
+pior que um display apagado.
+
+E o que ele **nunca** vai mostrar: KCV, handle, qualquer coisa derivada de
+chave. Ótico é o único canal do dispositivo que não aparece numa captura de
+UART, então é o canal em que um vazamento passaria despercebido por mais
+tempo. O módulo recebe dois bits de estado e um de autorização, e não tem
+caminho nenhum até material de chave.
+
+Os LEDs, que sobraram como indicadores grosseiros:
 
 | LED | Significado |
 |---|---|
@@ -530,6 +582,11 @@ só a posição.
 D1 ser hardware é deliberado: se o firmware travar, D1 continua piscando, e
 isso distingue "clock morto" de "firmware pendurado". Num dispositivo sem
 console, essa distinção é a diferença entre depurar e adivinhar.
+
+O display, ao contrário, é dirigido pelo firmware — ele mostra o que a CPU
+diz. As duas coisas se complementam: **D1 prova que o hardware vive, o
+display prova que o firmware sabe onde está.** Display congelado com D1
+piscando é firmware pendurado; os dois parados é clock morto.
 
 Fora isso, o dispositivo é **mudo até ser perguntado**. Um terminal aberto
 na porta serial não mostra absolutamente nada, e esse é o comportamento
