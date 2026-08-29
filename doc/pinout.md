@@ -71,9 +71,19 @@ fecham para GND. [HW][SCH]
 |---|---|---|
 | SW1 | **B7** | `rst_n_i` (reset do sistema) |
 | SW2 | **M6** | `btn_a_i` — dual control A — **[HW]** 2026-08-21 |
-| SW3 | N6 | livre |
-| SW4 | R5 | livre |
+| SW3 | N6 | **reserva** — pino [SCH], nunca medido |
+| SW4 | R5 | **reserva** — pino [SCH], nunca medido |
 | SW5 | **P6** | `btn_b_i` — dual control B — **[HW]** 2026-08-21 |
+
+**Sobram dois botões na placa filha.** SW3 e SW4 são a reserva de entrada
+física do projeto — o candidato natural é um **ZEROIZE de painel** na Fase 3,
+que é o único comando cujo sentido é justamente não depender do host: se o
+host é quem manda apagar, o host escolhe quando não apagar.
+
+⚠ **Os pinos de SW3 e SW4 vêm do esquemático e nunca foram medidos.** O
+`[HW]` abaixo cobre SW2 e SW5, e só. Quem for usá-los mede antes, pelo mesmo
+método do padrão codificado — assumir a ordem do silk foi exatamente o erro
+que custou uma sessão de bancada com SW2/SW5.
 
 **[HW] Ordem física no silk — verificada 2026-08-21.** Fecha o último TBD de
 bancada, e ele importava: o dual control da cerimônia de LMK exige dois

@@ -29,19 +29,27 @@ set_property -dict {PACKAGE_PIN T14 IOSTANDARD LVCMOS33} [get_ports uart_txd_o]
 ## ------------------------------------------------- botoes (dual control)
 ## Os dois botoes que autorizam LMK_LOAD_COMPONENT. ATIVOS EM NIVEL BAIXO
 ## (pull-up 4,7k, fecham para GND) -- o firmware le !btn como "pressionado".
-## SW2 e SW5 sao os extremos da fileira: dificultam pressionar os dois com uma
-## mao so, que e o ponto da separacao entre quem digita e quem autoriza.
+## SW2 e SW5 sao o par mais afastado DISPONIVEL: dificultam pressionar os dois
+## com uma mao so, que e o ponto da separacao entre quem digita e quem autoriza.
+## Nao sao os extremos da fileira -- os extremos sao SW1 e SW5, e SW1 e o reset.
 ## Debounce obrigatorio -- um glitch aqui aceita componente de LMK sem
 ## autorizacao real.
 set_property -dict {PACKAGE_PIN M6 IOSTANDARD LVCMOS33} [get_ports btn_a_i]  ;# SW2
 set_property -dict {PACKAGE_PIN P6 IOSTANDARD LVCMOS33} [get_ports btn_b_i]  ;# SW5
-## Livres: SW3=N6, SW4=R5
+## RESERVA: SW3=N6, SW4=R5, livres. Sao os dois botoes que sobram na placa
+## filha -- candidatos naturais a um ZEROIZE fisico da fase 3, que e o unico
+## comando que faz sentido nao depender do host.
+## ATENCAO: estes dois pinos vem do ESQUEMATICO, nunca foram medidos. SW2 e
+## SW5 so viraram fato depois de um padrao codificado no rtl/diag/ (uma
+## pressao, pausa, tres pressoes) -- ver doc/pinout.md. Quem for usar SW3/SW4
+## mede primeiro; assumir a ordem do silk ja custou uma sessao de bancada.
 
 ## ---------------------------------------------------------------- LEDs
 ## D1..D5 da daughterboard. ATIVOS EM NIVEL BAIXO: catodo no pino do FPGA,
 ## anodo via 1k em 3V3 -- '0' acende.
-## TODO: cores nao documentadas. PLANO secao 3 pede vermelho para TAMPERED;
-## conferir na placa e remapear se D5 nao for vermelho.
+## Cores VERIFICADAS 2026-08-09: os cinco sao VERMELHOS. O requisito "LED
+## vermelho para TAMPERED" da PLANO secao 3 esta atendido e VAZIO -- a cor nao
+## distingue nada aqui. Quem carrega estado e o display de 7 segmentos.
 set_property -dict {PACKAGE_PIN R6 IOSTANDARD LVCMOS33} [get_ports {led_o[0]}]  ;# D1 heartbeat
 set_property -dict {PACKAGE_PIN T5 IOSTANDARD LVCMOS33} [get_ports {led_o[1]}]  ;# D2 atividade UART
 set_property -dict {PACKAGE_PIN R7 IOSTANDARD LVCMOS33} [get_ports {led_o[2]}]  ;# D3 OPERATIONAL
