@@ -95,6 +95,7 @@ KAT_BITS = [
     (0x10, "TRNG / health tests"),
     (0x20, "CMAC-AES-256"),
     (0x40, "key store"),
+    (0x80, "key block X9.143"),
 ]
 
 STATUS_NAMES = {

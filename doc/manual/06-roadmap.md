@@ -190,8 +190,9 @@ O coração do projeto, e onde os conceitos das Partes II e III viram código.
 - ✅ **Máquina de estados** com o display de 7 segmentos soletrando
   `Uni` / `Aut` / `OPE` / `tPr`, mais o ponto decimal confirmando o dual
   control.
-- **Key blocks TR-31 versão D**: KBEK e KBAK derivadas por CMAC, corpo em
-  AES-CBC, autenticação por CMAC sobre cabeçalho e corpo.
+- ✅ **Key blocks ANSI X9.143 (TR-31 versão D)**: KBEK e KBAK derivadas por
+  CMAC, corpo em AES-CBC, autenticação por CMAC sobre cabeçalho e corpo —
+  escritos **duas vezes**, em C e em Python.
 - **Zeroize** com prova por dump.
 - **Log de auditoria** gravado antes da execução, em flash, com contador
   monotônico.
@@ -253,6 +254,76 @@ que confirma polaridade e mapeamento de segmento — e **não distingue ordem**:
 três dígitos iguais são iguais em qualquer ordem. O experimento *parecia* ter
 coberto o display inteiro. Fechou desenhando `123`, com a varredura vindo do
 host, três comandos em laço.
+
+### O key block, e a pergunta que ele responde
+
+Uma chave que nunca sai não serve para nada além de si mesma. O key block é
+a resposta para "como deixar uma chave sair **sem que ela vaze**" — que é um
+problema diferente de guardá-la, e mais difícil.
+
+O formato é uma string de texto:
+
+```
+cabeçalho(16 caracteres) || corpo cifrado em hex || MAC em hex
+
+D 0144 D0 A B 00 E 00 00
+| |    |  | | |  | |  +-- reservado
+| |    |  | | |  | +----- blocos opcionais
+| |    |  | | |  +------- exportabilidade
+| |    |  | | +---------- versão da chave
+| |    |  | +------------ modo de uso
+| |    |  +-------------- algoritmo
+| |    +----------------- uso: dados, KEK, MAC, BDK…
+| +---------------------- comprimento total
++------------------------ versão do formato
+```
+
+Três decisões dele valem mais que o código inteiro.
+
+**Duas chaves derivadas, não uma.** A LMK não cifra o corpo nem autentica o
+bloco: dela saem duas filhas por CMAC, uma para cada trabalho, distinguidas
+por um campo de *propósito* na entrada da derivação. É a separação de chaves
+da seção 15 aplicada onde ela é mais fácil de esquecer — se as duas fossem a
+mesma, um oráculo de MAC seria um oráculo de cifragem de graça.
+
+**O cabeçalho vai dentro do MAC.** São dezesseis bytes de texto legível, à
+vista de qualquer um — e autenticados. Sem isso, alguém que não consegue
+decifrar o corpo simplesmente **edita o caractere** da exportabilidade de `N`
+para `E` e devolve o bloco. O criptograma não mudou; a política mudou. É o
+ponto que resume a Parte II inteira: chave protegida sob metadado
+desprotegido não está protegida.
+
+**O MAC é o vetor de inicialização.** Não há IV para transmitir, e o MAC é
+calculado sobre o texto **claro** — o que permite recusar um bloco adulterado
+*antes* de acreditar em qualquer campo do que se decifrou.
+
+E o enchimento aleatório no fim do corpo não é sobra: sem ele, o tamanho do
+bloco denunciaria o tamanho da chave, e "esta é uma chave de 128 bits" já é
+informação para quem escolhe onde gastar esforço.
+
+### Por que o mesmo formato foi escrito duas vezes
+
+Uma implementação em C, dentro do dispositivo; outra em Python, no host,
+sobre uma biblioteca diferente. Não é redundância — é o **método de
+verificação**.
+
+Um formato binário se aprende errado em silêncio: a implementação lê a
+norma, se convence, e testa contra si mesma. Duas implementações escritas
+para discordar não têm essa saída, e a menor divergência aparece como MAC
+inválido, que é barulhento e imediato. Se as duas compartilhassem o AES,
+concordariam sobre um erro no AES sem nunca discordar — daí a exigência de
+bibliotecas diferentes.
+
+E aqui aparece um limite que vale enunciar, porque ele explica de onde vem a
+confiança em cada camada. **Não existe vetor oficial para este formato.** O
+programa de validação do NIST valida *algoritmo*; X9.143 é *formato*, e a
+norma que traz o exemplo é paga. O que se usa é um valor conhecido de
+terceiros, e o resto da confiança vem de propriedades: ida e volta, e um bit
+trocado em **cada posição do bloco** tendo de invalidar tudo.
+
+Esse último é o teste que vale mais que os outros. Uma implementação que
+esqueceu de incluir o cabeçalho no MAC passa no vetor e passa na ida e volta.
+Falha só ali.
 
 E a honestidade que fecha a seção: num HSM de verdade o componente entra por
 teclado local ou cartão do custodiante, **nunca pela mesma porta por onde o

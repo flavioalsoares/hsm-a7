@@ -27,6 +27,12 @@
  * registradores do coprocessador** — que é o caminho que o firmware usa de
  * verdade.
  *
+ * O key block X9.143 entra pelo mesmo motivo que o key store, e com uma
+ * ressalva de procedência que não vale esconder: o vetor dele **não é do
+ * CAVP**. O CAVP valida algoritmo, e X9.143 é formato — não existe KAT
+ * oficial para o formato, e a norma que traz o exemplo é paga. O vetor é
+ * de terceiros, fixado por commit e hash. Ver `vectors/MANIFEST.txt`.
+ *
  * Não cobre exaustivamente: são 1620 vetores de AES, 65 de SHA, 96 de CMAC
  * e 480 de DRBG disponíveis, e eles rodam em SIMULAÇÃO, onde custam segundos e
  * não ocupam IMEM. O POST prova integridade do caminho neste boot, não
@@ -62,6 +68,25 @@
 #define KAT_FALHA_TRNG  0x10u
 #define KAT_FALHA_CMAC  0x20u
 #define KAT_FALHA_KS    0x40u   /* key store -- teste de funcao critica */
+#define KAT_FALHA_TR31  0x80u   /* key block X9.143 -- funcao critica */
+
+/* União de tudo que o POST sabe reprovar.
+ *
+ * Existe para a linha abaixo, e ela não é enfeite: o SELFTEST devolve
+ * esta máscara em **um byte** (`h_selftest`, fw/src/cmd.c). Os oito bits
+ * estão TODOS usados. O nono teste que entrar não caberia, e o efeito
+ * seria silencioso -- o bit sumiria na conversão e o dispositivo
+ * reportaria `KAT_OK` sobre um teste que reprovou, que é a pior falha
+ * possível num POST.
+ *
+ * Então o build quebra em vez disso. Quem chegar aqui tem duas saídas
+ * honestas: alargar o payload do SELFTEST (e o host junto), ou agrupar
+ * testes. Nenhuma delas é "tirar um bit". */
+#define KAT_FALHA_TODOS (KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC | \
+                         KAT_FALHA_DRBG | KAT_FALHA_TRNG | KAT_FALHA_CMAC | \
+                         KAT_FALHA_KS   | KAT_FALHA_TR31)
+
+typedef char kat_mascara_cabe_em_um_byte[(KAT_FALHA_TODOS <= 0xFFu) ? 1 : -1];
 
 /* Roda o POST inteiro. Devolve KAT_OK ou a união dos bits que falharam.
  *

@@ -44,7 +44,7 @@ interessante e um resumo da mais interessante.
 O conserto é escrever "Fase 2, peça por peça" e "Fase 3, peça por peça" no
 mesmo molde da §24, reduzindo §27 e §28 a ponteiros. **Fica para a revisão
 geral de documentação, depois que a Fase 3 fechar** — reescrever antes disso
-significa reescrever de novo depois dos key blocks.
+significa reescrever de novo depois do zeroize e dos comandos.
 
 ## Registro técnico
 
@@ -104,13 +104,17 @@ testes de partida do TRNG e o key store — todos contra vetores oficiais do
 NIST e do IETF. Falha leva a `TAMPERED`. Da fase 2 falta apenas
 `dieharder -a`, que não está instalado nesta máquina.
 
-**Fase 3 em andamento.** CMAC, key store, a **cerimônia de LMK** e o
-**display de estado** prontos — três componentes por XOR, KCV a cada passo,
-dual control pelos dois botões físicos, a escada
-`UNINITIALIZED → AUTHORIZED → OPERATIONAL`, e a placa soletrando o estado com
-o ponto decimal confirmando a autorização. Faltam os key blocks X9.143, o
-zeroize e o resto dos comandos `0x22`–`0x2F`. Ver
-[`fase3-notas.md`](fase3-notas.md).
+**Fase 3 em andamento.** CMAC, key store, a **cerimônia de LMK**, o
+**display de estado** e o **key block ANSI X9.143** prontos — três
+componentes por XOR, KCV a cada passo, dual control pelos dois botões
+físicos, a escada `UNINITIALIZED → AUTHORIZED → OPERATIONAL`, e a placa
+soletrando o estado com o ponto decimal confirmando a autorização.
+
+O key block está escrito **duas vezes**, em C e em Python, para as duas
+implementações se validarem mutuamente. ⚠ O vetor dele **não é do CAVP** —
+o CAVP valida algoritmo, e X9.143 é formato; a procedência de terceiros está
+em `vectors/MANIFEST.txt`. Faltam o zeroize e o resto dos comandos
+`0x22`–`0x2F`. Ver [`fase3-notas.md`](fase3-notas.md).
 
 Nenhum `[TBD]` de pinagem. Cores dos LEDs, polaridade do display, ordem
 física dos botões e **ordem dos dígitos do display** foram todos fechados

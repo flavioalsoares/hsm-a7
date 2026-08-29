@@ -1,0 +1,15 @@
+# ANSI X9.143 / TR-31 versao D -- valor conhecido de terceiros.
+#
+# NAO E VETOR DO CAVP. Ver vectors/MANIFEST.txt para a procedencia e
+# para o que este vetor cobre e o que ele NAO cobre.
+#
+# KBPK  chave que protege o key block (AES-256)
+# KEY   chave em claro que esta dentro do bloco
+# KB    o key block, em ASCII
+
+[AES-256 KBPK]
+
+COUNT = 0
+KBPK = 88E1AB2A2E3DD38C1FA039A536500CC8A87AB9D62DC92C01058FA79F44657DE6
+KEY = 3F419E1CB7079442AA37474C2EFBF8B8
+KB = D0112P0AE00E0000B82679114F470F540165EDFBF7E250FCEA43F810D215F8D207E2E417C07156A27E8E31DA05F7425509593D03A457DC34

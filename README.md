@@ -44,12 +44,16 @@ python3 host/hsmtool.py post        # reroda o POST no dispositivo
   key store              ok
 ```
 
-**Fase 3 em andamento**: CMAC, o key store em BRAM, a **cerimonia de LMK** e
-o **display de estado** estao prontos. Tres componentes por XOR, KCV a cada
-passo, dual control pelos dois botoes fisicos, e a placa soletrando
-`Uni`/`Aut`/`OPE`/`tPr` com o ponto decimal acendendo enquanto o dual control
-esta satisfeito. Faltam os key blocks X9.143, o zeroize e os comandos
-`0x22`-`0x2F`. Ver `doc/fase3-notas.md`.
+**Fase 3 em andamento**: CMAC, o key store em BRAM, a **cerimonia de LMK**, o
+**display de estado** e o **key block ANSI X9.143** estao prontos. Tres
+componentes por XOR, KCV a cada passo, dual control pelos dois botoes
+fisicos, e a placa soletrando `Uni`/`Aut`/`OPE`/`tPr` com o ponto decimal
+acendendo enquanto o dual control esta satisfeito.
+
+O key block foi escrito **duas vezes** -- em C no firmware, em Python no
+host, sobre bibliotecas diferentes -- para que as duas discordem quando
+alguem ler a norma errado. Faltam o zeroize e os comandos `0x22`-`0x2F`. Ver
+`doc/fase3-notas.md`.
 
 ⚠ **Grave na flash, nao na SRAM** -- `./scripts/program.sh flash`. Nesta
 bancada a configuracao por JTAG **nao aplica a inicializacao das Block

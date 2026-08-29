@@ -39,6 +39,19 @@ DRBG_SHA="5f7e5658ebd5b4e6785a7b12fa32333511d2acc2f2d9c5ae1ffa16b699377769"
 CMAC_URL="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/mac/cmactestvectors.zip"
 CMAC_SHA="bdda4edade394c9a2ae74d9cd0921caa120c911a5e735e37abf39d0d5f062be1"
 
+# X9.143 / TR-31 versao D -- LEIA O MANIFEST ANTES DE CONFIAR NESTE.
+#
+# Nao e vetor do CAVP e nao ha como ser: o CAVP valida ALGORITMO, e
+# X9.143 e FORMATO. A norma que traz o exemplo e paga. Este vem do
+# arquivo de testes da biblioteca psec (MIT), da funcao que o autor
+# chama de "known values from 3rd parties" -- fonte secundaria, fixada
+# por commit e por hash, e nada alem disso.
+#
+# Fixado por COMMIT de proposito: `master` e alvo movel, e um vetor cujo
+# hash muda sozinho nao e vetor, e uma expectativa.
+TR31_URL="https://raw.githubusercontent.com/knovichikhin/psec/cb315e98d4399207f54da42282654d840fe3bb82/tests/test_tr31.py"
+TR31_SHA="e1f42adaed9e2335dc837ba3278310bec0e9a9b2238ec7b38c87c0516addf491"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -77,7 +90,7 @@ fetch() {
     fi
 }
 
-mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg}
+mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31}
 
 echo "=== baixando"
 fetch "$AES_URL"  "$AES_SHA"  "$TMP/KAT_AES.zip"
@@ -85,6 +98,7 @@ fetch "$SHA_URL"  "$SHA_SHA"  "$TMP/shabytetestvectors.zip"
 fetch "$HMAC_URL" "$HMAC_SHA" "$TMP/rfc4231.txt"
 fetch "$DRBG_URL" "$DRBG_SHA" "$TMP/drbgtestvectors.zip"
 fetch "$CMAC_URL" "$CMAC_SHA" "$TMP/cmactestvectors.zip"
+fetch "$TR31_URL" "$TR31_SHA" "$TMP/psec_test_tr31.py"
 
 echo "=== extraindo"
 unzip -qo "$TMP/KAT_AES.zip" 'ECB*256.rsp' 'CBC*256.rsp' -d "$VEC/aes/"
@@ -97,6 +111,11 @@ cp "$TMP/rfc4231.txt" "$VEC/hmac/"
 # que este projeto nao usa e nao deve ter a mao.
 mkdir -p "$VEC/cmac"
 unzip -qjo "$TMP/cmactestvectors.zip" 'CMACGenAES256.rsp' -d "$VEC/cmac/"
+
+# X9.143: um vetor so, copiado literalmente da tupla do arquivo de
+# origem. A extracao e mecanica e falha se achar numero diferente de um.
+python3 "$ROOT/scripts/_extrai_tr31.py" \
+        "$TMP/psec_test_tr31.py" "$VEC/tr31/x9143_D_AES256.rsp"
 
 # CTR_DRBG vem num zip dentro do zip, e o arquivo completo tem 785 KB com
 # 3DES e AES-128/192 que este projeto nao usa. Filtra para [AES-256 ...].

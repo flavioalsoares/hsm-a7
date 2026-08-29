@@ -14,11 +14,12 @@
 #include "hsm_cfs.h"
 #include "keystore.h"
 #include "sha.h"
+#include "tr31.h"
 #include "wipe.h"
 
 static unsigned g_ultimo = KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC |
                            KAT_FALHA_CMAC | KAT_FALHA_DRBG | KAT_FALHA_TRNG |
-                           KAT_FALHA_KS;
+                           KAT_FALHA_KS   | KAT_FALHA_TR31;
 
 /* Comparação de tempo constante.
  *
@@ -333,6 +334,14 @@ unsigned kat_post(void)
     r |= kat_drbg();
     r |= kat_trng();
     r |= kat_keystore();
+
+    /* Key block X9.143 -- teste de funcao critica, como o key store.
+     *
+     * Depende de CMAC e de AES, entao vem depois dos dois: com os tres
+     * bits acesos, o que interessa e o primeiro da lista. */
+    if (tr31_selftest() != 0) {
+        r |= KAT_FALHA_TR31;
+    }
 
     /* O DRBG do dispositivo só é semeado depois que a fonte passou. Semear
      * a partir de uma fonte reprovada seria produzir chaves com entropia

@@ -57,6 +57,7 @@ vivado -mode batch -source scripts/build.tcl
 # host -- os dois primeiros rodam sem placa
 python3 host/hsmtool.py selftest    # codec do protocolo
 python3 host/test_hsmtool.py        # transporte (pty + modelo do dispositivo)
+python3 host/test_tr31.py           # key block X9.143 (precisa de `cryptography`)
 python3 host/hsmtool.py ping
 python3 host/hsmtool.py post        # reroda o POST no dispositivo
 ```
@@ -130,7 +131,8 @@ registrador de retrato.
 aceitar qualquer comando e cobre AES-256, SHA-256, HMAC-SHA-256 e CTR_DRBG
 contra vetores oficiais, mais os testes de partida da fonte. Falha leva a
 `TAMPERED`, e o dispositivo continua atendendo **só** ao `SELFTEST`. Custo
-medido: **5,94 ms** de boot.
+medido: **8,31 ms** de boot (eram 5,94 ms antes do key block entrar no POST;
+os dois números vêm da simulação, `tb_tr31_block` reporta a cada rodada).
 
 ⚠ **Vetores do POST vêm de `scripts/mkkat.py`**, que gera
 `fw/include/kat_vectors.h` a partir de `vectors/`. **Nunca editar esse
@@ -154,6 +156,19 @@ A fase 3 os **substitui** por versões que falam por handle.
   `Uni`/`Aut`/`OPE`/`tPr`, e o ponto decimal acende enquanto o dual control
   está satisfeito. ✅ **Validado em hardware 2026-08-26**: mostra `Uni` na
   ordem certa e o ponto responde aos botões.
+- **Key block ANSI X9.143 / TR-31 versão D** (`fw/src/tr31.c` +
+  `host/tr31.py`) — o formato escrito **duas vezes**, em C e em Python, para
+  as duas implementações discordarem quando alguém ler a norma errado.
+  KBEK/KBAK por CMAC, corpo em AES-CBC com o MAC como IV, cabeçalho ASCII
+  contado no MAC. No POST a cada boot. ✅ **Validado em hardware 2026-08-29**:
+  `post` responde com os oito testes verdes, `key block X9.143` entre eles.
+
+```
+tb_tr31_block   o C rodando no NEORV32 real, mascara do POST cobrada
+                pela UART                                          PASS
+host/test_tr31  vetor externo, ida e volta, bit trocado nas 112
+                posicoes do bloco, 12 blocos malformados           PASS
+```
 
 ⚠ **A API do key store é assimétrica de propósito, e não é para
 "simplificar".** `keystore_usa_aes()` carrega a chave no coprocessador e
@@ -161,6 +176,25 @@ A fase 3 os **substitui** por versões que falam por handle.
 bytes, checa `exportabilidade` e existe só para a camada de key block. Um
 `keystore_get_key()` genérico transformaria a checagem em convenção. O tipo
 que contém chave nem aparece no header.
+
+⚠ **O vetor do key block NÃO é do CAVP, e não há como ser.** O CAVP valida
+**algoritmo**; X9.143 é **formato**, e a norma que traz o exemplo é paga. O
+vetor em `vectors/tr31/` é valor conhecido de **terceiros**, fixado por
+commit e por hash em `vectors/MANIFEST.txt`. Ele cobre **desembrulhar**;
+embrulhar não tem KAT possível, porque o enchimento é aleatório por norma.
+Ler `doc/fase3-notas.md` antes de tratá-lo como os demais.
+
+⚠ **`tr31_embrulha()` e `tr31_desembrulha()` recebem KBEK e KBAK, nunca a
+KBPK.** A KBPK deste dispositivo é a LMK, e a LMK não sai do keystore.
+`tr31_deriva()` existe só para o KAT; um segundo chamador dela no firmware
+é sinal de que a pergunta certa é "por que este código tem a chave mestra?".
+
+⚠ **Os oito bits da máscara do POST acabaram.** `KAT_FALHA_TR31 = 0x80` é o
+último, e o `SELFTEST` devolve a máscara em **um byte** — um nono teste
+sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste que
+reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
+disso. **IMEM em 12 700 de 16 384 bytes (77,5%)**, e o zeroize e os cinco
+comandos que faltam ainda não entraram.
 
 ⚠ **A LMK fica FORA do vetor de slots** — sem handle, e zeroizá-la apaga
 todos os slots junto. Chave derivada não sobrevive à chave que a protege.
@@ -199,9 +233,10 @@ verifica os últimos 6 bytes da tag**. Não há vetor público de tag cheia.
 
 Falta da fase 2 apenas `dieharder -a`, que não está instalado.
 Detalhes em `doc/fase2-notas.md`; **o próximo passo e como retomar estão em
-`doc/fase3-notas.md`** — o próximo são os **key blocks ANSI X9.143**, com o
-parser escrito duas vezes (C no firmware, Python no host) para os dois se
-validarem mutuamente.
+`doc/fase3-notas.md`** — o próximo é o **`ZEROIZE`**, com teste que *prove*
+que a BRAM foi sobrescrita, e depois os comandos `GEN_KEY`/`EXPORT_KEY`/
+`IMPORT_KEY`/`KEY_INFO`. São eles que fecham o critério de aceitação que
+ainda falta: Python e firmware concordando em 100 blocos aleatórios.
 
 **Timing fecha em +0,247 ns** (Fmax ≈ 102 MHz), 0 erros e 0 critical
 warnings. Já foi +0,637 (fase 1), +0,487 e +0,380 — a folga **cai a cada

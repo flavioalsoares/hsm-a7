@@ -32,6 +32,33 @@ sha256 929ef80b7b3418aca026643f6f248815913b60e01741a44bba9e118067f4c9b8
 url    https://www.rfc-editor.org/rfc/rfc4231.txt
 sha256 72178527ce93500e730bc8eb182b857e583096d652b64ece0879c52ba1df973b
 
+[ANSI X9.143 / TR-31 versão D]  valor conhecido de TERCEIROS
+url    https://raw.githubusercontent.com/knovichikhin/psec/cb315e98d4399207f54da42282654d840fe3bb82/tests/test_tr31.py
+sha256 e1f42adaed9e2335dc837ba3278310bec0e9a9b2238ec7b38c87c0516addf491
+extrai o único vetor cuja versão de bloco é 'D', pelo scripts/_extrai_tr31.py
+uso    fase 3 — o único KAT do formato de key block. Baixado em 2026-08-29.
+
+       ⚠ ATENÇÃO À PROCEDÊNCIA, QUE NÃO É COMO A DOS OUTROS.
+
+       Não existe vetor CAVP para o FORMATO de key block: o CAVP valida
+       algoritmos, e X9.143 é formato. E a norma é paga, então o exemplo
+       que ela traz não pode ser copiado para cá.
+
+       Este vem do arquivo de testes da biblioteca `psec` (MIT), da
+       função que o próprio autor chama de "known values from 3rd
+       parties" — ou seja, é uma FONTE SECUNDÁRIA. Está fixado por
+       commit e por hash, e é isso que ele vale: um valor produzido por
+       uma implementação independente, não uma autoridade.
+
+       O que ele cobre: desembrulhar. Deriva KBEK/KBAK, decifra o corpo e
+       confere o MAC — todo o caminho, ponta a ponta, contra um número
+       que este projeto não escolheu.
+
+       O que ele NÃO cobre: embrulhar. O enchimento do corpo é aleatório
+       por norma, então embrulhar não é determinístico e não existe KAT
+       possível. Essa direção é verificada por ida-e-volta e pelo acordo
+       entre as duas implementações.
+
 [CTR_DRBG]  NIST CAVP — SP 800-90A
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/drbg/drbgtestvectors.zip
 sha256 5f7e5658ebd5b4e6785a7b12fa32333511d2acc2f2d9c5ae1ffa16b699377769
@@ -49,10 +76,12 @@ dc0cb380169f43a83c4aff86eeb146d5861a7e0247908106f8b6fd37902e97f8  aes/CBCVarKey2
 010a648bfc725f0ea2bd6e9892c88498cd71d805bac84c3f93199e1d919aba03  aes/ECBKeySbox256.rsp
 41026476e854b2e941804726300da7222c5f7ee5b28490a1e52c4ebfbb9dfc11  aes/ECBVarKey256.rsp
 0be3b50f6b3e28e34e16f72d1acbcea4e3c240d725a32b30917b9e560e8ef24e  aes/ECBVarTxt256.rsp
+b7bbc0e72324efa5155b33c525850e967abf4cea2a078089262bf628a96bc0ea  cmac/CMACGenAES256.rsp
 b1b12df719b72e48e2b5d576066733b78807f39f8d338f4d01492af10fb5ef74  drbg/CTR_DRBG_AES256.rsp
 72178527ce93500e730bc8eb182b857e583096d652b64ece0879c52ba1df973b  hmac/rfc4231.txt
 6fac36f37360bcf74ffcf4465c18e30d6d5a04cc90885b901fc3130c16060974  sha/SHA256LongMsg.rsp
 75e1cb83994638481808e225b9eb0c1ebd0c232d952ac42b61abce6363be283c  sha/SHA256ShortMsg.rsp
+39d78f2653758bfbdc78e6188ddfda134097cd83198cfc9e0105f0684c8ef9ab  tr31/x9143_D_AES256.rsp
 
 # Conferir a qualquer momento:
 #   cd vectors && sha256sum -c <(grep -E '^[0-9a-f]{64}  ' MANIFEST.txt)

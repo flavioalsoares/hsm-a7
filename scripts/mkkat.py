@@ -335,6 +335,53 @@ def drbg_vetores(n=3):
     return list(vistos.values())
 
 
+def tr31_vetor():
+    """O unico valor conhecido de key block X9.143 versao D.
+
+    ⚠ PROCEDENCIA DIFERENTE DE TODOS OS OUTROS DESTE ARQUIVO. Nao e do
+    CAVP e nao ha como ser: o CAVP valida ALGORITMO, e X9.143 e FORMATO.
+    A norma que traz o exemplo e paga. Este vem do arquivo de testes de
+    uma biblioteca de terceiros, fixado por commit e por hash --
+    vectors/MANIFEST.txt explica o que ele vale e o que nao vale.
+
+    Cobre DESEMBRULHAR. Embrulhar nao tem KAT possivel: o enchimento do
+    corpo e aleatorio por norma, entao a operacao nao e deterministica.
+    """
+    p = VEC / "tr31" / "x9143_D_AES256.rsp"
+    if not p.exists():
+        sys.exit(f"ERRO: {p} nao existe -- rode scripts/fetch-vectors.sh")
+
+    reg = {}
+    for linha in p.read_text(errors="replace").splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or linha.startswith("["):
+            continue
+        if "=" not in linha:
+            continue
+        k, v = (x.strip() for x in linha.split("=", 1))
+        reg[k.upper()] = v
+
+    falta = {"KBPK", "KEY", "KB"} - set(reg)
+    if falta:
+        sys.exit(f"ERRO: {p} sem {falta}")
+
+    kbpk = hexbytes(reg["KBPK"])
+    if len(kbpk) != 32:
+        sys.exit(f"ERRO: KBPK com {len(kbpk)} bytes; o firmware so faz AES-256")
+
+    kb = reg["KB"]
+    if not kb.startswith("D"):
+        sys.exit(f"ERRO: key block de versao {kb[0]!r}; este projeto so faz a D")
+    if int(kb[1:5]) != len(kb):
+        sys.exit(f"ERRO: campo de comprimento {kb[1:5]} != {len(kb)} caracteres")
+
+    return {
+        "kbpk": kbpk,
+        "key": hexbytes(reg["KEY"]),
+        "kb": kb.encode("ascii"),
+    }
+
+
 # ---------------------------------------------------------------------
 def main():
     aes = aes_vetores()
@@ -342,6 +389,7 @@ def main():
     hmac = hmac_vetores()
     cmac = cmac_vetores()
     drbg = drbg_vetores()
+    tr31 = tr31_vetor()
 
     L = []
     L.append("/* fw/include/kat_vectors.h -- GERADO, nao editar")
@@ -429,6 +477,21 @@ def main():
         L.append("")
     L.append(f"#define KAT_DRBG_N {len(drbg)}")
     L.append("")
+    L.append("/* ---- key block ANSI X9.143 versao D ----")
+    L.append(" *")
+    L.append(" * ATENCAO: este NAO e vetor do CAVP. E um valor conhecido de")
+    L.append(" * TERCEIROS -- o CAVP valida algoritmo, e X9.143 e formato, e a")
+    L.append(" * norma que traz o exemplo e paga. Procedencia completa em")
+    L.append(" * vectors/MANIFEST.txt.")
+    L.append(" *")
+    L.append(" * Cobre DESEMBRULHAR. Embrulhar nao tem KAT possivel: o")
+    L.append(" * enchimento e aleatorio por norma. */")
+    L.append(carr("kat_tr31_kbpk", tr31["kbpk"]))
+    L.append(carr("kat_tr31_key", tr31["key"]))
+    L.append(f"#define KAT_TR31_KEY_LEN {len(tr31['key'])}u")
+    L.append(carr("kat_tr31_kb", tr31["kb"]))
+    L.append(f"#define KAT_TR31_KB_LEN {len(tr31['kb'])}u")
+    L.append("")
     L.append("#endif /* KAT_VECTORS_H */")
 
     SAIDA.write_text("\n".join(L) + "\n")
@@ -439,6 +502,7 @@ def main():
     print(f"   HMAC {len(hmac)} vetores (casos {[v['caso'] for v in hmac]})")
     print(f"   CMAC {len(cmac)} vetores ({[v['classe'] for v in cmac]})")
     print(f"   DRBG {len(drbg)} vetores")
+    print(f"   TR31 1 vetor ({len(tr31['kb'])} caracteres) -- fonte de terceiros")
     print(f"   {SAIDA.stat().st_size} bytes")
 
 
