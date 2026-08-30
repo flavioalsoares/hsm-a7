@@ -35,7 +35,9 @@ Estas não são preferências. Se uma tarefa pedir qualquer coisa desta lista,
 ```bash
 # simulacao -- xsim, obrigatorio para qualquer coisa que toque no MMCM ou em
 # outra primitiva Xilinx (precisa das unisims). Aplica os patches de
-# patches/ sozinho, em build/patched/.
+# patches/ sozinho, em build/patched/, e RECOMPILA o firmware se o C estiver
+# mais novo que fw/neorv32_imem_image.vhd (ate 2026-08-29 nao recompilava, e
+# editar C + simular validava o binario anterior -- ver doc/fase3-notas.md).
 ./scripts/sim.sh tb_clk_rst     # um testbench
 ./scripts/sim.sh                # todos os implementados
 
@@ -195,6 +197,33 @@ sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste que
 reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
 disso. **IMEM em 12 700 de 16 384 bytes (77,5%)**, e o zeroize e os cinco
 comandos que faltam ainda não entraram.
+
+✅ **`ZEROIZE` validado em hardware 2026-08-30** (POST 8/8 verde, recusa sem
+dual control). Falta confirmar na bancada só o apagamento bem-sucedido, que
+exige dois dedos na placa.
+
+⚠ **`ZEROIZE` (`0x2F`) é o único comando permitido em TODOS os estados**,
+`TAMPERED` inclusive — e de `TAMPERED` **não se sai**: apaga a chave e
+continua comprometido. Exige dual control; o gatilho automático (autoteste
+reprovado) **não exige nada**. A assimetria é o ponto: pessoas precisam de
+duas pessoas, um dispositivo que se descobre comprometido não precisa de
+ninguém.
+
+⚠ **`SELFTEST` é DESTRUTIVO.** O teste de função crítica do key store
+instala e apaga chaves de verdade e termina com o store vazio, LMK
+inclusive — então `hsmtool post` num dispositivo carregado **apaga a chave
+mestra** e o dispositivo volta a `UNINITIALIZED`. Isso sempre foi verdade;
+até 2026-08-29 o estado **não acompanhava** e o dispositivo continuava
+dizendo `OPERATIONAL` sobre um key store vazio. Não tornar o autoteste
+inofensivo é deliberado: um que poupasse a LMK exercitaria um caminho
+diferente do que roda no boot.
+
+⚠ **A prova de zeroização tem duas camadas, e a segunda não confia na
+primeira.** `keystore_prova_zeroizacao()` varre byte a byte (com
+`volatile` — sem ele o compilador dobra o laço em `return 1`);
+`tb_zeroize` prova pelo **KCV**, refazendo a cerimônia e exigindo o mesmo
+vetor do CAVP. Um bit sobrevivente na LMK mudaria o KCV. Ver
+`doc/fase3-notas.md`.
 
 ⚠ **A LMK fica FORA do vetor de slots** — sem handle, e zeroizá-la apaga
 todos os slots junto. Chave derivada não sobrevive à chave que a protege.

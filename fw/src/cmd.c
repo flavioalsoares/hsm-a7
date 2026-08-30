@@ -326,10 +326,105 @@ static hsm_status_t h_selftest(const uint8_t *in, uint16_t in_len,
     out[0]   = (uint8_t)r;
     *out_len = 1u;
 
+    /* ⚠ O AUTOTESTE E DESTRUTIVO, E ISSO NAO PODE FICAR IMPLICITO.
+     *
+     * O teste de funcao critica do key store INSTALA e APAGA chaves de
+     * teste, e termina zerando o store inteiro -- LMK inclusive. Entao
+     * rodar SELFTEST num dispositivo carregado APAGA a chave mestra.
+     *
+     * Isso ja era verdade antes desta linha existir, e sem ela o
+     * dispositivo continuava dizendo OPERATIONAL com o key store vazio:
+     * estado e realidade divergindo, que e a pior coisa que uma maquina de
+     * estados pode fazer. O operador rodava um diagnostico e o dispositivo
+     * mentia sobre ter chave.
+     *
+     * A escolha aqui e tornar a destruicao VISIVEL, nao evita-la: o
+     * autoteste tem de exercitar o key store de verdade para valer alguma
+     * coisa, e um autoteste que poupasse a LMK testaria um caminho que
+     * nao e o que roda no boot.
+     *
+     * De TAMPERED nao se sai -- state_set() e absorvente. */
+    (void)keystore_zeroiza_tudo();
+    state_set(HSM_UNINITIALIZED);
+
     if (r != KAT_OK) {
         state_set(HSM_TAMPERED);
         return STATUS_SELFTEST_FAIL;
     }
+    return STATUS_OK;
+}
+
+/* ZEROIZE -- apaga toda chave, e prova.
+ *
+ * Payload: vazio. Resposta: estado_atual(1).
+ *
+ * Checklist:
+ *   estados      TODOS, TAMPERED inclusive. E o unico comando com essa
+ *                mascara, e a razao e simples: um dispositivo que nao se
+ *                deixa apagar nao garante nada alem de que a chave
+ *                continua la. Em TAMPERED e ainda mais necessario -- e
+ *                exatamente quando se quer apagar.
+ *
+ *   dual control SIM. E destrutivo e irreversivel, e a exigencia e a mesma
+ *                de carregar a LMK: quem pode criar a chave mestra e quem
+ *                pode destrui-la.
+ *
+ *                ⚠ A ASSIMETRIA COM O GATILHO AUTOMATICO E O PONTO. O
+ *                autoteste reprovado apaga sem pedir autorizacao a
+ *                ninguem. Pessoas precisam de duas pessoas; o dispositivo
+ *                que se descobre comprometido nao precisa de ninguem. Se
+ *                o gatilho automatico exigisse dual control, bastaria nao
+ *                haver operador na sala para a chave sobreviver ao
+ *                comprometimento.
+ *
+ *   vazamento    nada -- ele destroi. Em laco e negacao de servico, e o
+ *                dual control ja cobre isso: a recusa NAO gasta o rearme,
+ *                entao um host hostil nao consegue nem apagar nem impedir
+ *                a cerimonia.
+ *
+ *   exportability nao se aplica, e vale dizer por que em vez de deixar em
+ *                branco: `exportabilidade='N'` protege contra a chave
+ *                SAIR, nao contra ser APAGADA. Uma chave que o
+ *                dispositivo nao pudesse apagar seria uma chave que ele
+ *                nao controla.
+ *
+ *   log          TODO -- fw/src/audit_log.c ainda e um placeholder. Este e
+ *                o comando que mais precisa de registro, e ele ainda nao
+ *                existe. Fica anotado aqui e em doc/fase3-notas.md.
+ */
+static hsm_status_t h_zeroize(const uint8_t *in, uint16_t in_len,
+                              uint8_t *out, uint16_t *out_len)
+{
+    (void)in;
+    *out_len = 0u;
+
+    if (in_len != 0u) {
+        return STATUS_BAD_PARAM;
+    }
+
+    if (!dualctl_autoriza()) {
+        return STATUS_NOT_AUTHORIZED;
+    }
+
+    /* Apaga e CONFERE. A ordem importa: o estado so desce depois de a
+     * prova passar. Descer para UNINITIALIZED com material vivo na BRAM
+     * seria anunciar "nao ha chave aqui" sobre uma chave que ficou. */
+    if (keystore_zeroiza_tudo() != 0) {
+        /* Apagou e nao conseguiu provar. O dispositivo nao tem como saber
+         * o que sobrou, entao assume o pior sobre si mesmo -- e essa e a
+         * unica transicao para TAMPERED que um comando provoca. */
+        state_set(HSM_TAMPERED);
+        out[0]   = (uint8_t)state_get();
+        *out_len = 1u;
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    /* Absorvente: se ja estava em TAMPERED, continua. A chave foi embora
+     * de qualquer jeito, que era o pedido. */
+    state_set(HSM_UNINITIALIZED);
+
+    out[0]   = (uint8_t)state_get();
+    *out_len = 1u;
     return STATUS_OK;
 }
 
@@ -601,6 +696,10 @@ static const cmd_entry_t g_cmds[] = {
     { CMD_LMK_LOAD_COMPONENT, ST_UNINIT, h_lmk_load_component },
     { CMD_LMK_STATUS,         ST_NORMAL, h_lmk_status         },
     { CMD_SET_STATE,          ST_AUTH,   h_set_state          },
+
+    /* ZEROIZE e o UNICO comando permitido em todo estado -- ver o handler.
+     * Nao ha estado do qual apagar a chave seja a resposta errada. */
+    { CMD_ZEROIZE, ST_NORMAL | ST_TAMPERED, h_zeroize            },
 };
 
 #define N_CMDS (sizeof(g_cmds) / sizeof(g_cmds[0]))

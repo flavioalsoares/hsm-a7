@@ -52,7 +52,14 @@ acendendo enquanto o dual control esta satisfeito.
 
 O key block foi escrito **duas vezes** -- em C no firmware, em Python no
 host, sobre bibliotecas diferentes -- para que as duas discordem quando
-alguem ler a norma errado. Faltam o zeroize e os comandos `0x22`-`0x2F`. Ver
+alguem ler a norma errado.
+
+O `ZEROIZE` apaga tudo **e prova que apagou**, por duas vias independentes:
+uma varredura byte a byte no firmware, e o KCV no testbench -- refazendo a
+cerimonia e exigindo o mesmo vetor do NIST. Um unico bit sobrevivente da
+LMK mudaria o KCV.
+
+Faltam os comandos `0x22`-`0x25` e o log de auditoria. Ver
 `doc/fase3-notas.md`.
 
 ⚠ **Grave na flash, nao na SRAM** -- `./scripts/program.sh flash`. Nesta

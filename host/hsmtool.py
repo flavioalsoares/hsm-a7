@@ -27,6 +27,11 @@ Cerimonia de LMK (fase 3) -- exige os dois botoes da placa:
     hsmtool.py lmk-status
     hsmtool.py lmk-load 0 --random
     hsmtool.py activate
+    hsmtool.py zeroize               # APAGA tudo, irreversivel
+
+⚠ `hsmtool.py post` e DESTRUTIVO num dispositivo carregado: o autoteste
+exercita o key store de verdade e termina com ele vazio, entao rodar o
+diagnostico apaga a LMK e o dispositivo volta a UNINITIALIZED.
 """
 
 import argparse
@@ -81,6 +86,7 @@ CMD_SELFTEST = 0x15
 CMD_LMK_LOAD_COMPONENT = 0x20
 CMD_LMK_STATUS = 0x21
 CMD_SET_STATE = 0x26
+CMD_ZEROIZE = 0x2F
 
 LMK_N_COMPONENTES = 3
 LMK_KEY_LEN = 32
@@ -506,6 +512,15 @@ def cmd_selftest_dev(client, args):
     Reprovar aqui leva o dispositivo a TAMPERED, igual ao boot. Por isso o
     comando responde ate em TAMPERED: sem ele, um dispositivo que reprovou
     fica mudo sobre O QUE reprovou.
+
+    ⚠ E DESTRUTIVO. O teste de funcao critica do key store instala e apaga
+    chaves de verdade, e termina com o store vazio -- LMK inclusive. Rodar
+    isto num dispositivo carregado APAGA a chave mestra, e o dispositivo
+    volta a UNINITIALIZED.
+
+    Nao e efeito colateral a esconder: um autoteste que poupasse a LMK
+    estaria testando um caminho diferente do que roda no boot. O que se
+    exige e que o ESTADO acompanhe -- e acompanha.
     """
     status, data = client.transact(CMD_SELFTEST)
 
@@ -520,6 +535,8 @@ def cmd_selftest_dev(client, args):
 
     if r == 0:
         print("\nPOST: OK")
+        print("  (o autoteste zera o key store: se havia LMK, ela foi embora")
+        print("   e o dispositivo voltou a UNINITIALIZED)")
         return 0
 
     print("\nPOST REPROVOU (mascara 0x%02X). O dispositivo esta em TAMPERED"
@@ -641,6 +658,38 @@ def cmd_lmk_load(client, args):
     print("componentes       : %d de %d" % (carregados, LMK_N_COMPONENTES))
     print("estado            : %s (%d)"
           % (STATE_NAMES.get(estado, "?"), estado))
+    return 0
+
+
+def cmd_zeroize(client, args):
+    """Apaga TODA chave do dispositivo. Exige dual control.
+
+    Destrutivo e irreversivel: a LMK vive em BRAM e nao ha copia em lugar
+    nenhum (a persistencia e a fase 4). Depois disto, a cerimonia inteira
+    tem de ser refeita.
+    """
+    print("ZEROIZE apaga a LMK e os 16 slots. Nao ha copia, nao ha volta.")
+    if not args.sim:
+        resp = input('Digite "apagar" para confirmar: ').strip()
+        if resp != "apagar":
+            print("cancelado.")
+            return 1
+
+    _pede_dual_control("Apagar TODA chave do dispositivo.")
+
+    p = client.command(CMD_ZEROIZE)
+    if len(p) != 1:
+        print("payload inesperado: %r" % p)
+        return 1
+
+    estado = p[0]
+    print("apagado. estado: %s (%d)"
+          % (STATE_NAMES.get(estado, "?"), estado))
+    if estado == 3:
+        # TAMPERED e absorvente: apagar a chave nao recupera o dispositivo,
+        # e nao deveria. Um HSM que se cura de tamper nao detectou tamper.
+        print("  o dispositivo continua em TAMPERED -- de la nao se sai por")
+        print("  software. A chave foi embora, que era o pedido.")
     return 0
 
 
@@ -772,6 +821,11 @@ def main(argv=None):
     sub.add_parser("activate",
                    help="AUTHORIZED -> OPERATIONAL (dual control)")
 
+    p_zer = sub.add_parser("zeroize",
+                           help="APAGA toda chave (dual control, irreversivel)")
+    p_zer.add_argument("--sim", action="store_true",
+                       help="nao pergunta a confirmacao em texto")
+
     p_raw = sub.add_parser("raw", help="envia um opcode arbitrario")
     p_raw.add_argument("--op", type=lambda s: int(s, 0), required=True)
     p_raw.add_argument("--payload", default="", help="payload em hex")
@@ -805,6 +859,7 @@ def main(argv=None):
         "lmk-status": cmd_lmk_status,
         "lmk-load": cmd_lmk_load,
         "activate": cmd_activate,
+        "zeroize": cmd_zeroize,
     }
 
     try:

@@ -97,8 +97,30 @@ typedef struct {
     uint32_t contador_uso;
 } ks_info_t;
 
-/* Zeroiza tudo -- slots e LMK. Chamado no boot e pelo comando ZEROIZE. */
+/* Zeroiza tudo -- slots e LMK. Chamado no boot e pelo comando ZEROIZE.
+ *
+ * Apaga também a chave expandida do coprocessador: ela é material de
+ * chave e vive FORA da DMEM, no fabric. Zeroizar só a memória do
+ * firmware deixaria a última chave usada viva no `aes_key_mem`. */
 void keystore_init(void);
+
+/* PROVA da zeroização: 1 se não sobrou um byte diferente de zero em
+ * nenhuma região de chave -- slots, padding das structs, LMK e KCV.
+ *
+ * Existe porque "chamei a função de apagar" não é a mesma coisa que
+ * "apagou". Um `wipe()` que o compilador tivesse eliminado, um campo novo
+ * que ninguém acrescentou ao laço, um slot fora do intervalo: os três
+ * falham em silêncio, e os três aparecem aqui.
+ *
+ * Consulta pura -- não apaga nada. Quem apaga é `keystore_zeroiza_tudo()`. */
+int keystore_prova_zeroizacao(void);
+
+/* Apaga e CONFERE. Devolve 0 se, depois de apagar, a prova passou.
+ *
+ * É por aqui que o comando ZEROIZE passa: um zeroize que reporta sucesso
+ * sem ter apagado é pior que um que falha, porque o operador acredita
+ * nele e devolve o dispositivo achando que está limpo. */
+int keystore_zeroiza_tudo(void);
 
 /* Instala uma chave num slot livre.
  *

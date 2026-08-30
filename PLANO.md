@@ -298,6 +298,69 @@ instrutivo — separa "quem digita" de "quem autoriza" fisicamente.
 Cada custodiante carrega apenas o seu componente e não vê os demais (split
 knowledge). Nenhum componente isolado revela nada sobre a LMK.
 
+#### Entrada de componente — o buraco conhecido, e o que fica para o fim
+
+*Registrado em 2026-08-29. **Não é tarefa desta fase nem das próximas.**
+Fica para o final do projeto, e está aqui para não ser reinventado do zero
+quando chegar a hora.*
+
+**O que existe hoje não é split knowledge — é encenação de split
+knowledge.** Os componentes entram **pela mesma UART por onde o host
+fala**, e `lmk-load --random` os gera *no host*, que portanto conhece os
+três. Está documentado no `cmd.c`, no `hsmtool.py` e no manual, e não
+escondido — mas é a maior distância entre este projeto e o modelo.
+
+Num HSM de pagamento comercial o componente entra por um **cartão do
+custodiante**, e vale desmontar o que esse cartão faz, porque são quatro
+propriedades distintas e este projeto tem **uma**:
+
+| Propriedade | Hoje |
+|---|---|
+| **canal local** — o componente nunca passa pelo link do host | ✗ |
+| **posse** — o custodiante leva o componente embora, num objeto | ✗ (papel) |
+| **conhecimento** — um PIN, além da posse | ✗ |
+| **presença simultânea de dois** | ✓ (e só isso) |
+
+Os dois botões provam que *duas mãos estavam ali no mesmo instante* — nem
+sequer que são de duas pessoas. É a mais fraca das quatro.
+
+**Caminhos possíveis neste hardware, em ordem de honestidade:**
+
+1. **Cartão síncrono de memória** (família de 256 bytes de EEPROM com PSC
+   de 3 bytes em hardware, contador de tentativas no próprio cartão). É um
+   smartcard de verdade, com PIN de verdade, e o protocolo é **síncrono, de
+   duas linhas** (CLK + I/O bidirecional, mais RST) — sem ATR, sem T=0.
+   Cabe em algumas centenas de LUTs. Entrega as quatro propriedades de uma
+   vez.
+
+   O PIN precisa de entrada local, e é aí que entram os **dois botões
+   livres** (SW3=N6, SW4=R5, ver `doc/pinout.md`): um avança o dígito, o
+   outro confirma, e o display de 7 segmentos mostra o dígito corrente.
+   Feio, lento, e **local** — que é exatamente o ponto.
+
+2. **microSD como degrau intermediário.** Os pinos já existem e estão
+   livres (J5 CS, K5 MOSI, E6 CLK, B5 MISO). Mestre SPI e leitura de setor
+   fixo, sem FAT. Fecha **só** o canal local: o cartão não autentica
+   ninguém, é *portador*, não smartcard. Serve porque o RTL de SPI é
+   reaproveitado na Fase 4 de qualquer jeito.
+
+3. **Cartão assíncrono ISO 7816 T=0.** O "certo" de verdade, e o mais
+   caro: relógio fornecido por nós, I/O half-duplex com convenção direta
+   *e* inversa, ATR, APDU. É um projeto inteiro dentro do projeto e
+   engoliria uma fase.
+
+4. **Ortogonal e barato: trocar XOR 3-de-3 por Shamir k-de-n** sobre
+   GF(2⁸). Hoje, se um custodiante sumir, a LMK morre. Com 2-de-3, não.
+   São dezenas de linhas de C e **nenhum hardware novo** — dá para fazer
+   antes de qualquer cartão, e independente deles.
+
+⚠ **O bloqueio real não é o cartão.** É que a LMK **não sobrevive ao
+desligamento** (BRAM, como manda a regra 2), então toda sessão de bancada
+refaz a cerimônia digitando 3×64 caracteres em hexadecimal. A **Fase 4**
+elimina quase toda essa dor sem hardware nenhum. Ordem sugerida quando o
+assunto voltar: Fase 4 → Shamir → microSD → cartão com PIN pelos botões
+livres.
+
 ### Key blocks ANSI X9.143 (TR-31 versão D)
 
 *Formato fixado em 2026-08-08 pela decisão de rumo da seção 0: X9.143, que é
@@ -375,6 +438,12 @@ zeroize. Depois, ataque o próprio HSM: glitch de clock via DRP do MMCM, observe
 assinatura sair errada, implemente contramedidas (dupla execução, verificação de
 resultado). Bitstream encriptado com chave em BBRAM como confidencialidade de
 firmware.
+
+**Entrada de componente por cartão — depois de tudo.** *Registrado em
+2026-08-29 e deliberadamente sem fase própria.* O caminho está desenhado na
+§4, "Entrada de componente"; é o item que fecha a distância entre a
+cerimônia deste projeto e a de um HSM de pagamento comercial, e não bloqueia
+nada do que vem antes.
 
 **Fase 7 — assimétrico.** RSA-2048 por Montgomery nos 90 DSP48E1; P-256 depois.
 Deixar por último: o aprendizado de HSM está nas fases 3 a 5.

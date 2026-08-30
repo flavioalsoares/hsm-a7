@@ -113,8 +113,11 @@ soletrando o estado com o ponto decimal confirmando a autorização.
 O key block está escrito **duas vezes**, em C e em Python, para as duas
 implementações se validarem mutuamente. ⚠ O vetor dele **não é do CAVP** —
 o CAVP valida algoritmo, e X9.143 é formato; a procedência de terceiros está
-em `vectors/MANIFEST.txt`. Faltam o zeroize e o resto dos comandos
-`0x22`–`0x2F`. Ver [`fase3-notas.md`](fase3-notas.md).
+em `vectors/MANIFEST.txt`.
+
+O **`ZEROIZE`** apaga tudo e prova que apagou por duas vias independentes —
+varredura byte a byte no firmware, e o KCV no testbench. Faltam os comandos
+`0x22`–`0x25` e o log de auditoria. Ver [`fase3-notas.md`](fase3-notas.md).
 
 Nenhum `[TBD]` de pinagem. Cores dos LEDs, polaridade do display, ordem
 física dos botões e **ordem dos dígitos do display** foram todos fechados

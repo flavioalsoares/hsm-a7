@@ -193,7 +193,7 @@ O coração do projeto, e onde os conceitos das Partes II e III viram código.
 - ✅ **Key blocks ANSI X9.143 (TR-31 versão D)**: KBEK e KBAK derivadas por
   CMAC, corpo em AES-CBC, autenticação por CMAC sobre cabeçalho e corpo —
   escritos **duas vezes**, em C e em Python.
-- **Zeroize** com prova por dump.
+- ✅ **Zeroize** com prova — e a prova não vem de dump.
 - **Log de auditoria** gravado antes da execução, em flash, com contador
   monotônico.
 
@@ -324,6 +324,62 @@ trocado em **cada posição do bloco** tendo de invalidar tudo.
 Esse último é o teste que vale mais que os outros. Uma implementação que
 esqueceu de incluir o cabeçalho no MAC passa no vetor e passa na ida e volta.
 Falha só ali.
+
+### Apagar, e provar que apagou
+
+"Chamei a função de apagar" não é a mesma coisa que "apagou", e a diferença
+é invisível de fora. Um `wipe` que o compilador eliminou por ser escrita
+morta, um campo novo que ninguém acrescentou ao laço, um índice fora do
+intervalo: os três falham em **silêncio** e deixam chave viva num
+dispositivo que se anuncia limpo.
+
+O problema é que a verificação óbvia — o firmware varrer a própria memória
+— é **auto-atestação**: é o mesmo código dizendo que o mesmo código
+funcionou. Ela vale (e roda a cada boot), mas não fecha a pergunta.
+
+O que fecha é usar **criptografia para provar memória**. A chave mestra se
+acumula por XOR dos três componentes. Se a zeroização deixasse um único bit
+para trás, a cerimônia seguinte acumularia sobre o resíduo — e o KCV
+resultante não seria o dos componentes. Então o teste é: cerimônia, KCV
+esperado; apagar; **mesma cerimônia, e o KCV tem de voltar a bater**. E o
+valor esperado não é "o que o dispositivo devolveu da outra vez": é um
+vetor oficial do NIST.
+
+Nenhum firmware passa nesse teste sem que a memória estivesse mesmo zerada.
+
+Duas notas de projeto, e a segunda é a mais instrutiva:
+
+- **A sobrescrita é em duas passadas**, um padrão e depois zeros. Para
+  memória estática a segunda é a que conta — dizer o contrário seria
+  repetir folclore de disco magnético. A primeira existe porque uma
+  zeroização **interrompida** tem de deixar padrão, não meia chave.
+
+- **O comando exige dois operadores; o gatilho automático não exige
+  ninguém.** Apagar é destrutivo, então uma pessoa não basta. Mas quando é
+  o próprio dispositivo que se descobre comprometido, exigir autorização
+  seria absurdo: bastaria não haver ninguém na sala para a chave sobreviver
+  ao comprometimento. A assimetria não é inconsistência — é o
+  reconhecimento de que as duas situações têm ameaças opostas.
+
+E há um detalhe que a máquina de estados resolve de graça: apagar em
+`TAMPERED` funciona, e **não tira** o dispositivo de `TAMPERED`. A chave vai
+embora, que era o pedido; o veredito fica, porque um HSM que se cura de
+tamper não detectou tamper nenhum.
+
+### Uma lição de ferramenta, que valeu mais que o comando
+
+As duas sabotagens deliberadas do mecanismo de apagar — quebrar o código de
+propósito para ver se o teste reprova — **passaram**. Não porque o teste
+fosse fraco: porque o script de simulação não recompilava o firmware. Ele
+conferia que a imagem existia e seguia adiante, então o testbench validava
+o binário anterior.
+
+Um teste que nunca vê o código em teste é pior que teste nenhum, e essa
+classe de falha não aparece em revisão de código — só aparece quando se
+tenta, de propósito, fazer o teste falhar.
+
+É a razão de a disciplina de sabotagem existir. Ela não confirma que o
+código está certo; ela confirma que o **teste está ligado**.
 
 E a honestidade que fecha a seção: num HSM de verdade o componente entra por
 teclado local ou cartão do custodiante, **nunca pela mesma porta por onde o

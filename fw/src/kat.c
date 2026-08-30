@@ -312,8 +312,21 @@ static unsigned kat_keystore(void)
         }
     }
 
-    /* Nao deixa material de teste para tras. */
+    /* Nao deixa material de teste para tras -- e PROVA que nao deixou.
+     *
+     * Nao ha bit de mascara livre para um teste proprio de zeroizacao (os
+     * oito acabaram, ver kat.h), e nem faria sentido: isto e uma
+     * propriedade do key store, e KAT_FALHA_KS ja e o bit dele.
+     *
+     * Vale mais do que parece. Depois deste ponto o firmware acabou de
+     * escrever chave em quatro slots e apagar tudo; se a zeroizacao
+     * tivesse um buraco -- um campo novo fora do laco, um wipe que o
+     * compilador tivesse eliminado -- o boot seguinte comecaria com
+     * material vivo na BRAM e nada denunciaria. */
     keystore_init();
+    if (!keystore_prova_zeroizacao()) {
+        falha = KAT_FALHA_KS;
+    }
     wipe(saida, sizeof saida);
     (void)hsm_cfs_wipe();
     return falha;

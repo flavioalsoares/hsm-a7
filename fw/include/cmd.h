@@ -97,6 +97,23 @@
  * "desinicializasse" deixaria a chave viva com o estado mentindo. */
 #define CMD_SET_STATE           0x26u
 
+/* ZEROIZE -- apaga TODA chave, e prova que apagou. Exige dual control.
+ *   pedido    vazio
+ *   resposta  estado_atual(1)
+ *
+ * Permitido em TODOS os estados, TAMPERED inclusive. Um dispositivo que
+ * nao se deixa apagar e pior que um que se deixa: a unica coisa que ele
+ * garante e que a chave continua la.
+ *
+ * De TAMPERED nao se SAI -- a chave e apagada e o estado permanece. A
+ * maquina de estados ja e absorvente ali (state.h), entao isso sai de
+ * graca e nao precisa de caso especial.
+ *
+ * O status distingue "apagou" de "nao consegui provar que apagou". Nao e
+ * excesso de zelo: um zeroize que reporta sucesso sem ter apagado e pior
+ * que um que falha, porque o operador acredita nele. */
+#define CMD_ZEROIZE             0x2Fu
+
 
 void         cmd_init(void);
 void         cmd_poll(void);

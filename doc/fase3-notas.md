@@ -4,8 +4,9 @@ Objetivo da fase (`PLANO.md` §4): **hierarquia de chaves**. É o coração do
 projeto — a partir daqui o dispositivo deixa de ser uma caixa de primitivas
 e passa a guardar chave.
 
-Estado: **em andamento.** CMAC, key store, a cerimônia de LMK e o key
-block X9.143 prontos; faltam o zeroize e o resto dos comandos.
+Estado: **em andamento.** CMAC, key store, a cerimônia de LMK, o key block
+X9.143 e o zeroize prontos; faltam os comandos `0x22`–`0x25` e o log de
+auditoria.
 
 ---
 
@@ -396,23 +397,171 @@ sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste
 que reprovou — a pior falha possível num POST. Há um `typedef` em
 `fw/include/kat.h` que quebra o build em vez disso.
 
+### Zeroize (`0x2F`, `fw/src/keystore.c`, `sim/tb/tb_zeroize.v`)
+
+Apaga os 16 slots e a LMK, **e prova que apagou**. Foi o item que mais
+rendeu por linha escrita, e não pelo apagar — pelo provar.
+
+#### O defeito que apareceu no caminho
+
+⚠ **O autoteste sob demanda sempre foi destrutivo, e o estado não
+acompanhava.** `SELFTEST` → `kat_post()` → `kat_keystore()` →
+`keystore_init()` → `lmk_zeroiza()`: o teste de função crítica do key store
+instala e apaga chaves de verdade e termina com o store vazio, LMK
+inclusive. O dispositivo continuava dizendo `OPERATIONAL`.
+
+O operador rodava um diagnóstico e o dispositivo passava a **mentir sobre
+ter chave** — estado e realidade divergindo, que é a pior coisa que uma
+máquina de estados pode fazer.
+
+Não dá para consertar tornando o autoteste inofensivo: um teste que
+poupasse a LMK exercitaria um caminho diferente do que roda no boot, e
+deixaria de valer. O conserto é tornar a destruição **visível** —
+`h_selftest` zeroiza explicitamente e desce para `UNINITIALIZED`. O
+`hsmtool` avisa, e `tb_zeroize` prende o comportamento.
+
+#### Provar que apagou, sem acreditar em quem apagou
+
+"Chamei a função de apagar" não é o mesmo que "apagou", e a diferença é
+invisível de fora: um `wipe()` que o compilador eliminou, um campo novo
+fora do laço, um slot fora do intervalo — os três falham em **silêncio**.
+
+São duas camadas, e elas são independentes de propósito:
+
+| Camada | O que faz | Limite |
+|---|---|---|
+| `keystore_prova_zeroizacao()` | varre a região byte a byte — slots, **padding das structs**, LMK e KCV. Roda no POST | auto-atestação: o mesmo código dizendo que funcionou |
+| `tb_zeroize`, via **KCV** | cerimônia → KCV `46F2FB` → `ZEROIZE` → mesma cerimônia → `46F2FB` de novo | só alcança a LMK, não os 16 slots |
+
+⚠ **A prova por KCV é criptografia provando memória.** A LMK acumula por
+XOR; se a zeroização deixasse um único bit em `g_lmk`, a cerimônia seguinte
+acumularia sobre o resíduo e o KCV seria outro — porque o KCV é AES da
+chave inteira. E o valor esperado é **vetor oficial do NIST**
+(`ECBKeySbox256`, cujo `PLAINTEXT` é um bloco de zeros, o que faz o
+criptograma *ser* o KCV daquela chave), não "o que o firmware devolveu da
+outra vez".
+
+⚠ **`volatile` na varredura não é enfeite.** Sem ele, o compilador pode
+**provar** que acabou de zerar aquela memória e dobrar o laço inteiro em
+`return 1` — a prova viraria uma constante que passa sempre, inclusive
+quando a zeroização falhou.
+
+⚠ **A varredura só vale porque `keystore_init()` apaga a área como BYTES
+CRUS**, e não campo a campo. Com o padding das structs intocado, a
+varredura leria lixo indeterminado e não provaria nada. Efeito colateral
+bem-vindo: um campo novo em `slot_t` entra já zerado sem ninguém lembrar.
+
+⚠ **Não dá para ler a Block RAM do testbench.** O array é um
+`signal spram : ram_t` **VHDL** dentro de `neorv32_prim_spram`, e o
+testbench é Verilog — a mesma fronteira que o xsim recusou em
+`tb_post_tamper` (`XSIM 43-4289`). Está dito no cabeçalho do teste: um
+testbench que se descrevesse como "varri a BRAM" quando na verdade
+perguntou ao dispositivo mentiria sobre a própria cobertura.
+
+#### As três decisões do comando
+
+**Permitido em TODOS os estados, `TAMPERED` inclusive** — é o único com
+essa máscara. Um dispositivo que não se deixa apagar não garante nada além
+de que a chave continua lá, e em `TAMPERED` é exatamente quando se quer
+apagar. De lá não se **sai**: apaga e continua comprometido, e isso sai de
+graça porque `state_set()` já é absorvente.
+
+**Dual control sim — e a assimetria com o gatilho automático é o ponto.**
+O autoteste reprovado apaga sem pedir autorização a ninguém. Pessoas
+precisam de duas pessoas; um dispositivo que se descobre comprometido não
+precisa de ninguém. Se o gatilho automático exigisse dual control, bastaria
+não haver operador na sala para a chave sobreviver ao comprometimento.
+
+**`exportabilidade='N'` não protege contra apagar** — protege contra a
+chave *sair*. Uma chave que o dispositivo não pudesse apagar seria uma
+chave que ele não controla.
+
+E a recusa por falta de dual control **não gasta o rearme**: se gastasse,
+um host hostil impediria a zeroização chamando o comando em laço, e o dual
+control viraria uma forma de *proteger* a chave de quem tem direito de
+apagá-la.
+
+#### `wipe_padrao()` — duas passadas, e a honesta razão
+
+0xAA, depois zeros. **Para SRAM a segunda passada é a que conta**, e dizer
+o contrário seria repetir folclore de disco magnético. A primeira existe
+por um motivo diferente e concreto: se a zeroização for **interrompida**
+(reset, queda de alimentação), o que sobra é padrão, não meia chave.
+
+#### A sabotagem, e o que ela encontrou antes de encontrar o que procurava
+
+Duas sabotagens deliberadas, porque um teste que nunca reprovou não se sabe
+se testa:
+
+| Sabotagem | Quem pegou |
+|---|---|
+| a LMK não é apagada | a varredura do firmware: `ZEROIZE` → `INTERNAL_ERROR`, dispositivo vai a `TAMPERED` |
+| a LMK não é apagada **e** a varredura do firmware sempre diz "limpo" | **só o KCV**: `dc95c0` em vez de `46F2FB`, um erro, no lugar exato |
+
+A segunda linha é a que justifica a prova por KCV existir. Sem ela, uma
+varredura mentirosa passaria despercebida.
+
+⚠ **Mas a primeira tentativa das duas sabotagens PASSOU**, e a causa não
+era o teste: **`scripts/sim.sh` nunca recompilou o firmware.** Ele conferia
+que `fw/neorv32_imem_image.vhd` existia e seguia — então editar C e rodar a
+simulação validava o binário anterior. O comentário no próprio arquivo
+alertava contra "verde e mentiroso" ao explicar o cache; o buraco estava ao
+lado dele.
+
+Um teste que nunca vê o código em teste é pior que teste nenhum. Corrigido
+em 2026-08-29: `sim.sh` compara a data de `fw/src/*.c`, `fw/include/*.h` e
+`fw/Makefile` com a da imagem e recompila sozinho.
+
+⚠ **Consequência retroativa, e vale ser explícito:** todas as simulações
+anteriores rodaram contra imagens compiladas à mão logo antes, então
+estavam corretas — mas por disciplina de quem digitou, não por garantia da
+ferramenta.
+
+E um defeito de relatório que só a sabotagem expôs: o testbench imprimia
+"nenhum bit da LMK anterior sobreviveu" na linha seguinte ao `FAIL` do KCV.
+Anunciar sucesso ao lado de uma falha é como um teste engana quem lê o log
+em diagonal. As mensagens de sucesso agora dependem de o bloco ter passado.
+
+#### Validado em hardware, 2026-08-30
+
+Gravado na flash. O POST responde com os oito testes verdes — a varredura
+de prova roda a cada energização, no silício — e `zeroize` sem os botões é
+recusado com `NOT_AUTHORIZED`.
+
+```
+post      8 de 8 ok
+zeroize   STATUS_NOT_AUTHORIZED (0x21) sem dual control
+```
+
+⚠ O caminho que **falta** confirmar na bancada é o `ZEROIZE` bem-sucedido:
+ele exige alguém com dois dedos na placa. A simulação cobre o comando
+inteiro; o que só a mão fecha é o mesmo elo do display — o botão que o
+firmware lê é o mesmo que a mão apertou.
+
+#### Custo
+
+**POST: 8,31 → 9,09 ms.** A varredura de prova custa 0,78 ms por boot.
+**IMEM: 12 700 → 12 860 bytes** dos 16 384 (78,5%).
+
+⚠ **`ZEROIZE` é o comando que mais precisa de log de auditoria, e o log
+ainda não existe** — `fw/src/audit_log.c` continua um placeholder de uma
+linha. Anotado no handler.
+
 ---
 
 ## O que falta, na ordem
 
-### 2. Zeroize
+### 1. Comandos da fase
 
-Comando, mais gatilho por falha de health test. O gatilho já existe em
-parte: o POST leva a `TAMPERED` (`fw/src/main.c`), e `tb_post_tamper` prova
-a corrente. Falta o comando e a sobrescrita da BRAM com teste que **prove**
-que apagou.
-
-### 3. Comandos da fase
-
-Prontos: `0x20 LMK_LOAD_COMPONENT` · `0x21 LMK_STATUS` · `0x26 SET_STATE`.
+Prontos: `0x20 LMK_LOAD_COMPONENT` · `0x21 LMK_STATUS` · `0x26 SET_STATE`
+· `0x2F ZEROIZE`.
 
 Faltam: `0x22 GEN_KEY` · `0x23 EXPORT_KEY` · `0x24 IMPORT_KEY`
-· `0x25 KEY_INFO` · `0x2F ZEROIZE`
+· `0x25 KEY_INFO`
+
+São eles que fecham os dois critérios de aceitação ainda abertos: o
+ida-e-volta de chave (gerar → exportar → reimportar → usar) e o acordo
+entre o parser Python e o C em 100 blocos aleatórios.
 
 Cada um passa pelo checklist do `CLAUDE.md` **antes** de ser escrito.
 
@@ -446,6 +595,8 @@ produto, e nada vem de manual proprietário. Ver `THIRD-PARTY.md`.
       112 posições do bloco (`host/test_tr31.py`) e no POST do firmware.
       Falta o "import recusado", que depende do comando
 - [ ] Chave marcada `exportabilidade='N'` não sai, por nenhum caminho
+- [x] `ZEROIZE` apaga, e a prova é independente do firmware — o KCV da
+      cerimônia seguinte tem de voltar a bater com o vetor do CAVP
 - [ ] Captura da UART durante a suíte inteira **não contém nenhum byte de
       chave em claro**
 

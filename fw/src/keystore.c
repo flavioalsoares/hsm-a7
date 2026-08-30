@@ -108,22 +108,72 @@ static int header_valido(const uint8_t uso[2], uint8_t algoritmo,
     return 1;
 }
 
+/* Apaga TUDO: os 16 slots e a LMK. Unica implementacao de zeroizacao
+ * deste modulo -- `lmk_zeroiza()` e o comando ZEROIZE passam por aqui.
+ *
+ * Varre a area como BYTES CRUS, e nao campo a campo. Duas razoes, e a
+ * segunda e a que decide:
+ *
+ *   1. um campo novo em slot_t entra ja zerado, sem ninguem lembrar;
+ *   2. os bytes de PREENCHIMENTO da struct tambem sao apagados -- e e
+ *      isso que torna possivel PROVAR a zeroizacao varrendo a regiao byte
+ *      a byte. Com padding intocado, a varredura leria lixo indeterminado
+ *      e a prova nao valeria nada.
+ *
+ * `em_uso == 0` e "slot livre", entao tudo zero e um key store vazio e
+ * valido: a zeroizacao nao precisa de um passo de "remarcar como livre"
+ * que pudesse falhar sozinho. */
 void keystore_init(void)
 {
-    uint32_t i;
-    for (i = 0u; i < KS_N_SLOTS; i++) {
-        wipe(g_slots[i].chave, KS_KEY_MAX);
-        wipe(g_slots[i].kcv, KS_KCV_LEN);
-        g_slots[i].em_uso          = 0u;
-        g_slots[i].uso[0]          = 0u;
-        g_slots[i].uso[1]          = 0u;
-        g_slots[i].algoritmo       = 0u;
-        g_slots[i].modo            = 0u;
-        g_slots[i].exportabilidade = 0u;
-        g_slots[i].key_len         = 0u;
-        g_slots[i].contador_uso    = 0u;
+    wipe_padrao(g_slots, sizeof g_slots);
+    wipe_padrao(g_lmk, sizeof g_lmk);
+    wipe_padrao(g_lmk_kcv, sizeof g_lmk_kcv);
+    g_lmk_comps = 0u;
+
+    /* A chave expandida do coprocessador tambem e material de chave, e
+     * fica fora da DMEM. Zeroizar so a DMEM deixaria a ultima chave usada
+     * viva no aes_key_mem do fabric. */
+    (void)hsm_cfs_wipe();
+}
+
+/* PROVA da zeroizacao: 1 se nao sobrou um byte diferente de zero em
+ * nenhuma das regioes de chave.
+ *
+ * ⚠ `volatile` nao e enfeite. Sem ele o compilador pode PROVAR que acabou
+ * de zerar esta memoria e dobrar a varredura inteira para `return 1` --
+ * e a prova viraria uma constante que passa sempre, inclusive quando a
+ * zeroizacao falhou. O `volatile` obriga a leitura a acontecer.
+ *
+ * Acumula com OR em vez de sair no primeiro byte nao-zero: tempo
+ * constante, e aqui isso importa pouco, mas o habito de nao ramificar
+ * sobre conteudo de memoria de chave e barato. */
+int keystore_prova_zeroizacao(void)
+{
+    const volatile uint8_t *p;
+    uint32_t                i;
+    uint8_t                 acc = 0u;
+
+    p = (const volatile uint8_t *)(const void *)g_slots;
+    for (i = 0u; i < (uint32_t)sizeof g_slots; i++) {
+        acc |= p[i];
     }
-    lmk_zeroiza();
+    p = (const volatile uint8_t *)(const void *)g_lmk;
+    for (i = 0u; i < (uint32_t)sizeof g_lmk; i++) {
+        acc |= p[i];
+    }
+    p = (const volatile uint8_t *)(const void *)g_lmk_kcv;
+    for (i = 0u; i < (uint32_t)sizeof g_lmk_kcv; i++) {
+        acc |= p[i];
+    }
+    acc |= g_lmk_comps;
+
+    return (acc == 0u) ? 1 : 0;
+}
+
+int keystore_zeroiza_tudo(void)
+{
+    keystore_init();
+    return keystore_prova_zeroizacao() ? 0 : -1;
 }
 
 ks_handle_t keystore_instala(const uint8_t uso[2], uint8_t algoritmo,
@@ -275,20 +325,17 @@ uint8_t keystore_exporta(ks_handle_t h, uint8_t out[KS_KEY_MAX])
 
 void lmk_zeroiza(void)
 {
-    uint32_t i;
-
-    wipe(g_lmk, sizeof g_lmk);
-    wipe(g_lmk_kcv, sizeof g_lmk_kcv);
-    g_lmk_comps = 0u;
-
-    /* As chaves derivadas não sobrevivem à chave que as protege. Zeroizar a
-     * LMK e deixar os slots seria guardar chave que ninguém mais consegue
-     * exportar nem reimportar -- e que continua utilizável, que é pior. */
-    for (i = 0u; i < KS_N_SLOTS; i++) {
-        if (g_slots[i].em_uso) {
-            (void)keystore_apaga((ks_handle_t)(i + 1u));
-        }
-    }
+    /* Apagar a LMK apaga TUDO, e por isso esta funcao e um apelido de
+     * `keystore_init()` e nao uma segunda implementacao.
+     *
+     * As chaves derivadas não sobrevivem à chave que as protege: zeroizar
+     * a LMK e deixar os slots guardaria chave que ninguém mais consegue
+     * exportar nem reimportar -- e que continua utilizável, que é pior.
+     *
+     * Duas implementações de zeroização divergiriam no dia em que alguém
+     * acrescentasse um campo, e a que ficasse para trás deixaria material
+     * vivo sem que nenhum teste notasse. */
+    keystore_init();
 }
 
 int lmk_componente(uint8_t n, const uint8_t comp[KS_KEY_MAX])

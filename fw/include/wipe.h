@@ -23,4 +23,17 @@
 
 void wipe(void *p, size_t n);
 
+/* Zeroizacao em DUAS passadas: primeiro um padrao, depois zeros.
+ *
+ * Para SRAM a segunda passada e a que conta -- a primeira nao "apaga
+ * melhor", e dizer o contrario seria repetir folclore de disco magnetico.
+ * Ela existe por um motivo diferente e concreto: se a zeroizacao for
+ * INTERROMPIDA no meio (reset, queda de alimentacao), o que sobra na
+ * memoria e padrao, nao meia chave. Sem a primeira passada, um reset a
+ * meio caminho deixa metade do material intacto.
+ *
+ * Custa duas varreduras de ~600 bytes. E o preco de nao ter um modo de
+ * falha em que apagar pela metade e pior do que nao ter comecado. */
+void wipe_padrao(void *p, size_t n);
+
 #endif /* WIPE_H */

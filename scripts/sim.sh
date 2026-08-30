@@ -59,9 +59,39 @@ compile_neorv32() {
     # roda silenciosamente contra o binario anterior, que e o pior tipo de
     # resultado: verde e mentiroso.
     local fw_image="$ROOT/fw/neorv32_imem_image.vhd"
+
+    # ...mas invalidar o cache so resolve metade. A outra metade e ESTA:
+    # se alguem editar o C e rodar a simulacao, a imagem no disco continua
+    # sendo a de antes, e o testbench valida um firmware que nao existe
+    # mais. Verde e mentiroso de novo, pela porta do lado.
+    #
+    # Descoberto em 2026-08-29 do jeito mais util possivel: uma sabotagem
+    # deliberada de fw/src/keystore.c PASSOU na simulacao. Nao passou
+    # porque o teste era fraco -- passou porque o codigo sabotado nunca
+    # chegou a ser compilado. Um teste que nunca ve o codigo em teste e
+    # pior que teste nenhum.
+    local fw_desatualizado=0
     if [ ! -f "$fw_image" ]; then
-        echo "ERRO: firmware nao compilado -- rode 'make -C fw image'" >&2
-        exit 1
+        fw_desatualizado=1
+    else
+        local src
+        for src in "$ROOT"/fw/src/*.c "$ROOT"/fw/include/*.h "$ROOT"/fw/Makefile; do
+            [ -f "$src" ] || continue
+            if [ "$src" -nt "$fw_image" ]; then
+                fw_desatualizado=1
+                break
+            fi
+        done
+    fi
+
+    if [ "$fw_desatualizado" = "1" ]; then
+        echo "=== firmware desatualizado -- recompilando"
+        if ! make -s -C "$ROOT/fw" image >/dev/null; then
+            echo "ERRO: 'make -C fw image' falhou." >&2
+            echo "      Toolchain: gcc-riscv64-unknown-elf + picolibc-riscv64-unknown-elf" >&2
+            echo "      Prefixo diferente? make RISCV_PREFIX=... -C fw image" >&2
+            exit 1
+        fi
     fi
 
     # O nosso CFS tambem entra nesta biblioteca (ver abaixo), entao editar
