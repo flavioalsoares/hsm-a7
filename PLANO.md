@@ -69,6 +69,12 @@ conteúdo. Trocar a decisão antes de entender a cicatriz apaga a lição.
   controle é o KCV a cada componente, conferido pelo custodiante contra o
   registro dele. Recusa por paridade existe, mas é herança do DES
 - apagar uma chave individual é padrão, e falta aqui
+- **formar chave de trabalho a partir de componentes** é padrão, e falta
+  aqui. Hoje uma chave só nasce gerada internamente ou importada de um key
+  block; falta o caminho em que custodiantes entram com as partes e o
+  equipamento devolve a chave **embrulhada sob a LMK**. É o mesmo split
+  knowledge da cerimônia de LMK, um nível abaixo — e a peça difícil (o key
+  block X9.143) já existe. Detalhes em `doc/fase3-notas.md`
 
 ⚠ **O desvio estrutural que ainda não foi enfrentado**, e é o maior:
 

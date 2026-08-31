@@ -809,7 +809,62 @@ diagnóstico (`rtl/diag/`), que não é build de produção.
 Medido durante a tentativa revertida: remover os três libera **260 bytes**
 de IMEM.
 
-### 4. Usar chave por handle
+### 4. Formar chave de trabalho a partir de componentes
+
+*Lacuna de aderência levantada em 2026-08-31. **Vai existir**; a fase ainda
+não está decidida.*
+
+Hoje uma chave de trabalho só pode nascer de dois jeitos:
+
+| | |
+|---|---|
+| `GEN_KEY` | gerada internamente pelo DRBG |
+| `IMPORT_KEY` | vinda de um key block que alguém já tinha |
+
+Falta o terceiro, e é o que mais aparece na prática: **montada por
+custodiantes**, cada um entrando com a sua parte. É assim que uma chave
+combinada entre duas instituições entra no equipamento sem que nenhuma das
+duas veja a chave inteira — o mesmo split knowledge da LMK, aplicado um
+nível abaixo.
+
+A cerimônia de LMK já faz exatamente isso para a chave mestra
+(`lmk-load` + `activate`). O que falta é a versão para chave de trabalho, e
+a diferença de destino é toda:
+
+```
+componentes -> XOR -> chave mestra          fica DENTRO, sem handle
+componentes -> XOR -> chave de trabalho     sai EMBRULHADA, como key block
+```
+
+**A peça difícil já existe.** O que esse comando devolve é a chave embrulhada
+sob a LMK — ou seja, um **key block X9.143**, que a fase 3 construiu e
+validou. O comando seria: recebe índice de componente, o componente, e os
+campos de cabeçalho; acumula por XOR sob dual control; e no último devolve
+o key block mais o KCV.
+
+Checklist, para quando for escrito:
+
+- estados: `ST_OPER` (precisa da LMK para embrulhar)
+- dual control: **sim** — é cerimônia, não operação. Mesma regra do
+  `LMK_LOAD_COMPONENT`, incluindo o aperto novo a cada componente
+- vazamento: o KCV **de cada componente**, como na cerimônia de LMK — é o
+  que permite ao custodiante conferir o dele. Nunca o do acumulado
+- o componente atravessa o link em claro, como na cerimônia de LMK — mesma
+  ressalva, mesma razão: só existe uma interface
+
+⚠ **Isto é território de console.** No modelo comercial, formar chave a
+partir de componentes acontece na interface **local**, com os custodiantes
+presentes — nunca pela interface de transações. Aqui só há uma interface, e
+isso é o desvio estrutural registrado no `PLANO.md`, "Aderência antes de
+variação".
+
+⚠ **Variantes do padrão que ficam de fora por ora**, e vale saber que
+existem: componentes cifrados em vez de em claro; componentes em cartão;
+número de componentes escolhido na hora. O equivalente ao "tipo de chave"
+nós já temos — são os campos `uso`/`modo`/`exportabilidade` do cabeçalho
+X9.143.
+
+### 5. Usar chave por handle
 
 A outra metade do item 3, e ela vale por si mesmo: **não existe forma de
 usar uma chave guardada**. O key store instala, exporta e importa; não há
@@ -823,7 +878,7 @@ resultado idêntico". Hoje o ida-e-volta é provado pelo KCV, que é forte
 coprocessador, **não devolve os bytes**, e recusa se o `modo` do slot não
 permitir a operação pedida. Falta só o comando por cima.
 
-### 5. Log de auditoria
+### 6. Log de auditoria
 
 `fw/src/audit_log.c` e `host/audit.py` continuam placeholders de uma linha.
 O `ZEROIZE` é o comando que mais o pede, e o comentário do handler diz isso.

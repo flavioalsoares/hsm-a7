@@ -236,7 +236,14 @@ de auditoria. A série: 10 444 (cerimônia) → 12 700 (key block) → 12 860
   **nenhum com dual control**: dual control é para *cerimônia*, não para
   operação. O que os protege é o embrulho e a `exportabilidade`.
 
-⚠ **Falta um `DELETE_KEY`, e ele não estava previsto no plano.**
+⚠ **Faltam duas funções que são PADRÃO da categoria**, e nenhuma das duas
+estava no plano: **apagar uma chave individual** e **formar chave de
+trabalho a partir de componentes**. A segunda é o split knowledge da
+cerimônia de LMK aplicado um nível abaixo — custodiantes entram com as
+partes, e o equipamento devolve a chave embrulhada sob a LMK, que é um key
+block X9.143. Ambas em `doc/fase3-notas.md`.
+
+⚠ **`DELETE_KEY` não estava previsto no plano.**
 `keystore_apaga()` existe no firmware, é exercitado pelo POST, e não tem
 opcode. O key store é gravável 16 vezes e depois só o `ZEROIZE` libera
 espaço — que exige os dois botões, absurdo para uso normal. É o que impede
