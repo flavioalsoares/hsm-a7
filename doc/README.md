@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 62 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 69 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
@@ -42,9 +42,17 @@ feita na capa, e o leitor linear ganha a anatomia detalhada da parte menos
 interessante e um resumo da mais interessante.
 
 O conserto é escrever "Fase 2, peça por peça" e "Fase 3, peça por peça" no
-mesmo molde da §24, reduzindo §27 e §28 a ponteiros. **Fica para a revisão
-geral de documentação, depois que a Fase 3 fechar** — reescrever antes disso
-significa reescrever de novo depois do zeroize e dos comandos.
+mesmo molde da §24, reduzindo §27 e §28 a ponteiros.
+
+**Estado do gatilho, em 2026-08-30:** o zeroize e os comandos de chave —
+que eram a razão de esperar — estão prontos. O que ainda falta da Fase 3 é
+menor e não muda a anatomia: apagar um slot isolado, usar chave por handle,
+e o log de auditoria.
+
+A §28 cresceu bastante nesse meio-tempo e hoje explica a cerimônia, o
+display, o key block, a zeroização com prova e os comandos de chave — ou
+seja, o conteúdo existe, mas continua morando no capítulo sobre o futuro.
+A dívida agora é de **posição**, não de ausência.
 
 ## Registro técnico
 
@@ -116,8 +124,12 @@ o CAVP valida algoritmo, e X9.143 é formato; a procedência de terceiros está
 em `vectors/MANIFEST.txt`.
 
 O **`ZEROIZE`** apaga tudo e prova que apagou por duas vias independentes —
-varredura byte a byte no firmware, e o KCV no testbench. Faltam os comandos
-`0x22`–`0x25` e o log de auditoria. Ver [`fase3-notas.md`](fase3-notas.md).
+varredura byte a byte no firmware, e o KCV no testbench. Os quatro comandos
+de chave (`0x22`–`0x25`) fecham o ida-e-volta.
+
+Faltam um `DELETE_KEY` que não estava previsto, as versões por handle dos
+comandos da Fase 2, e o log de auditoria. Ver
+[`fase3-notas.md`](fase3-notas.md).
 
 Nenhum `[TBD]` de pinagem. Cores dos LEDs, polaridade do display, ordem
 física dos botões e **ordem dos dígitos do display** foram todos fechados

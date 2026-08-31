@@ -179,7 +179,70 @@ deliberada: sem ele, um dispositivo que reprovou no boot ficaria mudo sobre
 |---|---|---|---|
 | `0x20` | `LMK_LOAD_COMPONENT` | n(1) ‖ componente(32) | kcv(3) ‖ carregados(1) ‖ estado(1) |
 | `0x21` | `LMK_STATUS` | vazio | carregados(1) ‖ completa(1) ‖ kcv(3) |
+| `0x22` | `GEN_KEY` | uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) | handle(1) ‖ kcv(3) |
+| `0x23` | `EXPORT_KEY` | handle(1) | key block X9.143 em ASCII |
+| `0x24` | `IMPORT_KEY` | key block X9.143 em ASCII | handle(1) ‖ kcv(3) |
+| `0x25` | `KEY_INFO` | handle(1) | uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) ‖ len(1) ‖ kcv(3) ‖ usos(4) |
 | `0x26` | `SET_STATE` | estado alvo(1) | estado atual(1) |
+| `0x2F` | `ZEROIZE` | vazio | estado atual(1) |
+
+**Estados em que cada um responde.** Não é convenção — é uma máscara na
+tabela de comandos, e é ela que faz a cerimônia ser uma escada de uma via.
+
+| Comando | Estados |
+|---|---|
+| `LMK_LOAD_COMPONENT` | só `UNINITIALIZED` |
+| `SET_STATE` | só `AUTHORIZED` |
+| `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO` | só `OPERATIONAL` |
+| `LMK_STATUS` | os três normais |
+| `ZEROIZE` | **todos**, `TAMPERED` inclusive |
+
+Carregar os três componentes leva a `AUTHORIZED` e o `0x20` desaparece
+sozinho; ativar leva a `OPERATIONAL` e o `0x26` desaparece do mesmo jeito.
+Nenhum degrau se repete, e não há como descer sem apagar.
+
+**Quais exigem dual control**, e a divisão diz mais que a lista:
+
+| | |
+|---|---|
+| exigem | `LMK_LOAD_COMPONENT`, `SET_STATE`, `ZEROIZE` |
+| não exigem | `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO` |
+
+Dual control é para **cerimônia**, não para operação. Carregar a chave
+mestra, ativar o dispositivo e apagar tudo são eventos raros, com gente na
+frente da placa. Gerar, exportar e importar chave é o que um HSM faz o dia
+inteiro — exigir dois dedos ali não aumentaria segurança nenhuma, só
+garantiria que ninguém usa o equipamento. E um controle que impede o uso
+legítimo é desligado no primeiro dia ruim.
+
+O que protege os quatro de baixo é outra coisa, e é estrutural: a chave
+nunca sai em claro, o key block é autenticado sobre cabeçalho **mais**
+corpo, e `exportabilidade` decide quem pode sair.
+
+⚠ **O `ZEROIZE` tem uma assimetria deliberada.** O comando exige dois
+operadores; o gatilho **automático** — autoteste reprovado — não exige
+ninguém. Se ele exigisse, bastaria não haver operador na sala para a chave
+sobreviver ao comprometimento.
+
+**Notas por comando:**
+
+- **`GEN_KEY`** — a chave vem do CTR_DRBG do dispositivo e **nunca existe
+  fora da fronteira**. O host escolhe os metadados e recebe handle e KCV. É
+  o contraste que a fase inteira ensina: o `AES_ENC` da Fase 2 recebia a
+  chave *no payload*.
+- **`EXPORT_KEY`** — o único comando que faz material de chave atravessar a
+  fronteira, e ele atravessa embrulhado. Respeita `exportabilidade`: um
+  slot marcado `'N'` devolve `NOT_EXPORTABLE`. Exportar o mesmo slot duas
+  vezes dá blocos **diferentes**, porque o enchimento é aleatório — dois
+  blocos idênticos denunciariam que a mesma chave saiu duas vezes.
+- **`IMPORT_KEY`** — os metadados vêm **do bloco**, autenticados pelo MAC.
+  Toda recusa devolve o mesmo `BAD_PARAM`: bloco malformado, hexadecimal
+  inválido, MAC errado e comprimento impossível são indistinguíveis de
+  fora. Distinguir em qual etapa a validação parou é o oráculo de padding
+  clássico.
+- **`KEY_INFO`** — metadados, nunca chave. Handle inválido e slot vazio
+  devolvem o mesmo código: separar permitiria mapear o key store sem
+  instalar nada.
 
 O `0x20` e o `0x26` exigem **dual control**: os dois botões pressionados no
 instante em que o frame chega, e um aperto *novo* a cada autorização (seção
@@ -205,6 +268,7 @@ tamanho do frame não anuncie nada.
 | `0x20` | `WRONG_STATE` | comando não permitido neste estado |
 | `0x21` | `NOT_AUTHORIZED` | falta dual control |
 | `0x22` | `NOT_EXPORTABLE` | exportabilidade do slot proíbe |
+| `0x23` | `NO_SLOT` | key store cheio |
 | `0x30` | `SELFTEST_FAIL` | |
 | `0x31` | `TAMPERED` | |
 | `0xFF` | `INTERNAL_ERROR` | |
@@ -278,19 +342,35 @@ RISC-V nos repositórios Debian; picolibc é o equivalente.
 ### Construir e testar
 
 ```bash
-make -C fw image                 # firmware; o build da FPGA depende dele
 source /opt/AMD/2026.1/Vivado/settings64.sh
 
-./scripts/sim.sh                 # todos os testbenches
+./scripts/sim.sh                 # todos os testbenches; recompila o
+                                 # firmware sozinho se o C estiver mais novo
+make -C fw image                 # o build da FPGA depende desta imagem
 vivado -mode batch -source scripts/build.tcl
 
-./scripts/program.sh             # grava na RAM de configuração (volátil)
+./scripts/program.sh flash       # grava na SPI flash
 
-python3 host/hsmtool.py selftest # sem placa
-python3 host/test_hsmtool.py     # sem placa
+python3 host/hsmtool.py selftest # sem placa: o codec do protocolo
+python3 host/test_hsmtool.py     # sem placa: o transporte
+python3 host/test_tr31.py        # sem placa: o key block (precisa de
+                                 # `cryptography`)
 python3 host/hsmtool.py ping
 python3 host/hsmtool.py bench -n 10000
 ```
+
+⚠ **`flash`, e não a RAM de configuração.** O firmware mora na Block RAM de
+instruções, cujo conteúdo inicial vem do bitstream. Configurar por JTAG
+pode deixar a placa com `Done = 1`, o clock travado e a CPU **sem executar
+uma instrução** — porque a inicialização das Block RAMs não foi aplicada.
+O sintoma é cruel: tudo indica sucesso e o dispositivo está mudo. Detalhes
+e discriminadores de falha em `doc/bancada.md`.
+
+⚠ **`sim.sh` recompila o firmware quando o C está mais novo que a imagem.**
+Até isso existir, editar C e simular validava o **binário anterior** — e o
+modo como isso foi descoberto está na seção 28: uma sabotagem deliberada do
+código passou na simulação, porque o código sabotado nunca chegou a ser
+compilado.
 
 ### Política de código de terceiros
 
@@ -364,14 +444,40 @@ CTR_DRBG               ok
 TRNG / health tests    ok
 CMAC-AES-256           ok
 key store              ok
+key block X9.143       ok
 ```
 
-Sete linhas, sete verdades diferentes. As quatro primeiras são respostas
-conhecidas contra vetores oficiais (seção 11). A quinta são os testes de
-partida da fonte de entropia sobre um retrato de 1024 amostras brutas
-(seção 10). A sétima é um teste de *função crítica*, não de algoritmo:
-verifica que uma chave marcada como não exportável não sai, que um slot
-apagado não responde, e que uma chave de cifrar não é aceita para decifrar.
+Oito linhas, oito verdades diferentes.
+
+As cinco primeiras são respostas conhecidas contra vetores oficiais
+(seção 11) — exceto a quinta, que são os **testes de partida** da fonte de
+entropia sobre um retrato de 1024 amostras brutas (seção 10).
+
+As três últimas são de natureza diferente e vale distinguir, porque a norma
+distingue: **testes de função crítica**, não de algoritmo. Não existe
+"resposta conhecida" para instalar uma chave — existem propriedades que, se
+falharem, tornam o dispositivo perigoso *sem parecer quebrado*:
+
+- **key store** — uma chave marcada como não exportável não sai; um slot
+  apagado não responde; uma chave de cifrar não é aceita para decifrar; e a
+  zeroização, depois de rodar, não deixou um byte diferente de zero na
+  região de chaves;
+- **key block X9.143** — um key block de procedência externa é
+  desembrulhado e devolve a chave certa; um cabeçalho adulterado é recusado;
+  e uma ida-e-volta fecha.
+
+⚠ Sobre esse último vale uma ressalva de procedência que não aparece em
+nenhum outro: **o vetor dele não é do CAVP, e não há como ser.** O programa
+de validação do NIST valida *algoritmo*, e X9.143 é *formato*; a norma que
+traz o exemplo é paga. O que se usa é um valor conhecido de terceiros,
+fixado por commit e por hash. Está registrado em `vectors/MANIFEST.txt` em
+vez de dissimulado entre os demais.
+
+⚠ **E o autoteste é DESTRUTIVO.** O teste do key store instala e apaga
+chaves de verdade, e termina com o store vazio — chave mestra inclusive.
+Rodá-lo num dispositivo carregado apaga a LMK, e o dispositivo volta a
+`UNINITIALIZED`. Não dá para consertar poupando a chave: um autoteste que
+poupasse exercitaria um caminho que não é o do boot.
 
 **Se alguma reprovar**, o dispositivo vai para `TAMPERED` e passa a atender
 **só** ao `SELFTEST`. Isso é o comportamento correto, e a exceção é
@@ -593,7 +699,73 @@ na porta serial não mostra absolutamente nada, e esse é o comportamento
 correto: um módulo criptográfico que conversa sozinho está contando alguma
 coisa a alguém.
 
-### E.6 O que ainda não existe
+### E.6 Trabalhar com chaves
+
+Depois de `OPERATIONAL`, **nenhum comando pede botão** — e isso é o ponto,
+não uma economia. A cerimônia acabou; o que vem agora é operação.
+
+```bash
+hsmtool.py gen-key --uso D0 --modo B --exp E
+#   handle : 1
+#   KCV    : 7ED838
+```
+
+A chave veio do gerador do dispositivo e **nunca existiu fora da
+fronteira**. O que voltou foi um handle e três bytes de KCV. Compare com o
+`aes` da Fase 2, onde a chave ia no pedido: é a mesma diferença entre um
+cofre e uma gaveta.
+
+```bash
+hsmtool.py export-key 1
+#   D0144D0AB00E0000B82679114F470F54...
+```
+
+São 144 caracteres de texto: dezesseis de cabeçalho legível, o corpo
+cifrado, e o MAC. Exporte de novo e o bloco será **diferente** — o
+enchimento é aleatório, e dois blocos idênticos denunciariam que a mesma
+chave saiu duas vezes.
+
+```bash
+hsmtool.py import-key D0144D0AB00E0000...
+#   handle : 2
+#   KCV    : 7ED838      <- o mesmo
+```
+
+Mesmo KCV, outro handle: a chave voltou inteira. E o experimento que vale a
+pena fazer é o negativo — troque **um caractere** do bloco, em qualquer
+posição, e tente importar. O dispositivo recusa. O caractere na posição 11
+é a exportabilidade; reescrevê-lo à mão é literalmente o ataque que o MAC
+sobre o cabeçalho existe para impedir.
+
+```bash
+hsmtool.py gen-key --exp N
+hsmtool.py export-key 3
+#   dispositivo recusou: STATUS_NOT_EXPORTABLE
+```
+
+Uma chave marcada `'N'` não sai. Não por convenção: existe **um único
+caminho** para os bytes deixarem um slot, e é ele que consulta o campo.
+
+```bash
+hsmtool.py key-info 1
+#   uso D0 · algoritmo A · modo B · exportabilidade E · 32 bytes
+#   KCV 7ED838 · usos 0
+```
+
+Metadados, nunca chave. Não existe "me devolva o slot inteiro".
+
+E o comando que desfaz tudo:
+
+```bash
+hsmtool.py zeroize      # com os dois botões
+```
+
+Apaga os 16 slots e a LMK, **e confere que apagou** antes de dizer que
+apagou. Funciona em qualquer estado — inclusive em `TAMPERED`, e ali ele
+apaga a chave sem tirar o dispositivo de `TAMPERED`: um HSM que se cura de
+tamper não detectou tamper nenhum.
+
+### E.7 O que ainda não existe
 
 Honestidade sobre o estado do projeto, para que ninguém procure um comando
 que não foi escrito:
@@ -603,13 +775,22 @@ que não foi escrito:
   precise de LMK refaz a cerimônia. Persistência é a Fase 4, e a ordem é
   essa de propósito: guardar chave antes de saber embrulhá-la seria guardar
   chave em claro.
-- **Não há geração, exportação nem importação de chave** (`GEN_KEY`,
-  `EXPORT_KEY`, `IMPORT_KEY`). O key store existe e a LMK existe; falta o
-  key block X9.143 que embrulha uma na outra.
-- **Não há `ZEROIZE` por comando.** Desligar a placa apaga tudo, o que
-  funciona mas não é a mesma coisa: um zeroize de verdade prova que apagou.
-- **Não há log de auditoria.** É transversal e chega junto com os comandos
-  de chave.
+- **Não há como apagar UM slot.** O key store tem 16 e é gravável 16 vezes;
+  depois disso só o `ZEROIZE` libera espaço, e ele apaga tudo e exige os
+  dois botões. A função existe no firmware e não tem comando — é a lacuna
+  que só apareceu quando se tentou usar o dispositivo em laço, e não quando
+  se planejou a fase.
+- **Não há como USAR uma chave por handle.** Os comandos de AES e HMAC da
+  Fase 2 recebem a chave no pedido e, com LMK carregada, param de responder
+  sozinhos — a máscara de estados deles é `UNINITIALIZED`. As versões que
+  falam por handle ainda não foram escritas, e é por isso que o ida-e-volta
+  é conferido pelo KCV e não usando a chave.
+- **Não há log de auditoria.** É transversal, e o `ZEROIZE` é quem mais o
+  pede: apagar tudo sem deixar registro de quem pediu e quando é
+  exatamente o evento que um log existe para cobrir.
+- **`hsmtool keycycle` precisa da LMK em claro**, o que um HSM de verdade
+  nunca permitiria. Serve para as duas implementações do formato de key
+  block se conferirem; é bancada, não operação.
 
 ## F. Leitura
 

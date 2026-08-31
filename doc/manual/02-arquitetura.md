@@ -266,9 +266,23 @@ não exporta LMK, não muda política. Um invasor que comprometa
 porque o dispositivo não aceita aquele opcode naquele estado, e mudar de
 estado exige mão humana no equipamento.
 
-`TAMPERED` é absorvente: uma vez lá, só se sai por zeroize. E um dispositivo
-em `TAMPERED` deve responder o mínimo possível — o estado existe para
-proteger o que restou, não para continuar servindo.
+`TAMPERED` é absorvente, e **mais absorvente do que este texto dizia até a
+Fase 3 ser implementada**: não se sai dele por software, ponto. Nem por
+zeroize.
+
+A distinção é fina e importa. O `ZEROIZE` funciona em `TAMPERED` — é
+exatamente ali que ele mais precisa funcionar — e apaga toda chave. Mas o
+estado **fica**. Apagar o que o dispositivo protegia não desfaz o veredito
+que ele deu sobre si mesmo; um módulo que se cura de tamper não detectou
+tamper nenhum, apenas registrou um incômodo.
+
+Sair de `TAMPERED` exige energia removida e um boot em que o autoteste
+passe. Se a causa era física, ele não passa — que é o comportamento certo.
+
+E um dispositivo em `TAMPERED` deve responder o mínimo possível: o estado
+existe para proteger o que restou, não para continuar servindo. Só dois
+comandos respondem ali — `SELFTEST`, para dizer **o que** reprovou, e
+`ZEROIZE`, para apagar.
 
 ## 10. Aleatoriedade: onde HSM vira ciência
 

@@ -169,12 +169,21 @@ custo: foi a verificação saindo de graça.
 osciladores, não centenas. Array grande gera calor e ruído de alimentação
 localizados sem ganho de entropia.
 
-O **POST** (seção 11) roda antes de aceitar qualquer comando e cobre AES-256,
-SHA-256, HMAC-SHA-256, CMAC-AES-256, CTR_DRBG, os testes de partida da fonte
-e o key store — todos contra vetores oficiais. Custo medido: **5,94 ms** de
-boot. Falha leva a `TAMPERED`, e o dispositivo passa a atender **só** ao
+O **POST** (seção 11) roda antes de aceitar qualquer comando. Ao fim da Fase
+2 ele cobria AES-256, SHA-256, HMAC-SHA-256, CMAC-AES-256, CTR_DRBG, os
+testes de partida da fonte e o key store — todos contra vetores oficiais —
+a um custo de **5,94 ms** de boot.
+
+Falha leva a `TAMPERED`, e o dispositivo passa a atender **só** ao
 `SELFTEST`, que é o único jeito de o operador saber *o que* reprovou em vez
 de olhar um LED vermelho.
+
+> **O POST cresceu depois, e o número acima é o da Fase 2.** A Fase 3
+> acrescentou o key block X9.143 e a prova de zeroização; são oito testes, e
+> o boot passou a custar cerca de **9 ms**. A série está em
+> `doc/fase3-notas.md`, e vale menos pelo número do que pela forma: cada
+> propriedade que o dispositivo passa a garantir sobre si mesmo cobra
+> milissegundos de todo boot, para sempre.
 
 Da fase sobrou apenas `dieharder -a`, que não está instalado na máquina de
 trabalho — e que é sanidade estatística, não validação de gerador.
@@ -194,6 +203,15 @@ O coração do projeto, e onde os conceitos das Partes II e III viram código.
   CMAC, corpo em AES-CBC, autenticação por CMAC sobre cabeçalho e corpo —
   escritos **duas vezes**, em C e em Python.
 - ✅ **Zeroize** com prova — e a prova não vem de dump.
+- ✅ **Comandos de chave**: gerar dentro da fronteira, exportar embrulhado,
+  reimportar, consultar metadados. **Nenhum deles exige dual control**, e a
+  razão está mais abaixo.
+- **Apagar um slot isolado** — a função existe no firmware, o comando não.
+  Só apareceu quando se tentou *usar* o dispositivo em laço, e não quando se
+  planejou a fase.
+- **Usar chave por handle** — os comandos de AES e HMAC da Fase 2 recebem a
+  chave no pedido e, com chave mestra carregada, param de responder
+  sozinhos. As versões por handle ainda não existem.
 - **Log de auditoria** gravado antes da execução, em flash, com contador
   monotônico.
 
@@ -366,6 +384,48 @@ E há um detalhe que a máquina de estados resolve de graça: apagar em
 embora, que era o pedido; o veredito fica, porque um HSM que se cura de
 tamper não detectou tamper nenhum.
 
+### Os comandos de chave, e por que nenhum pede dois dedos
+
+Depois da cerimônia vem o trabalho: gerar uma chave, exportá-la embrulhada,
+reimportá-la, consultar o que ela é. Quatro comandos, e **nenhum deles exige
+dual control** — o que contraria a intuição o suficiente para valer o
+parágrafo.
+
+**Dual control é para cerimônia, não para operação.** Carregar a chave
+mestra, ativar o dispositivo e apagar tudo são eventos raros, com gente na
+frente do equipamento. Gerar e exportar chave é o que um HSM faz o dia
+inteiro. Exigir dois dedos ali não aumentaria segurança nenhuma — garantiria
+apenas que ninguém usa o equipamento. E um controle que impede o uso legítimo
+é desligado no primeiro dia ruim, junto com os que serviam para alguma coisa.
+
+O que protege esses quatro é estrutural, não humano:
+
+- a chave **nunca sai em claro** — sai embrulhada num key block, e quem
+  recebe não sabe abrir;
+- o key block é **autenticado sobre cabeçalho mais corpo**, então a política
+  viaja junto com a chave e não pode ser reescrita a caminho;
+- `exportabilidade` decide quem pode sair, e existe **um único caminho** no
+  código para os bytes deixarem um slot — é ele que consulta o campo.
+
+A última linha é a diferença entre uma regra e uma promessa. Se houvesse
+duas formas de obter os bytes, a verificação viraria convenção — e convenção
+é o que se esquece no caminho raro.
+
+**O contraste que fecha a Parte II.** Na Fase 2, o comando de cifrar recebia
+a chave *no pedido*, vinda do host. Na Fase 3 o host escolhe os **metadados**
+e nunca vê o material. Os dois não podem coexistir num dispositivo com chave
+de verdade — e não coexistem, sem uma linha de código desligando nada: a
+máscara de estados dos comandos antigos diz `UNINITIALIZED`, e no instante
+em que existe uma chave mestra eles somem.
+
+E uma decisão que só parece detalhe: **toda recusa de importação devolve o
+mesmo código**. Bloco malformado, hexadecimal inválido, MAC errado e
+comprimento impossível são indistinguíveis de fora. É o comando mais exposto
+do dispositivo — um atacante manda blocos forjados em laço e cada resposta é
+informação. Dizer em qual etapa a validação parou é o oráculo de padding da
+seção 15, com outra roupa: o atacante não precisa da chave, precisa que a
+vítima seja prestativa.
+
 ### Uma lição de ferramenta, que valeu mais que o comando
 
 As duas sabotagens deliberadas do mecanismo de apagar — quebrar o código de
@@ -417,9 +477,16 @@ configuração, e o acesso a partir da lógica do usuário exige a primitiva
 
 ## 30. Fase 5 — API de host
 
-Subconjunto de PKCS#11 (`C_Initialize`, `C_GenerateKey`, `C_WrapKey`,
-`C_Sign`) como biblioteca compartilhada, ou um command set ASCII estilo
-de HSM de pagamento.
+**Decidida em favor de um command set ASCII** no estilo dos HSM de
+pagamento — código de comando de dois caracteres, código de resposta igual
+ao comando mais um, erros numéricos, campos posicionais — e não de um
+subconjunto de PKCS#11 como biblioteca compartilhada.
+
+Não é troca de sintaxe. PKCS#11 é uma API de *biblioteca*: objetos, sessões,
+atributos, estado do lado do cliente. Um command set de HSM de pagamento é
+um protocolo de *serviço*, sem sessão e sem estado — **cada comando chega
+sozinho e precisa se bastar**. Isso muda o que o dispositivo tem de
+verificar, e muda para pior: não há contexto acumulado em que confiar.
 
 É aqui que se entende por que a API é o que é: **é você que precisa impedi-la
 de vazar material de chave**. Depois de ter lido a seção 15, escrever a API

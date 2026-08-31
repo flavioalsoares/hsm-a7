@@ -194,13 +194,27 @@ interessa, o que é especialmente eficaz contra circuitos grandes.
 
 ### 16.5 Onde este projeto está
 
-Sem defesa nenhuma de canal lateral, e vale ser explícito: o AES que a Fase 2
-vai instanciar no fabric não é mascarado, o firmware não faz comparação em
-tempo constante em todo lugar, e não há gerador de ruído.
+Sem defesa de canal lateral **físico**, e vale ser explícito: o AES no
+fabric não é mascarado, não há gerador de ruído, e nada no projeto tenta
+igualar consumo de corrente.
 
-O que existe é o começo certo: caches desligadas, e uma consciência de que
-o problema existe. A Fase 6 do plano ataca o próprio dispositivo, e é lá que
-esse assunto vira prático.
+O que existe são as defesas que custam pouco e valem sempre:
+
+- **caches desligadas**, para que o padrão de acesso à memória não vire
+  sinal;
+- **uma única comparação de segredo em todo o firmware, e ela é de tempo
+  constante.** Não é zelo espalhado — é o contrário: ter duas comparações,
+  uma segura e uma comum, é exatamente como se escolhe a errada no caminho
+  raro. Vale para MAC, KCV e vetores de teste igualmente, inclusive onde não
+  há segredo nenhum a proteger;
+- **um único código de erro para toda recusa de importação de key block**,
+  pelo mesmo motivo pelo qual o oráculo de padding existe: o atacante não
+  precisa da chave, precisa que a vítima diga em qual etapa parou.
+
+As duas últimas são canal lateral **lógico** — vazamento por tempo e por
+mensagem de erro. São as que dá para fechar em firmware, e estão fechadas.
+O que fica aberto é o físico, e a Fase 6 do plano ataca o próprio
+dispositivo — é lá que o assunto vira prático.
 
 ## 17. Injeção de falha
 

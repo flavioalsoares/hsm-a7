@@ -9,7 +9,7 @@ producao entra aqui.
 
 ## Para aprender o assunto
 
-**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 62 paginas.
+**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 69 paginas.
 
   I-II   como um HSM funciona: fronteira, hierarquia de chaves, cerimonia
          de LMK, key blocks, maquina de estados, aleatoriedade, self-test
@@ -30,8 +30,8 @@ Antes de mexer no codigo, leia **PLANO.md** -- em especial a secao 0
 (restricoes invioláveis: nada de eFUSE, nunca).
 
 Estado: **fases 1 e 2 completas e validadas em hardware.** O POST roda a
-cada boot contra vetores oficiais do NIST e do IETF; falha leva o
-dispositivo a `TAMPERED`, e a partir dai so o `SELFTEST` responde.
+cada boot; falha leva o dispositivo a `TAMPERED`, e a partir dai so o
+`SELFTEST` responde.
 
 ```
 python3 host/hsmtool.py post        # reroda o POST no dispositivo
@@ -42,7 +42,18 @@ python3 host/hsmtool.py post        # reroda o POST no dispositivo
   TRNG / health tests    ok
   CMAC-AES-256           ok
   key store              ok
+  key block X9.143       ok
 ```
+
+Os cinco primeiros sao respostas conhecidas contra vetores oficiais do NIST
+e do IETF; os tres ultimos sao testes de **funcao critica**, que e coisa
+diferente -- nao ha "resposta conhecida" para instalar uma chave, ha
+propriedades que se falharem tornam o dispositivo perigoso sem parecer
+quebrado.
+
+⚠ **`post` e DESTRUTIVO** num dispositivo carregado: o teste do key store
+instala e apaga chaves de verdade e termina com o store vazio, LMK
+inclusive.
 
 **Fase 3 em andamento**: CMAC, o key store em BRAM, a **cerimonia de LMK**, o
 **display de estado** e o **key block ANSI X9.143** estao prontos. Tres
@@ -59,8 +70,14 @@ uma varredura byte a byte no firmware, e o KCV no testbench -- refazendo a
 cerimonia e exigindo o mesmo vetor do NIST. Um unico bit sobrevivente da
 LMK mudaria o KCV.
 
-Faltam os comandos `0x22`-`0x25` e o log de auditoria. Ver
-`doc/fase3-notas.md`.
+Os quatro comandos de chave (`GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`,
+`KEY_INFO`) fecham o ida-e-volta: gerar dentro da fronteira, exportar
+embrulhado, reimportar, e o KCV volta igual. Nenhum deles exige dual
+control -- dual control e para cerimonia, nao para operacao.
+
+Faltam um `DELETE_KEY` que nao estava previsto (o key store e gravavel 16
+vezes e so o `ZEROIZE` libera), as versoes por handle dos comandos da fase
+2, e o log de auditoria. Ver `doc/fase3-notas.md`.
 
 ⚠ **Grave na flash, nao na SRAM** -- `./scripts/program.sh flash`. Nesta
 bancada a configuracao por JTAG **nao aplica a inicializacao das Block
@@ -90,20 +107,30 @@ do VHDL do NEORV32).
 ## Construindo
 
 ```bash
-make -C fw image                 # firmware; o build da FPGA depende dele
 source /opt/AMD/2026.1/Vivado/settings64.sh
 
 ./scripts/sim.sh                 # todos os testbenches implementados
 ./scripts/sim.sh tb_uart_frame   # um so
 
+make -C fw image                 # o build da FPGA depende desta imagem
 vivado -mode batch -source scripts/build.tcl
 ```
+
+⚠ **`sim.sh` recompila o firmware sozinho** quando o C esta mais novo que
+`fw/neorv32_imem_image.vhd`. Ate isso existir, editar C e simular validava o
+binario ANTERIOR -- descoberto quando uma sabotagem deliberada do codigo
+passou na simulacao, porque o codigo sabotado nunca chegou a ser compilado.
+
+⚠ **`tb_keystore` leva ~30 min** e e o testbench mais lento da suite: ele
+manda key blocks de 144 caracteres a 115200 baud, e cada frame custa ~13 ms
+de tempo simulado.
 
 ## Host
 
 ```bash
 python3 host/hsmtool.py selftest        # sem placa: codec do protocolo
 python3 host/test_hsmtool.py            # sem placa: transporte
+python3 host/test_tr31.py               # sem placa: key block X9.143
 
 python3 host/hsmtool.py ping            # com placa (115200 8N1)
 python3 host/hsmtool.py version
@@ -113,6 +140,14 @@ python3 host/hsmtool.py bench -n 10000  # criterio de aceitacao da fase 1
 python3 host/hsmtool.py lmk-status      # cerimonia de LMK (fase 3)
 python3 host/hsmtool.py lmk-load 0 --random
 python3 host/hsmtool.py activate
+
+# depois de OPERATIONAL, nenhum destes pede botao -- e esse e o ponto
+python3 host/hsmtool.py gen-key --uso D0 --modo B --exp E
+python3 host/hsmtool.py export-key 1
+python3 host/hsmtool.py import-key <bloco>
+python3 host/hsmtool.py key-info 1
+python3 host/hsmtool.py keycycle --lmk <hex>   # o Python confere o firmware
+python3 host/hsmtool.py zeroize         # APAGA tudo (dual control)
 ```
 
 ⚠ **Aperte os dois botoes e olhe o display**: o ponto decimal acende

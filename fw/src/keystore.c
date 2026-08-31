@@ -5,6 +5,7 @@
  */
 #include "keystore.h"
 #include "hsm_cfs.h"
+#include "tr31.h"
 #include "wipe.h"
 
 /* Slot completo -- com a chave. Este tipo NÃO aparece no header: nada fora
@@ -251,6 +252,19 @@ int keystore_apaga(ks_handle_t h)
     return 0;
 }
 
+uint8_t keystore_livres(void)
+{
+    uint32_t i;
+    uint8_t  n = 0u;
+
+    for (i = 0u; i < KS_N_SLOTS; i++) {
+        if (!g_slots[i].em_uso) {
+            n++;
+        }
+    }
+    return n;
+}
+
 int keystore_info(ks_handle_t h, ks_info_t *out)
 {
     int i = indice(h);
@@ -393,4 +407,14 @@ int lmk_usa_aes(void)
         return -1;
     }
     return hsm_cfs_aes_key(g_lmk);
+}
+
+/* Única função deste arquivo que passa `g_lmk` para fora do arquivo -- e
+ * ela passa para uma derivação, não para um chamador. Ver keystore.h. */
+int lmk_deriva_kb(uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX])
+{
+    if (!lmk_completa()) {
+        return -1;
+    }
+    return tr31_deriva(g_lmk, kbek, kbak);
 }

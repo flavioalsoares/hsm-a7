@@ -287,8 +287,12 @@ uma chave mestra, eles param de responder sozinhos. Não há código
 desligando nada: a tabela simplesmente não os permite mais.
 
 É a diferença entre política declarada e política executada. Um `if` dentro
-de cada handler seria a mesma regra escrita treze vezes, e treze é
+de cada handler seria a mesma regra escrita dezessete vezes — e dezessete é
 exatamente o número de lugares onde alguém esquece uma.
+
+(Eram treze quando este parágrafo foi escrito. O número subir sozinho, sem
+que nenhuma verificação precisasse ser reescrita, é a própria demonstração
+do argumento.)
 
 ### 24.8 `wipe.c` — zeroização antes de haver chave
 
@@ -299,8 +303,16 @@ Está no lugar mesmo a Fase 1 não movimentando chave nenhuma, e os buffers de
 frame são limpos após cada comando. Motivo: são **esses mesmos buffers** que
 vão carregar componente de LMK e key block na Fase 3.
 
-**Falta:** o `ZEROIZE` de verdade, com sobrescrita por padrão e depois zeros,
-e o teste que faz dump da região e **prova** que apagou.
+**O hábito se pagou**, e vale registrar como: quando o `ZEROIZE` chegou
+(seção 28), ele não precisou de uma zeroização nova — precisou de uma
+*segunda passada*. `wipe_padrao()` escreve um padrão antes dos zeros, e a
+razão não é a que o folclore de disco magnético sugere: para memória
+estática a passada de zeros é a que conta. A primeira existe porque uma
+zeroização **interrompida** tem de deixar padrão, não meia chave.
+
+E a prova de que apagou não veio de um dump, como este texto previa. Veio de
+duas verificações independentes, e a segunda é a interessante — o KCV.
+Seção 28.
 
 ### 24.9 Os LEDs, e por que D1 é em hardware
 

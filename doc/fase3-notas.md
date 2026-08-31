@@ -5,8 +5,9 @@ projeto — a partir daqui o dispositivo deixa de ser uma caixa de primitivas
 e passa a guardar chave.
 
 Estado: **em andamento.** CMAC, key store, a cerimônia de LMK, o key block
-X9.143 e o zeroize prontos; faltam os comandos `0x22`–`0x25` e o log de
-auditoria.
+X9.143, o zeroize e os comandos de chave `0x22`–`0x25` prontos. Faltam um
+`DELETE_KEY` que não estava previsto, as versões por handle dos comandos da
+fase 2, e o log de auditoria.
 
 ---
 
@@ -17,7 +18,8 @@ precisa gravar nada para voltar ao ponto:
 
 ```bash
 python3 host/hsmtool.py version     # deve responder v0.1.0, UNINITIALIZED
-python3 host/hsmtool.py post        # os SETE testes devem passar
+python3 host/hsmtool.py post        # os OITO testes devem passar
+                                   # ⚠ DESTRUTIVO: apaga a LMK se houver
 python3 host/hsmtool.py lmk-status  # 0 de 3 componentes
 ```
 
@@ -501,6 +503,20 @@ se testa:
 A segunda linha é a que justifica a prova por KCV existir. Sem ela, uma
 varredura mentirosa passaria despercebida.
 
+⚠ **E o valor `dc95c0` diz mais do que pareceu na hora.** Ele é o KCV de uma
+chave de **256 bits em zero** — os três primeiros bytes de
+`AES-256(chave=0, bloco=0)`, o mesmo `dc95c078a24089…` que o comando `aes`
+devolve num dispositivo recém-apagado.
+
+Por quê: com a zeroização sabotada, o acumulador guardava a LMK anterior, e a
+cerimônia seguinte usava **os mesmos três componentes** — XOR do mesmo valor
+sobre ele mesmo dá zero. A chave mestra não ficava "com resíduo". Ficava
+**inteiramente zerada**, que é o pior desfecho possível: perfeitamente
+previsível, e com um KCV de aparência tão inocente quanto qualquer outro.
+
+O teste do KCV não pegou um detalhe de implementação. Pegou a diferença
+entre uma chave mestra e nenhuma.
+
 ⚠ **Mas a primeira tentativa das duas sabotagens PASSOU**, e a causa não
 era o teste: **`scripts/sim.sh` nunca recompilou o firmware.** Ele conferia
 que `fw/neorv32_imem_image.vhd` existia e seguia — então editar C e rodar a
@@ -541,34 +557,208 @@ firmware lê é o mesmo que a mão apertou.
 #### Custo
 
 **POST: 8,31 → 9,09 ms.** A varredura de prova custa 0,78 ms por boot.
+(Hoje o POST está em **9,25 ms** — a diferença veio da zeroização por duas
+passadas alcançar a área inteira dos slots, e não só os campos de chave.)
 **IMEM: 12 700 → 12 860 bytes** dos 16 384 (78,5%).
 
 ⚠ **`ZEROIZE` é o comando que mais precisa de log de auditoria, e o log
 ainda não existe** — `fw/src/audit_log.c` continua um placeholder de uma
 linha. Anotado no handler.
 
+### Comandos de chave — `0x22`–`0x25`
+
+`GEN_KEY` · `EXPORT_KEY` · `IMPORT_KEY` · `KEY_INFO`. Os quatro têm a
+**mesma máscara** (`ST_OPER`) e **nenhum exige dual control**.
+
+#### Por que nenhum exige dual control
+
+A intuição puxa para o lado errado, então vale escrever: **dual control é
+para cerimônia, não para operação.** Carregar a chave mestra e ativar o
+dispositivo são eventos raros, com gente na frente da placa. Gerar,
+exportar e importar chave é o que um HSM faz o dia inteiro — exigir dois
+dedos ali não aumentaria segurança nenhuma, só garantiria que ninguém usa
+o equipamento. E um controle que impede o uso legítimo é desligado no
+primeiro dia ruim.
+
+O que protege estes comandos é estrutural: a chave nunca sai em claro, o
+key block é autenticado sobre cabeçalho **mais** corpo, e
+`exportabilidade` decide quem pode sair.
+
+#### O contraste com a fase 2, que é o que a fase inteira ensina
+
+`AES_ENC` recebia a chave **no payload**, vinda do host. `GEN_KEY` deixa o
+host escolher os **metadados** e nunca ver o material. Os dois não podem
+coexistir com chave de verdade no dispositivo — e não coexistem, sem uma
+linha de código desligando nada: a máscara de `AES_ENC` é `ST_UNINIT`.
+
+#### As decisões que carregam peso
+
+**A LMK não aparece em nenhum handler.** `lmk_deriva_kb()` devolve KBEK e
+KBAK derivadas por CMAC; a chave mestra não sai de `keystore.c`. Se
+`h_export_key` precisasse dela, existiria um `lmk_exporta()` — e a partir
+daí "a LMK não sai daqui" vira convenção. A derivação não é inversível:
+quem tiver as subchaves não volta à LMK.
+
+**`IMPORT_KEY` devolve UM código para toda recusa.** Bloco malformado,
+hexadecimal inválido, MAC errado e comprimento impossível são todos
+`BAD_PARAM`. É o comando mais exposto dos quatro — um atacante manda
+blocos forjados em laço e cada resposta é informação. Distinguir em qual
+etapa parou é o oráculo de padding clássico: o atacante não precisa da
+chave, precisa que a vítima diga onde a validação falhou.
+
+**Os metadados do bloco importado vêm DO BLOCO**, autenticados. É a razão
+de o cabeçalho X9.143 entrar no MAC: sem isso, trocar um `N` por um `E`
+promoveria a chave na importação.
+
+**`KEY_INFO` com handle inválido e com slot vazio devolvem o mesmo
+código.** Separar permitiria mapear o key store sem instalar nada.
+
+**Duas exportações do mesmo slot dão blocos diferentes.** O enchimento é
+aleatório, e isso não é desperdício: dois blocos idênticos denunciariam
+que a mesma chave saiu duas vezes.
+
+#### Um erro meu, e como ele foi pego
+
+A primeira versão distinguia "store cheio" de "cabeçalho inválido"
+testando **se o último slot estava ocupado**. Está errado: os slots são
+alocados no primeiro livre, então apagar um do meio deixa buraco — o
+último pode estar ocupado com o store longe de cheio. Trocado por
+`keystore_livres()`.
+
+⚠ **E o limite que o ciclo de teste expôs: não existe comando para apagar
+um slot.** `keystore_apaga()` existe no firmware e não tem opcode. O key
+store é gravável 16 vezes, e depois só o `ZEROIZE` — que exige os dois
+botões — libera espaço.
+
+Consequência direta no critério de aceitação: **a direção Python → C não
+chega a 100 blocos**, para em 16. O `hsmtool keycycle` contorna metade
+disso — na direção C → Python usa **um slot só**, exportando N vezes, e
+cada exportação dá um bloco diferente por causa do enchimento aleatório.
+
+Fechar o critério exige um `DELETE_KEY`, que é um quinto opcode e está
+fora do que foi pedido. Fica registrado aqui.
+
+#### `hsmtool keycycle` — a validação mútua sobre blocos de verdade
+
+Até aqui as duas implementações do X9.143 concordavam sobre **um vetor**.
+O `keycycle` as faz concordar sobre blocos que o dispositivo acabou de
+produzir, nas duas direções:
+
+```
+C -> Python   o dispositivo exporta N blocos; o Python desembrulha
+              todos e confere a chave contra o KCV
+Python -> C   o Python embrulha chaves que ele escolheu; o dispositivo
+              importa e o KCV que volta é o que o Python calculou
+```
+
+Sem a segunda direção o acordo seria de mão única — o C poderia estar
+errado do mesmo jeito nas duas pontas e ninguém notaria.
+
+⚠ **`keycycle` precisa da LMK no host**, e isso é o brinquedo aparecendo.
+Um HSM de verdade nunca entrega a chave mestra à ferramenta; aqui os
+componentes foram digitados no host mesmo, então ele pode reconstruí-la
+por XOR. É a mesma distância já registrada na cerimônia, e por isso o
+`--lmk` é obrigatório e explícito em vez de escondido.
+
+#### Validado em hardware, 2026-08-30
+
+Sessão de bancada completa, com os botões apertados por gente.
+
+```
+cerimônia          3 componentes, KCVs EABFCA · 7FA68A · 9C9DA5
+                   KCV da LMK 7B1D2F  -- PREVISTO no host antes de perguntar
+activate           OPERATIONAL; display passa de Aut para OPE
+aes (fase 2)       WRONG_STATE -- sumiu sozinho, pela máscara
+gen-key            handle 1, KCV 8650D9
+export-key 1       D0144D0AB00E0000... (144 caracteres)
+export-key 1       de novo: difere em 118 dos 144 caracteres
+import-key         handle 2, KCV 8650D9  -- a mesma chave voltou
+import 1 char      BAD_PARAM
+gen-key --exp N    handle 3; export-key 3 -> NOT_EXPORTABLE
+keycycle -n 100    C -> Python: 100 blocos, 100 distintos, todos abertos
+                   Python -> C: 12 (parou por falta de slot)
+```
+
+⚠ **O KCV da LMK foi PREVISTO, não conferido depois.** Com os três
+componentes anotados, o host calculou `XOR` e o AES de um bloco de zeros e
+chegou a `7B1D2F` **antes** de perguntar ao dispositivo — que respondeu o
+mesmo. O XOR aconteceu dentro do firmware, byte a byte, e o AES no
+coprocessador do fabric; qualquer erro de ordem, de endianness ou de um byte
+no acumulador daria um KCV completamente diferente.
+
+✅ **Os três estados operacionais estão validados em hardware**: `Uni`
+(2026-08-26), `Aut` e `OPE` (2026-08-30), lidos no display de 7 segmentos.
+Falta só o `tPr`, que por natureza só aparece quando algo reprova.
+
+⚠ **E o `12 de 100` é a lacuna do `DELETE_KEY` medida**, não estimada: cada
+importação gasta um slot, e não há como devolvê-lo.
+
+E o `zeroize` fechou a sessão, com os dois botões:
+
+```
+zeroize       apagado, estado UNINITIALIZED; display volta a Uni
+lmk-status    0 de 3
+key-info 1    WRONG_STATE  -- o slot nao existe mais
+gen-key       WRONG_STATE  -- os comandos de chave sumiram
+aes ...       dc95c078...  -- e os da fase 2 VOLTARAM a responder
+```
+
+A escada desceu inteira e a tabela de comandos girou junto, **sem uma linha
+de código ligando ou desligando nada**. É a máscara de estados fazendo o
+trabalho, e é a demonstração mais limpa que o projeto tem de por que ela
+existe.
+
+#### Custo
+
+**IMEM: 12 860 → 13 768 bytes** dos 16 384 (**84,0%**). São +908 bytes para
+quatro comandos, e a folga que resta — 2 616 bytes — tem de cobrir o
+`DELETE_KEY`, as versões por handle dos comandos da fase 2 e o log de
+auditoria. **É o recurso que aperta agora**, não o fabric.
+
+Série da fase: 10 444 (cerimônia) → 12 700 (key block) → 12 860 (zeroize)
+→ 13 768 (comandos de chave).
+
 ---
 
 ## O que falta, na ordem
 
-### 1. Comandos da fase
+### 1. `DELETE_KEY` — o opcode que falta, e que só apareceu ao testar
 
-Prontos: `0x20 LMK_LOAD_COMPONENT` · `0x21 LMK_STATUS` · `0x26 SET_STATE`
-· `0x2F ZEROIZE`.
+Todos os comandos previstos para a fase estão prontos:
+`0x20 LMK_LOAD_COMPONENT` · `0x21 LMK_STATUS` · `0x22 GEN_KEY`
+· `0x23 EXPORT_KEY` · `0x24 IMPORT_KEY` · `0x25 KEY_INFO`
+· `0x26 SET_STATE` · `0x2F ZEROIZE`.
 
-Faltam: `0x22 GEN_KEY` · `0x23 EXPORT_KEY` · `0x24 IMPORT_KEY`
-· `0x25 KEY_INFO`
+Mas **falta um que não estava previsto**: apagar um slot. `keystore_apaga()`
+existe no firmware, é exercitado pelo POST, e não tem opcode. O key store é
+gravável 16 vezes e depois só o `ZEROIZE` libera espaço — e ele exige os
+dois botões, o que num uso normal é absurdo.
 
-São eles que fecham os dois critérios de aceitação ainda abertos: o
-ida-e-volta de chave (gerar → exportar → reimportar → usar) e o acordo
-entre o parser Python e o C em 100 blocos aleatórios.
+Isso bloqueia o critério "100 blocos aleatórios" na direção Python → C.
+Checklist, para quando for escrito:
 
-Cada um passa pelo checklist do `CLAUDE.md` **antes** de ser escrito.
+- estados: `ST_OPER`
+- dual control: **não** — é operação, não cerimônia. Apagar UM slot é
+  reversível pela reimportação do key block; apagar TUDO não é, e é por
+  isso que o `ZEROIZE` pede dois dedos e este não pediria
+- vazamento: apagar um handle que não existe e um que existe têm de
+  devolver o mesmo código, senão é um mapa do key store
+- log de auditoria: obrigatório, quando o log existir
 
-⚠ **E cada um deles apaga um comando da fase 2.** `AES_ENC`, `AES_DEC` e
-`HMAC` recebem chave no payload e só respondem em `UNINITIALIZED`; quando
-houver LMK, param sozinhos, pela máscara de estados. Na fase 3 eles são
-**substituídos** por versões que falam por handle de slot — não estendidos.
+### 2. Substituir os comandos da fase 2
+
+⚠ `AES_ENC`, `AES_DEC` e `HMAC` recebem chave no payload e só respondem em
+`UNINITIALIZED`; com LMK carregada, param sozinhos pela máscara de estados.
+Falta a outra metade: as versões que falam por **handle de slot**.
+
+É o que fecha o critério "gerar → exportar → reimportar → **usar em AES**:
+resultado idêntico". Hoje o ida-e-volta é provado pelo KCV, que é forte
+(AES da chave inteira sobre um bloco de zeros) mas não é *usar*.
+
+### 3. Log de auditoria
+
+`fw/src/audit_log.c` e `host/audit.py` continuam placeholders de uma linha.
+O `ZEROIZE` é o comando que mais o pede, e o comentário do handler diz isso.
 
 ---
 
@@ -587,14 +777,20 @@ produto, e nada vem de manual proprietário. Ver `THIRD-PARTY.md`.
 - [x] `LMK_LOAD_COMPONENT` rejeitado sem os dois botões — e também com os
       botões **segurados** desde a autorização anterior, que é o caso que a
       fita adesiva cobriria
-- [ ] Gerar chave → exportar → reimportar → usar em AES: resultado idêntico
-- [ ] Parser Python e firmware C concordam em 100 blocos aleatórios
-      — depende de `IMPORT_KEY`/`EXPORT_KEY`; hoje os dois concordam no
-      vetor externo, e só
+- [~] Gerar chave → exportar → reimportar: **provado pelo KCV**
+      (`tb_keystore`). O "usar em AES" depende dos comandos por handle,
+      que ainda não existem
+- [~] Parser Python e firmware C concordam em 100 blocos aleatórios —
+      `hsmtool keycycle`. Fecha na direção **C → Python** (um slot,
+      N exportações, enchimento aleatório dá N blocos distintos); na
+      direção **Python → C** para em 16, por falta de `DELETE_KEY`
 - [x] Alterar 1 bit do header ou do corpo → MAC inválido — provado nas
       112 posições do bloco (`host/test_tr31.py`) e no POST do firmware.
       Falta o "import recusado", que depende do comando
-- [ ] Chave marcada `exportabilidade='N'` não sai, por nenhum caminho
+- [x] Chave marcada `exportabilidade='N'` não sai, por nenhum caminho —
+      `tb_keystore` gera uma `'N'` e o `EXPORT_KEY` devolve
+      `NOT_EXPORTABLE`. Há um único caminho para os bytes
+      (`keystore_exporta()`), e é ele que consulta o campo
 - [x] `ZEROIZE` apaga, e a prova é independente do firmware — o KCV da
       cerimônia seguinte tem de voltar a bater com o vetor do CAVP
 - [ ] Captura da UART durante a suíte inteira **não contém nenhum byte de

@@ -163,5 +163,10 @@ componentes, dual control físico**. A razão é didática — é a família ond
 mecanismos organizacionais (quem autoriza o quê, e como se prova) estão mais
 explícitos e mais bem documentados publicamente.
 
-A Fase 5 do plano acrescenta um subconjunto de PKCS#11, para mostrar a outra
-interface sobre o mesmo núcleo.
+A Fase 5 do plano acrescenta a interface de host, e a escolha dela foi
+revista: em vez de um subconjunto de PKCS#11, um **command set ASCII** no
+estilo dos HSM de pagamento. Não é troca de sintaxe. PKCS#11 é uma API de
+*biblioteca* — objetos, sessões, atributos. Um command set de pagamento é um
+protocolo de *serviço*, sem sessão e sem estado do lado do cliente, e essa
+diferença muda como o dispositivo tem de se defender: cada comando chega
+sozinho e precisa se bastar.

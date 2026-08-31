@@ -22,6 +22,7 @@
 #include "keystore.h"
 #include "sha.h"
 #include "state.h"
+#include "tr31.h"
 #include "wipe.h"
 
 /* ------------------------------------------------------------------ */
@@ -644,6 +645,319 @@ static hsm_status_t h_set_state(const uint8_t *in, uint16_t in_len,
     return STATUS_OK;
 }
 
+/* ==================================================================== */
+/* Fase 3 -- comandos de chave                                          */
+/*                                                                      */
+/* Os quatro tem a MESMA mascara (ST_OPER) e NENHUM exige dual control.  */
+/*                                                                      */
+/* Vale dizer por que, porque a intuicao puxa para o lado errado: dual   */
+/* control e para CERIMONIA, nao para operacao. Carregar a chave mestra  */
+/* e ativar o dispositivo sao eventos raros, com gente na frente da      */
+/* placa. Gerar, exportar e importar chave e o que um HSM faz o dia      */
+/* inteiro -- exigir dois dedos ali nao aumentaria seguranca nenhuma, so */
+/* garantiria que ninguem usa o equipamento, e um controle que impede o  */
+/* uso legitimo e desligado no primeiro dia ruim.                        */
+/*                                                                      */
+/* O que protege estes comandos e outra coisa, e ela e estrutural: a     */
+/* chave nunca sai em claro, o key block e autenticado sobre cabecalho   */
+/* MAIS corpo, e `exportabilidade` decide quem pode sair.                */
+/* ==================================================================== */
+
+/* GEN_KEY -- gera chave dentro da fronteira.
+ *
+ * Payload: uso(2) || algoritmo(1) || modo(1) || exportabilidade(1).
+ * Resposta: handle(1) || kcv(3).
+ *
+ * Checklist:
+ *   estados      ST_OPER. Antes disso nao ha LMK, e uma chave que nao
+ *                pode ser embrulhada e uma chave que morre no
+ *                desligamento sem ter servido para nada.
+ *   dual control nao -- ver o bloco acima.
+ *   vazamento    o KCV, tres bytes, por chave gerada. E oraculo de
+ *                verificacao, nao de recuperacao: 1 em 16 milhoes de
+ *                colisao basta para pegar erro de digitacao e nao basta
+ *                para atacar. Em laco, esgota os 16 slots -- negacao de
+ *                servico, respondida com STATUS_NO_SLOT, e o operador
+ *                apaga o que nao usa.
+ *   exportability o host ESCOLHE aqui, e e legitimo: o ponto nao e
+ *                impedir que se peca 'E', e que uma vez marcada 'N' a
+ *                chave nao saia por caminho nenhum.
+ *   log          TODO -- audit_log.c ainda e placeholder.
+ *
+ * O CONTRASTE COM A FASE 2 e o que este comando ensina. `AES_ENC` recebia
+ * a chave no payload; aqui o host escolhe os METADADOS e nunca ve o
+ * material. Os dois comandos nao podem coexistir com chave de verdade no
+ * dispositivo, e nao coexistem: a mascara de `AES_ENC` e ST_UNINIT.
+ */
+static hsm_status_t h_gen_key(const uint8_t *in, uint16_t in_len,
+                              uint8_t *out, uint16_t *out_len)
+{
+    uint8_t      chave[KS_KEY_MAX];
+    ks_handle_t  h;
+    ks_info_t    info;
+    hsm_status_t r = STATUS_INTERNAL_ERROR;
+    uint8_t      k;
+
+    *out_len = 0u;
+
+    if (in_len != 5u) {
+        return STATUS_BAD_PARAM;
+    }
+
+    /* Do CTR_DRBG do dispositivo, semeado por uma fonte que passou nos
+     * health tests -- nao do host, e nao de `rand()`. Uma chave gerada
+     * fora da fronteira nao e uma chave do dispositivo. */
+    if (drbg_dispositivo_bytes(chave, KS_KEY_MAX) != 0) {
+        goto fim;
+    }
+
+    h = keystore_instala(&in[0], in[2], in[3], in[4], chave, KS_KEY_MAX);
+    if (h == KS_HANDLE_INVALIDO) {
+        /* Duas causas, e o host merece distingui-las: cabecalho invalido
+         * (erro dele) e store cheio (estado do dispositivo). Nenhuma das
+         * duas e segredo -- o KEY_INFO ja permite contar slots ocupados
+         * --, entao separar ajuda o operador sem dar nada a ninguem. */
+        r = (keystore_livres() == 0u) ? STATUS_NO_SLOT : STATUS_BAD_PARAM;
+        goto fim;
+    }
+
+    if (keystore_info(h, &info) != 0) {
+        goto fim;
+    }
+
+    out[0] = (uint8_t)h;
+    for (k = 0u; k < KS_KCV_LEN; k++) {
+        out[1u + k] = info.kcv[k];
+    }
+    *out_len = 1u + KS_KCV_LEN;
+    r = STATUS_OK;
+
+fim:
+    /* A chave ja esta no slot; esta copia nao pode sobreviver ao handler.
+     * `keystore_instala` copia, nao toma posse. */
+    wipe(chave, sizeof chave);
+    return r;
+}
+
+/* EXPORT_KEY -- a chave sai, embrulhada.
+ *
+ * Payload: handle(1). Resposta: key block X9.143 em ASCII.
+ *
+ * Checklist:
+ *   estados      ST_OPER -- precisa da LMK para derivar KBEK/KBAK.
+ *   dual control nao. O que torna a exportacao segura nao e uma pessoa:
+ *                e o embrulho. O host recebe bytes que nao sabe abrir.
+ *   vazamento    o mesmo slot exportado duas vezes da blocos DIFERENTES,
+ *                porque o enchimento e aleatorio. Isso nao e desperdicio
+ *                -- e o que impede um observador de saber que duas
+ *                exportacoes carregam a mesma chave.
+ *   exportability SIM, e este e O comando onde ela decide.
+ *                `keystore_exporta()` e o unico caminho para os bytes, e
+ *                recusa 'N'. Um slot 'N' devolve STATUS_NOT_EXPORTABLE.
+ *   log          TODO.
+ *
+ * A LMK NAO aparece aqui. `lmk_deriva_kb()` devolve as duas subchaves
+ * derivadas por CMAC; a chave mestra nao sai de keystore.c. Se este
+ * handler precisasse dela, existiria um `lmk_exporta()` -- e a promessa
+ * "a LMK nao sai" viraria convencao.
+ */
+static hsm_status_t h_export_key(const uint8_t *in, uint16_t in_len,
+                                 uint8_t *out, uint16_t *out_len)
+{
+    uint8_t      kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    uint8_t      chave[KS_KEY_MAX];
+    uint8_t      enchimento[TR31_BLOCO];
+    ks_info_t    info;
+    tr31_cab_t   cab;
+    uint32_t     n = 0u;
+    uint8_t      klen;
+    hsm_status_t r = STATUS_INTERNAL_ERROR;
+
+    *out_len = 0u;
+
+    if (in_len != 1u) {
+        return STATUS_BAD_PARAM;
+    }
+    if (keystore_info(in[0], &info) != 0) {
+        return STATUS_BAD_PARAM;          /* handle invalido ou slot vazio */
+    }
+
+    klen = keystore_exporta(in[0], chave);
+    if (klen == 0u) {
+        return STATUS_NOT_EXPORTABLE;
+    }
+
+    /* Enchimento do corpo. Vem do DRBG e nao de dentro do tr31.c: uma
+     * funcao de formato que puxa entropia por conta propria e impossivel
+     * de testar de forma deterministica. */
+    if (drbg_dispositivo_bytes(enchimento, sizeof enchimento) != 0) {
+        goto fim;
+    }
+    if (lmk_deriva_kb(kbek, kbak) != 0) {
+        goto fim;
+    }
+
+    /* Os campos do cabecalho vem do SLOT, nao do pedido. E o que faz o
+     * bloco carregar a politica junto com a chave: quem importar recebe
+     * `exportabilidade` e `modo` como estavam aqui, autenticados. */
+    cab.uso[0]          = info.uso[0];
+    cab.uso[1]          = info.uso[1];
+    cab.algoritmo       = info.algoritmo;
+    cab.modo            = info.modo;
+    cab.versao_chave[0] = (uint8_t)'0';
+    cab.versao_chave[1] = (uint8_t)'0';
+    cab.exportabilidade = info.exportabilidade;
+
+    if (tr31_embrulha(kbek, kbak, &cab, chave, klen,
+                      enchimento, (uint8_t)sizeof enchimento,
+                      (char *)out, &n) != 0) {
+        goto fim;
+    }
+
+    *out_len = (uint16_t)n;
+    r = STATUS_OK;
+
+fim:
+    wipe(chave, sizeof chave);
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(enchimento, sizeof enchimento);
+    if (r != STATUS_OK) {
+        wipe(out, CMD_MAX_PAYLOAD);
+    }
+    return r;
+}
+
+/* IMPORT_KEY -- a chave volta, e so se o MAC fechar.
+ *
+ * Payload: key block em ASCII. Resposta: handle(1) || kcv(3).
+ *
+ * Checklist:
+ *   estados      ST_OPER.
+ *   dual control nao.
+ *   vazamento    E O COMANDO MAIS EXPOSTO DOS QUATRO. Um atacante manda
+ *                blocos forjados em laco, e cada resposta e informacao.
+ *                Por isso TODA recusa devolve STATUS_BAD_PARAM: bloco
+ *                malformado, hexadecimal invalido, MAC errado e
+ *                comprimento de chave impossivel sao o MESMO codigo.
+ *                Distinguir em qual etapa parou e o oraculo de padding
+ *                classico -- o atacante nao precisa da chave, precisa so
+ *                que a vitima diga onde a validacao falhou.
+ *   exportability vem DO BLOCO, autenticada pelo MAC. E por isso que o
+ *                cabecalho X9.143 entra no MAC: sem isso, alterar um
+ *                caractere 'N' para 'E' promoveria a chave na importacao.
+ *   log          TODO.
+ *
+ * ⚠ Um bloco com chave de 128 ou 192 bits e RECUSADO, e nao por
+ * descuido: o key store so guarda AES-256 (`keystore_instala` exige
+ * KS_KEY_MAX). Aceitar e guardar truncado seria pior que recusar.
+ */
+static hsm_status_t h_import_key(const uint8_t *in, uint16_t in_len,
+                                 uint8_t *out, uint16_t *out_len)
+{
+    uint8_t      kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    uint8_t      chave[TR31_CHAVE_MAX];
+    uint8_t      klen = 0u;
+    tr31_cab_t   cab;
+    ks_handle_t  h;
+    ks_info_t    info;
+    hsm_status_t r = STATUS_INTERNAL_ERROR;
+    uint8_t      k;
+
+    *out_len = 0u;
+
+    if ((in_len < TR31_CAB_LEN) || (in_len > TR31_ASCII_MAX)) {
+        return STATUS_BAD_PARAM;
+    }
+    if (lmk_deriva_kb(kbek, kbak) != 0) {
+        goto fim;
+    }
+
+    if (tr31_desembrulha(kbek, kbak, (const char *)in, (uint32_t)in_len,
+                         &cab, chave, &klen) != 0) {
+        r = STATUS_BAD_PARAM;             /* UM codigo para toda recusa */
+        goto fim;
+    }
+
+    h = keystore_instala(cab.uso, cab.algoritmo, cab.modo,
+                         cab.exportabilidade, chave, klen);
+    if (h == KS_HANDLE_INVALIDO) {
+        r = (keystore_livres() == 0u) ? STATUS_NO_SLOT : STATUS_BAD_PARAM;
+        goto fim;
+    }
+    if (keystore_info(h, &info) != 0) {
+        goto fim;
+    }
+
+    out[0] = (uint8_t)h;
+    for (k = 0u; k < KS_KCV_LEN; k++) {
+        out[1u + k] = info.kcv[k];
+    }
+    *out_len = 1u + KS_KCV_LEN;
+    r = STATUS_OK;
+
+fim:
+    wipe(chave, sizeof chave);
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    return r;
+}
+
+/* KEY_INFO -- metadados, e nunca chave.
+ *
+ * Payload: handle(1).
+ * Resposta: uso(2)||alg(1)||modo(1)||exp(1)||key_len(1)||kcv(3)||usos(4).
+ *
+ * Checklist:
+ *   estados      ST_OPER.
+ *   dual control nao.
+ *   vazamento    ocupacao dos slots e o KCV de chaves que o chamador
+ *                talvez nao tenha criado. E deliberado e limitado: sem
+ *                isto o operador nao tem inventario, e tres bytes de KCV
+ *                nao recuperam 256 bits. O que NAO sai e o material --
+ *                nao existe "me devolva o slot inteiro", e o tipo que
+ *                contem chave nem aparece no header do key store.
+ *   exportability nao se aplica: nada de chave atravessa aqui.
+ *   log          TODO.
+ *
+ * O contador de uso vai junto porque e o dado que revela padrao de uso
+ * sem revelar uso nenhum -- uma chave de dados com contador zerado num
+ * dispositivo em producao e um sintoma, nao uma estatistica.
+ */
+static hsm_status_t h_key_info(const uint8_t *in, uint16_t in_len,
+                               uint8_t *out, uint16_t *out_len)
+{
+    ks_info_t info;
+    uint8_t   k;
+
+    *out_len = 0u;
+
+    if (in_len != 1u) {
+        return STATUS_BAD_PARAM;
+    }
+    if (keystore_info(in[0], &info) != 0) {
+        /* Handle invalido e slot vazio devolvem o MESMO codigo: separar
+         * permitiria mapear o key store sem instalar nada. */
+        return STATUS_BAD_PARAM;
+    }
+
+    out[0]  = info.uso[0];
+    out[1]  = info.uso[1];
+    out[2]  = info.algoritmo;
+    out[3]  = info.modo;
+    out[4]  = info.exportabilidade;
+    out[5]  = info.key_len;
+    for (k = 0u; k < KS_KCV_LEN; k++) {
+        out[6u + k] = info.kcv[k];
+    }
+    out[9]  = (uint8_t)(info.contador_uso >> 24);
+    out[10] = (uint8_t)(info.contador_uso >> 16);
+    out[11] = (uint8_t)(info.contador_uso >> 8);
+    out[12] = (uint8_t)(info.contador_uso);
+    *out_len = 13u;
+    return STATUS_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tabela de comandos                                                  */
 /* ------------------------------------------------------------------ */
@@ -696,6 +1010,13 @@ static const cmd_entry_t g_cmds[] = {
     { CMD_LMK_LOAD_COMPONENT, ST_UNINIT, h_lmk_load_component },
     { CMD_LMK_STATUS,         ST_NORMAL, h_lmk_status         },
     { CMD_SET_STATE,          ST_AUTH,   h_set_state          },
+
+    /* Comandos de chave: mesma mascara, nenhum com dual control. O que
+     * os protege e o embrulho e a `exportabilidade`, nao uma pessoa. */
+    { CMD_GEN_KEY,            ST_OPER,   h_gen_key            },
+    { CMD_EXPORT_KEY,         ST_OPER,   h_export_key         },
+    { CMD_IMPORT_KEY,         ST_OPER,   h_import_key         },
+    { CMD_KEY_INFO,           ST_OPER,   h_key_info           },
 
     /* ZEROIZE e o UNICO comando permitido em todo estado -- ver o handler.
      * Nao ha estado do qual apagar a chave seja a resposta errada. */

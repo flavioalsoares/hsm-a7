@@ -89,6 +89,57 @@
  * um canal, ainda que estreito. */
 #define CMD_LMK_STATUS          0x21u
 
+/* ---------------------------------------------------------------------
+ * Comandos de chave -- so em OPERATIONAL.
+ *
+ * Os quatro tem a mesma mascara e nenhum exige dual control, e vale dizer
+ * por que: dual control e para CERIMONIA, nao para operacao. Carregar a
+ * chave mestra e ativar o dispositivo sao eventos raros, com gente na
+ * frente da placa. Gerar, exportar e importar chave e o que o dispositivo
+ * faz o dia inteiro -- exigir dois dedos ali nao aumentaria seguranca
+ * nenhuma, so garantiria que ninguem usa o equipamento.
+ *
+ * O que protege estes comandos e outra coisa: a chave nunca sai em claro,
+ * o key block e autenticado, e `exportabilidade` decide quem pode sair.
+ * ------------------------------------------------------------------- */
+
+/* GEN_KEY -- gera chave DENTRO do dispositivo, do CTR_DRBG.
+ *   pedido    uso(2) || algoritmo(1) || modo(1) || exportabilidade(1)
+ *   resposta  handle(1) || kcv(3)
+ *
+ * A chave nunca existe fora da fronteira. E a diferenca entre este
+ * comando e o AES_ENC da fase 2, que recebia chave do host: aqui o host
+ * escolhe os METADADOS e nao ve o material. */
+#define CMD_GEN_KEY             0x22u
+
+/* EXPORT_KEY -- embrulha a chave de um slot num key block X9.143 sob a LMK.
+ *   pedido    handle(1)
+ *   resposta  key block em ASCII
+ *
+ * O UNICO comando que faz material de chave atravessar a fronteira, e ele
+ * atravessa EMBRULHADO. Respeita `exportabilidade`: um slot marcado 'N'
+ * e recusado com STATUS_NOT_EXPORTABLE. */
+#define CMD_EXPORT_KEY          0x23u
+
+/* IMPORT_KEY -- desembrulha um key block e instala num slot livre.
+ *   pedido    key block em ASCII
+ *   resposta  handle(1) || kcv(3)
+ *
+ * Os metadados vem DO BLOCO, nao do pedido -- e e por isso que o
+ * cabecalho entra no MAC. Um bloco adulterado e recusado com
+ * STATUS_BAD_PARAM, o mesmo codigo de um bloco malformado: distinguir
+ * "MAC invalido" de "enchimento invalido" e o oraculo de padding
+ * classico. */
+#define CMD_IMPORT_KEY          0x24u
+
+/* KEY_INFO -- metadados de um slot. NUNCA chave.
+ *   pedido    handle(1)
+ *   resposta  uso(2)||alg(1)||modo(1)||exp(1)||key_len(1)||kcv(3)||usos(4)
+ *
+ * Nao existe "me devolva o slot inteiro": o tipo que contem chave nem
+ * aparece no header do key store. */
+#define CMD_KEY_INFO            0x25u
+
 /* Transicao de estado operada por gente. Exige dual control.
  *   pedido    estado_alvo(1)
  *   resposta  estado_atual(1)

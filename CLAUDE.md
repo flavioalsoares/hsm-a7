@@ -133,8 +133,11 @@ registrador de retrato.
 aceitar qualquer comando e cobre AES-256, SHA-256, HMAC-SHA-256 e CTR_DRBG
 contra vetores oficiais, mais os testes de partida da fonte. Falha leva a
 `TAMPERED`, e o dispositivo continua atendendo **só** ao `SELFTEST`. Custo
-medido: **8,31 ms** de boot (eram 5,94 ms antes do key block entrar no POST;
-os dois números vêm da simulação, `tb_tr31_block` reporta a cada rodada).
+medido: **9,25 ms** de boot. A série, toda medida na simulação (o
+`tb_tr31_block` reporta a cada rodada): 5,94 ms ao fim da fase 2 → 8,31 com
+o key block no POST → 9,09 com a prova de zeroização → 9,25 hoje. **Cada
+propriedade que o dispositivo garante sobre si mesmo cobra milissegundos de
+todo boot, para sempre.**
 
 ⚠ **Vetores do POST vêm de `scripts/mkkat.py`**, que gera
 `fw/include/kat_vectors.h` a partir de `vectors/`. **Nunca editar esse
@@ -170,7 +173,17 @@ tb_tr31_block   o C rodando no NEORV32 real, mascara do POST cobrada
                 pela UART                                          PASS
 host/test_tr31  vetor externo, ida e volta, bit trocado nas 112
                 posicoes do bloco, 12 blocos malformados           PASS
+tb_zeroize      apaga, e prova pelo KCV que apagou; ZEROIZE em
+                TAMPERED; o autoteste destrutivo                   PASS
+tb_keystore     gerar -> exportar -> reimportar = mesmo KCV;
+                'N' recusa sair; bit trocado no cabecalho e no
+                corpo recusado; duas exportacoes diferem           PASS
 ```
+
+⚠ **`tb_keystore` e o testbench mais LENTO da suite** (~30 min): ele manda
+key blocks de 144 caracteres a 115200 baud, e cada frame custa ~13 ms de
+tempo simulado. Nao da para acelerar encolhendo o clock nominal como se faz
+com o debounce -- o baud rate sai da frequencia real do dominio.
 
 ⚠ **A API do key store é assimétrica de propósito, e não é para
 "simplificar".** `keystore_usa_aes()` carrega a chave no coprocessador e
@@ -195,12 +208,40 @@ KBPK.** A KBPK deste dispositivo é a LMK, e a LMK não sai do keystore.
 último, e o `SELFTEST` devolve a máscara em **um byte** — um nono teste
 sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste que
 reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
-disso. **IMEM em 12 700 de 16 384 bytes (77,5%)**, e o zeroize e os cinco
-comandos que faltam ainda não entraram.
+disso.
 
-✅ **`ZEROIZE` validado em hardware 2026-08-30** (POST 8/8 verde, recusa sem
-dual control). Falta confirmar na bancada só o apagamento bem-sucedido, que
-exige dois dedos na placa.
+⚠ **IMEM em 13 768 de 16 384 bytes (84,0%).** A folga que resta tem de
+cobrir o `DELETE_KEY`, as versões por handle dos comandos da fase 2 e o log
+de auditoria. A série: 10 444 (cerimônia) → 12 700 (key block) → 12 860
+(zeroize) → 13 768 (comandos de chave).
+
+- **Comandos de chave** (`0x22 GEN_KEY` · `0x23 EXPORT_KEY`
+  · `0x24 IMPORT_KEY` · `0x25 KEY_INFO`) — os quatro em `ST_OPER`, e
+  **nenhum com dual control**: dual control é para *cerimônia*, não para
+  operação. O que os protege é o embrulho e a `exportabilidade`.
+
+⚠ **Falta um `DELETE_KEY`, e ele não estava previsto no plano.**
+`keystore_apaga()` existe no firmware, é exercitado pelo POST, e não tem
+opcode. O key store é gravável 16 vezes e depois só o `ZEROIZE` libera
+espaço — que exige os dois botões, absurdo para uso normal. É o que impede
+o critério "100 blocos aleatórios" de fechar na direção Python → C. O
+checklist dele está em `doc/fase3-notas.md`.
+
+⚠ **A LMK não aparece em handler nenhum.** `lmk_deriva_kb()` devolve KBEK e
+KBAK derivadas por CMAC; a chave mestra não sai de `keystore.c`. Se um
+handler precisasse dela, existiria um `lmk_exporta()` — e a promessa vira
+convenção.
+
+⚠ **`IMPORT_KEY` devolve UM código para toda recusa.** Bloco malformado,
+hex inválido, MAC errado e comprimento impossível são todos `BAD_PARAM`.
+É o comando mais exposto: distinguir em qual etapa parou é o oráculo de
+padding clássico.
+
+✅ **Fase 3 validada em hardware 2026-08-30, sessão completa de bancada.**
+Cerimônia (KCV da LMK **previsto** pelo host antes de perguntar: `7B1D2F`),
+`activate`, os quatro comandos de chave, `keycycle` com **100 blocos**
+abertos pelo Python, e `ZEROIZE` com os dois botões. Os três estados
+operacionais lidos no display: `Uni`, `Aut`, `OPE`.
 
 ⚠ **`ZEROIZE` (`0x2F`) é o único comando permitido em TODOS os estados**,
 `TAMPERED` inclusive — e de `TAMPERED` **não se sai**: apaga a chave e

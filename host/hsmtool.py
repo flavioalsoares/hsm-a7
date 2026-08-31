@@ -27,6 +27,11 @@ Cerimonia de LMK (fase 3) -- exige os dois botoes da placa:
     hsmtool.py lmk-status
     hsmtool.py lmk-load 0 --random
     hsmtool.py activate
+    hsmtool.py gen-key --uso D0 --modo B --exp E
+    hsmtool.py export-key 1
+    hsmtool.py import-key D0144...
+    hsmtool.py key-info 1
+    hsmtool.py keycycle --lmk <hex>  # o Python confere o firmware
     hsmtool.py zeroize               # APAGA tudo, irreversivel
 
 ⚠ `hsmtool.py post` e DESTRUTIVO num dispositivo carregado: o autoteste
@@ -86,6 +91,10 @@ CMD_SELFTEST = 0x15
 CMD_LMK_LOAD_COMPONENT = 0x20
 CMD_LMK_STATUS = 0x21
 CMD_SET_STATE = 0x26
+CMD_GEN_KEY = 0x22
+CMD_EXPORT_KEY = 0x23
+CMD_IMPORT_KEY = 0x24
+CMD_KEY_INFO = 0x25
 CMD_ZEROIZE = 0x2F
 
 LMK_N_COMPONENTES = 3
@@ -115,6 +124,7 @@ STATUS_NAMES = {
     0x20: "WRONG_STATE",
     0x21: "NOT_AUTHORIZED",
     0x22: "NOT_EXPORTABLE",
+    0x23: "NO_SLOT",
     0x30: "SELFTEST_FAIL",
     0x31: "TAMPERED",
     0xFF: "INTERNAL_ERROR",
@@ -661,6 +671,225 @@ def cmd_lmk_load(client, args):
     return 0
 
 
+# --------------------------------------------------------------------
+# Comandos de chave -- fase 3
+#
+# FRONTEIRA: nenhum deles faz chave em claro chegar aqui. GEN_KEY devolve
+# handle e KCV; EXPORT_KEY devolve um key block EMBRULHADO; IMPORT_KEY
+# recebe um. Se algum dia um destes imprimir material de chave, o comando
+# esta errado, nao o script.
+#
+# A excecao consciente e `keycycle --lmk`, que precisa da chave mestra
+# para conferir o trabalho do dispositivo com uma implementacao
+# independente. Esta marcado la, e so existe porque isto e um brinquedo
+# de bancada.
+# --------------------------------------------------------------------
+
+USOS = ("B0", "K0", "D0", "M0", "P0")
+
+
+def _cab_args(p):
+    p.add_argument("--uso", default="D0", choices=USOS,
+                   help="uso X9.143 (padrao D0, chave de dados)")
+    p.add_argument("--modo", default="B", choices=("E", "D", "B", "N"),
+                   help="modo de uso (padrao B, cifra e decifra)")
+    p.add_argument("--exp", default="E", choices=("E", "N", "S"),
+                   help="exportabilidade (padrao E)")
+
+
+def cmd_gen_key(client, args):
+    """Gera uma chave DENTRO do dispositivo. O host nunca ve o material."""
+    pl = args.uso.encode("ascii") + b"A" + args.modo.encode("ascii") \
+         + args.exp.encode("ascii")
+    p = client.command(CMD_GEN_KEY, pl)
+    if len(p) != 4:
+        print("payload inesperado: %r" % p)
+        return 1
+    print("handle : %d" % p[0])
+    print("KCV    : %s" % p[1:].hex().upper())
+    return 0
+
+
+def cmd_export_key(client, args):
+    """Exporta um slot como key block X9.143. Sai embrulhado, sempre."""
+    p = client.command(CMD_EXPORT_KEY, bytes([args.handle]))
+    bloco = p.decode("ascii", errors="replace")
+    print(bloco)
+    if args.out:
+        with open(args.out, "w") as f:
+            f.write(bloco + "\n")
+        print("(gravado em %s)" % args.out, file=sys.stderr)
+    return 0
+
+
+def cmd_import_key(client, args):
+    """Importa um key block. Os metadados vem DO BLOCO, autenticados."""
+    if args.file:
+        bloco = open(args.file).read().strip()
+    else:
+        bloco = args.block.strip()
+    p = client.command(CMD_IMPORT_KEY, bloco.encode("ascii"))
+    if len(p) != 4:
+        print("payload inesperado: %r" % p)
+        return 1
+    print("handle : %d" % p[0])
+    print("KCV    : %s" % p[1:].hex().upper())
+    return 0
+
+
+def cmd_key_info(client, args):
+    """Metadados de um slot. Nunca chave."""
+    p = client.command(CMD_KEY_INFO, bytes([args.handle]))
+    if len(p) != 13:
+        print("payload inesperado: %r" % p)
+        return 1
+    print("uso             : %s" % p[0:2].decode("ascii", "replace"))
+    print("algoritmo       : %s" % chr(p[2]))
+    print("modo de uso     : %s" % chr(p[3]))
+    print("exportabilidade : %s" % chr(p[4]))
+    print("comprimento     : %d bytes" % p[5])
+    print("KCV             : %s" % p[6:9].hex().upper())
+    print("usos            : %d" % int.from_bytes(p[9:13], "big"))
+    return 0
+
+
+def cmd_keycycle(client, args):
+    """Gerar -> exportar -> reimportar, com o Python conferindo o C.
+
+    ⚠ PRECISA DA LMK, e isso e o brinquedo aparecendo. Um HSM de verdade
+    nunca entrega a chave mestra a ferramenta de host; aqui os
+    componentes foram digitados aqui mesmo, entao o host pode
+    reconstrui-la por XOR. E a mesma distancia ja registrada na cerimonia.
+
+    O que o teste prova:
+
+      1. o dispositivo gera uma chave que nunca sai em claro
+      2. exporta um key block que o PYTHON desembrulha -- duas
+         implementacoes independentes concordando sobre blocos DE
+         VERDADE, nao sobre um vetor. Cada exportacao do MESMO slot da um
+         bloco diferente (enchimento aleatorio), entao esta direcao roda
+         quantas vezes se quiser sem gastar slot.
+      3. o Python embrulha uma chave que ele escolheu, o dispositivo
+         importa, e o KCV que volta e o que o Python calculou. Sem esta
+         etapa o acordo seria de mao unica -- o C poderia estar errado do
+         mesmo jeito nas duas direcoes.
+      4. um bit trocado no bloco tem de ser recusado
+
+    ⚠ LIMITE CONHECIDO: a etapa 3 gasta um slot por iteracao e NAO HA
+    COMANDO PARA APAGAR UM SLOT (o key store tem 16). Entao ela roda
+    ate encher e para. Descer disso exige `ZEROIZE`, que pede os dois
+    botoes. Ver doc/fase3-notas.md.
+    """
+    try:
+        import tr31
+    except ImportError:
+        print("host/tr31.py nao encontrado", file=sys.stderr)
+        return 2
+
+    try:
+        lmk = bytes.fromhex(args.lmk)
+    except ValueError:
+        print("LMK nao e hex valido", file=sys.stderr)
+        return 2
+    if len(lmk) != LMK_KEY_LEN:
+        print("LMK tem %d bytes, esperado %d" % (len(lmk), LMK_KEY_LEN),
+              file=sys.stderr)
+        return 2
+
+    falhas = 0
+
+    # ---- direcao C -> Python: N blocos de um slot so -------------------
+    p = client.command(CMD_GEN_KEY, b"D0ABE")
+    h_dev, kcv_dev = p[0], p[1:4]
+    print("chave gerada no dispositivo: handle %d, KCV %s"
+          % (h_dev, kcv_dev.hex().upper()))
+
+    vistos = set()
+    for i in range(args.count):
+        bloco = client.command(CMD_EXPORT_KEY, bytes([h_dev])).decode("ascii")
+        vistos.add(bloco)
+        try:
+            chave, cab = tr31.desembrulha(lmk, bloco)
+        except tr31.Tr31Erro as e:
+            print("%3d  FALHA: o Python nao abriu o bloco do dispositivo: %s"
+                  % (i, e))
+            falhas += 1
+            continue
+        if _kcv_local(chave) != kcv_dev:
+            print("%3d  FALHA: a chave dentro do bloco nao e a do slot" % i)
+            falhas += 1
+        if cab["exportabilidade"] != "E" or cab["modo"] != "B":
+            print("%3d  FALHA: cabecalho do bloco: %r" % (i, cab))
+            falhas += 1
+
+    print("C -> Python : %d blocos abertos, %d distintos"
+          % (args.count, len(vistos)))
+    if len(vistos) != args.count:
+        # Enchimento repetido nao seria erro de correcao -- e seria um
+        # vazamento: dois blocos identicos denunciam que a mesma chave foi
+        # exportada duas vezes.
+        print("  FALHA: houve bloco repetido -- o enchimento nao e aleatorio")
+        falhas += 1
+
+    # ---- direcao Python -> C: limitada pelos slots ---------------------
+    n_import = 0
+    while n_import < args.count:
+        nova = os.urandom(LMK_KEY_LEN)
+        bloco_py = tr31.embrulha(lmk, nova, uso="D0", modo="B",
+                                 exportabilidade="E")
+        try:
+            q = client.command(CMD_IMPORT_KEY, bloco_py.encode("ascii"))
+        except HsmError as e:
+            if e.status == 0x23:            # NO_SLOT
+                break
+            raise
+        if q[1:4] != _kcv_local(nova):
+            print("%3d  FALHA: importou com KCV %s, esperado %s"
+                  % (n_import, q[1:4].hex().upper(),
+                     _kcv_local(nova).hex().upper()))
+            falhas += 1
+
+        # Um bit trocado tem de ser recusado.
+        pos = 5 + (n_import % (len(bloco_py) - 5))
+        ruim = (bloco_py[:pos] + chr(ord(bloco_py[pos]) ^ 0x01)
+                + bloco_py[pos + 1:])
+        try:
+            client.command(CMD_IMPORT_KEY, ruim.encode("ascii"))
+            print("%3d  FALHA: aceitou bloco com 1 bit trocado (pos %d)"
+                  % (n_import, pos))
+            falhas += 1
+        except HsmError:
+            pass
+
+        n_import += 1
+
+    print("Python -> C : %d blocos importados (parou por falta de slot)"
+          % n_import)
+
+    print()
+    if falhas:
+        print("keycycle: %d falha(s)" % falhas)
+        return 1
+    print("keycycle: Python e firmware concordam nas duas direcoes")
+    if n_import < args.count:
+        print("  (a direcao Python -> C parou em %d de %d: o key store tem"
+              % (n_import, args.count))
+        print("   16 slots e nao ha comando para apagar um."
+              " Ver doc/fase3-notas.md)")
+    return 0
+
+
+def _kcv_local(chave):
+    """KCV calculado AQUI: AES-ECB da chave sobre um bloco de zeros.
+
+    Independente do dispositivo de proposito -- comparar o KCV do
+    dispositivo com o do dispositivo nao prova nada.
+    """
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    c = Cipher(algorithms.AES(chave), modes.ECB()).encryptor()
+    return (c.update(b"\x00" * 16) + c.finalize())[:3]
+
+
 def cmd_zeroize(client, args):
     """Apaga TODA chave do dispositivo. Exige dual control.
 
@@ -821,6 +1050,27 @@ def main(argv=None):
     sub.add_parser("activate",
                    help="AUTHORIZED -> OPERATIONAL (dual control)")
 
+    p_gen = sub.add_parser("gen-key", help="gera chave DENTRO do dispositivo")
+    _cab_args(p_gen)
+
+    p_exp = sub.add_parser("export-key", help="exporta um slot como key block")
+    p_exp.add_argument("handle", type=int)
+    p_exp.add_argument("-o", "--out", help="grava o bloco num arquivo")
+
+    p_imp = sub.add_parser("import-key", help="importa um key block")
+    p_imp.add_argument("block", nargs="?", default=None, help="o bloco em ASCII")
+    p_imp.add_argument("-f", "--file", help="le o bloco de um arquivo")
+
+    p_kinfo = sub.add_parser("key-info", help="metadados de um slot (nunca chave)")
+    p_kinfo.add_argument("handle", type=int)
+
+    p_kc = sub.add_parser("keycycle",
+                          help="gerar/exportar/importar, com o Python conferindo")
+    p_kc.add_argument("--lmk", required=True,
+                      help="a LMK em hex -- so num brinquedo de bancada")
+    p_kc.add_argument("-n", "--count", type=int, default=100)
+    p_kc.add_argument("-v", "--verbose", action="store_true")
+
     p_zer = sub.add_parser("zeroize",
                            help="APAGA toda chave (dual control, irreversivel)")
     p_zer.add_argument("--sim", action="store_true",
@@ -859,6 +1109,11 @@ def main(argv=None):
         "lmk-status": cmd_lmk_status,
         "lmk-load": cmd_lmk_load,
         "activate": cmd_activate,
+        "gen-key": cmd_gen_key,
+        "export-key": cmd_export_key,
+        "import-key": cmd_import_key,
+        "key-info": cmd_key_info,
+        "keycycle": cmd_keycycle,
         "zeroize": cmd_zeroize,
     }
 

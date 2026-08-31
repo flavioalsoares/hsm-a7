@@ -883,6 +883,41 @@ cobertura.
 
 ---
 
+## `tb_hmac_kat` — o último placeholder, e provavelmente um que não deve existir
+
+*Registrado em 2026-08-30, durante uma revisão de documentação.*
+
+É o único testbench da suíte ainda por implementar. Ao olhar **o que ele
+testaria**, a resposta incomoda: nada que já não esteja testado, e nada que
+seja RTL.
+
+Não há HMAC em hardware. `hsm_hmac_sha256()` é firmware puro
+(`fw/src/sha.c`) encadeando o core de SHA-256 com os dois passos de
+`ipad`/`opad` do RFC 2104. A cobertura existente:
+
+| Onde | O quê |
+|---|---|
+| `tb_sha256_kat` | o core de compressão, 65 mensagens do CAVP |
+| POST | `hsm_hmac_sha256()` contra o RFC 4231, **no silício**, a cada boot — inclusive o caso 6, com chave maior que o bloco |
+
+Um `tb_hmac_kat` em Verilog só poderia fazer uma terceira coisa: rodar o
+mesmo firmware pela UART e conferir o mesmo resultado. Seria uma cópia mais
+lenta do POST.
+
+**Duas saídas honestas**, e nenhuma delas é deixar como está:
+
+1. **Apagar o arquivo** e registrar aqui por quê. O nome na lista de
+   testbenches sugere uma lacuna que não existe, e uma lacuna imaginária
+   custa atenção toda vez que alguém lê a suíte.
+2. **Transformá-lo em outra coisa** — por exemplo, exercitar o comando
+   `0x13 HMAC` pela UART com o caso de chave longa, que é o ramo mais
+   esquecido de qualquer HMAC caseiro. Isso testaria o *comando*, não o
+   algoritmo, e aí teria conteúdo próprio.
+
+Fica em aberto de propósito: apagar um teste é a espécie de decisão que não
+se toma sozinho, e a regra nº 5 do projeto existe justamente para tornar
+isso desconfortável.
+
 ## CMAC-AES-256 — primeira peça da fase 3, já no POST
 
 `fw/src/cmac.c`, NIST SP 800-38B. Entrou aqui porque é a base da fase 3 e

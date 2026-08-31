@@ -140,6 +140,18 @@ int keystore_apaga(ks_handle_t h);
 /* Metadados. NÃO devolve chave. Devolve 0 em sucesso. */
 int keystore_info(ks_handle_t h, ks_info_t *out);
 
+/* Quantos slots estão livres.
+ *
+ * Não é segredo — `KEY_INFO` já permite contar a ocupação handle a
+ * handle. Existe para que "não instalou" possa dizer **por quê**: header
+ * inválido é erro de quem pediu, store cheio é estado do dispositivo, e
+ * juntar os dois num código só deixa o operador sem saber o que fazer.
+ *
+ * ⚠ Não confundir com "o último slot está ocupado". Os slots são
+ * alocados no primeiro livre, então apagar um do meio deixa buraco: o
+ * último pode estar ocupado com o store longe de cheio. */
+uint8_t keystore_livres(void);
+
 /* Carrega a chave do slot no coprocessador e incrementa o contador de uso.
  *
  * NÃO devolve os bytes -- é por aqui que toda operação criptográfica passa.
@@ -198,6 +210,22 @@ int lmk_kcv(uint8_t out[KS_KCV_LEN]);
 
 /* Carrega a LMK no coprocessador. Não devolve bytes, como os slots. */
 int lmk_usa_aes(void);
+
+/* Deriva as subchaves de key block (KBEK e KBAK) a partir da LMK, **sem
+ * devolver a LMK**.
+ *
+ * É a terceira porta deste módulo, e ela existe justamente para que não
+ * seja preciso abrir a primeira. A camada de key block precisa de duas
+ * chaves derivadas da chave mestra; se a única forma de obtê-las fosse
+ * pedir a LMK, `lmk_exporta()` teria de existir — e a partir daí a
+ * promessa "a LMK não sai daqui" vira convenção.
+ *
+ * O que sai são chaves DERIVADAS por CMAC, e a derivação não é
+ * inversível: quem tiver KBEK e KBAK não consegue voltar à LMK. É a
+ * mesma assimetria de `keystore_usa_aes()`, num degrau acima.
+ *
+ * O chamador zeroiza as duas com `wipe()`. Devolve 0 em sucesso. */
+int lmk_deriva_kb(uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX]);
 
 /* Zeroiza a LMK e todos os slots -- as chaves derivadas não sobrevivem à
  * chave que as protege. */

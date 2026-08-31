@@ -115,6 +115,67 @@ teste de eco não é afetado.
 
 ---
 
+## Sessão de bancada da Fase 3 — a cerimônia e os comandos de chave
+
+⚠ **A LMK não sobrevive a um desligamento** (BRAM, como manda a regra 2).
+Toda sessão que precise dela começa refazendo a cerimônia. Não é defeito —
+a persistência é a Fase 4, e guardar chave antes de saber embrulhá-la seria
+guardar chave em claro.
+
+**Os botões: SW2 e SW5**, o 2º e o 5º da fileira (o 1º é o reset). O ponto
+decimal do display acende enquanto os dois estão pressionados — é a
+confirmação de que o dispositivo concorda, antes de gastar o comando.
+
+⚠ **Cada autorização exige um aperto NOVO.** Entre um componente e o
+seguinte, os dois botões têm de ser vistos **soltos**. Segurar os dois
+durante a cerimônia inteira não funciona, e é de propósito: sem essa regra,
+fita adesiva carregaria a LMK sozinha.
+
+```bash
+# 0. estado inicial
+python3 host/hsmtool.py version        # UNINITIALIZED, display mostra Uni
+python3 host/hsmtool.py post           # os oito testes
+
+# 1. cerimônia -- CADA UM pede soltar e apertar de novo
+python3 host/hsmtool.py lmk-load 0 --random
+python3 host/hsmtool.py lmk-load 1 --random
+python3 host/hsmtool.py lmk-load 2 --random
+#    anote os três componentes: sem eles não dá para conferir nada depois
+python3 host/hsmtool.py lmk-status     # 3 de 3, com KCV
+
+# 2. ativar -- mais um aperto novo
+python3 host/hsmtool.py activate       # display passa a OPE
+
+# 3. daqui em diante, NENHUM botão. É o ponto da fase.
+python3 host/hsmtool.py gen-key --uso D0 --modo B --exp E
+python3 host/hsmtool.py key-info 1
+python3 host/hsmtool.py export-key 1 -o /tmp/kb.txt
+python3 host/hsmtool.py import-key -f /tmp/kb.txt   # mesmo KCV, outro handle
+
+#    a chave que não sai, por caminho nenhum
+python3 host/hsmtool.py gen-key --exp N
+python3 host/hsmtool.py export-key 3   # -> NOT_EXPORTABLE
+
+# 4. as duas implementações concordando sobre blocos de verdade
+#    LMK = XOR dos três componentes anotados no passo 1
+python3 host/hsmtool.py keycycle --lmk <64 hex> -n 100
+
+# 5. apagar -- com os dois botões
+python3 host/hsmtool.py zeroize        # volta a UNINITIALIZED, display Uni
+```
+
+⚠ **`hsmtool post` é DESTRUTIVO** num dispositivo carregado: o autoteste
+exercita o key store de verdade e termina com ele vazio. Rodar o
+diagnóstico no meio da sessão apaga a LMK e volta a `UNINITIALIZED`.
+
+⚠ **`keycycle` precisa da LMK em claro no host**, o que um HSM de verdade
+nunca permitiria. É a maior distância entre este projeto e o modelo, e está
+escrita em vez de escondida.
+
+⚠ **O key store tem 16 slots e não há comando para apagar um.** A direção
+`Python -> C` do `keycycle` para quando encher. Descer disso exige
+`zeroize`, que pede os dois botões.
+
 ## Discriminadores
 
 | sintoma | causa provável |

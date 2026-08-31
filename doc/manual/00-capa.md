@@ -30,18 +30,27 @@ SP 800-90B e CTR_DRBG, todos verificados contra vetores oficiais do NIST e
 do IETF, com POST rodando a cada boot e levando o dispositivo a `TAMPERED`
 se reprovar.
 
-**Fase 3 em andamento:** o key store em BRAM já existe, com 16 slots
-modelados nos campos do header X9.143 e a chave mestra em região separada, e
-a **cerimônia de carga da chave mestra** também — três componentes por XOR,
-KCV conferido a cada passo e dual control exigindo dois botões físicos, com
-a escada de estados `UNINITIALIZED → AUTHORIZED → OPERATIONAL`. Faltam os
-key blocks e os comandos que manipulam chave.
+**Fase 3 em andamento, e adiantada:** o key store em BRAM existe, com 16
+slots modelados nos campos do cabeçalho X9.143 e a chave mestra em região
+separada; a **cerimônia de carga** também — três componentes por XOR, KCV
+conferido a cada passo e dual control exigindo dois botões físicos, com a
+escada `UNINITIALIZED → AUTHORIZED → OPERATIONAL`.
+
+E o que faltava quando esta linha foi escrita pela primeira vez já não
+falta: o **key block ANSI X9.143**, implementado duas vezes — em C dentro do
+dispositivo e em Python no host, sobre bibliotecas diferentes, para que as
+duas discordem quando alguém ler a norma errado; o **zeroize**, que apaga e
+*prova* que apagou; e os **comandos que manipulam chave** — gerar, exportar
+embrulhado, reimportar, consultar metadados.
+
+Falta apagar um slot isolado (a função existe, o comando não), usar chave
+por handle, e o log de auditoria. O apêndice E.7 lista isso sem rodeios.
 
 Quem quer só entender o assunto pode parar na Parte IV — ou seguir para a
 VII, se o interesse for pagamento. Quem quer reproduzir o trabalho começa na
 Parte V e volta às anteriores conforme a dúvida aparecer. Quem tem a placa
 na mão e quer operá-la vá direto ao **apêndice E**, que percorre uma sessão
-inteira: ligar, autoteste, cerimônia de LMK e ativação.
+inteira: ligar, autoteste, cerimônia, ativação e o trabalho com chaves.
 
 :::
 
