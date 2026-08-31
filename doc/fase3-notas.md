@@ -745,17 +745,85 @@ Checklist, para quando for escrito:
   devolver o mesmo código, senão é um mapa do key store
 - log de auditoria: obrigatório, quando o log existir
 
-### 2. Substituir os comandos da fase 2
+### 2. Questão em aberto — a LMK montada não é verificada
 
-⚠ `AES_ENC`, `AES_DEC` e `HMAC` recebem chave no payload e só respondem em
-`UNINITIALIZED`; com LMK carregada, param sozinhos pela máscara de estados.
-Falta a outra metade: as versões que falam por **handle de slot**.
+*Levantada em 2026-08-31, a partir de uma pergunta sobre o valor `dc95c0`.
+**Não decidida.***
+
+`lmk_componente()` acumula por XOR e conta; `lmk_completa()` só verifica se
+chegaram três. **Não há checagem nenhuma do valor montado.**
+
+Consequência: um terceiro custodiante que conheça os outros dois componentes
+pode escolher o dele para forçar a LMK a qualquer valor, inclusive **zero**.
+Ele não ganha conhecimento novo — se sabe os outros dois, já sabia a LMK —
+mas ganha uma chave mestra **previsível e reproduzível em qualquer
+dispositivo**, sem que nada reclame.
+
+A única defesa hoje é o operador reconhecer que `DC95C0` é o KCV de uma
+chave zerada, o que ninguém faz de cabeça.
+
+**A favor de implementar:** são poucas linhas, no ponto em que o terceiro
+componente entra; um HSM de verdade recusa chave mestra fraca; e a mesma
+checagem pega o caso banal de um componente esquecido em zeros.
+
+**Contra, ou pelo menos a favor de pensar antes:** "chave fraca" não tem
+definição óbvia além do caso todo-zero. Recusar só o zero é pouco e dá falsa
+sensação de cobertura; recusar mais exige decidir o quê, e critérios de
+chave fraca mal escolhidos já reprovaram chaves boas em sistemas reais.
+
+### 3. Questão em aberto — os comandos com chave em claro
+
+*Levantada em 2026-08-31 pelo Flavio, revisando o resultado do `zeroize`.
+**Não decidida** — uma implementação foi feita e revertida a pedido.*
+
+`AES_ENC` (`0x10`), `AES_DEC` (`0x11`) e `HMAC` (`0x13`) recebem a **chave no
+payload** e respondem só em `UNINITIALIZED`.
+
+**O argumento que estava no código** era que chave em claro não pode
+coexistir com chave de verdade — correto, e é o argumento fraco.
+
+**O argumento forte, que só apareceu na discussão:** um comando que recebe
+chave em claro faz material de chave **atravessar a fronteira na direção de
+entrada**, e isso é errado em `UNINITIALIZED` exatamente tanto quanto em
+`OPERATIONAL`. O defeito não é de estado, então **nenhuma máscara conserta —
+só a remoção**.
+
+E há a parte mensurável: o critério de aceitação da fase é *"a captura da
+UART não contém nenhum byte de chave em claro"*. Enquanto eles existirem,
+esse critério **não pode passar** — ou passa com uma exceção que o esvazia.
+
+⚠ **Nota sobre a formulação, porque a distinção importa:** esses comandos
+não dependem de chave *armazenada*. Eles usam a chave que o chamador
+mandou, e não consultam nada interno. Então o raciocínio "está vazio, logo
+não deveria conseguir" não se aplica a eles — aplica-se a
+`GEN_KEY`/`EXPORT_KEY`/`IMPORT_KEY`/`KEY_INFO`, que **já** recusam em
+`UNINITIALIZED` pela máscara.
+
+**Contra a remoção pura:** o dispositivo fica sem caminho nenhum para AES
+até as versões por handle existirem. Um meio-termo é escrever as
+substitutas primeiro e apagar as antigas depois, sem intervalo.
+
+**Onde a primitiva crua deveria morar, se for útil:** no bitstream de
+diagnóstico (`rtl/diag/`), que não é build de produção.
+
+Medido durante a tentativa revertida: remover os três libera **260 bytes**
+de IMEM.
+
+### 4. Usar chave por handle
+
+A outra metade do item 3, e ela vale por si mesmo: **não existe forma de
+usar uma chave guardada**. O key store instala, exporta e importa; não há
+comando que diga "cifre isto com o slot 2".
 
 É o que fecha o critério "gerar → exportar → reimportar → **usar em AES**:
 resultado idêntico". Hoje o ida-e-volta é provado pelo KCV, que é forte
 (AES da chave inteira sobre um bloco de zeros) mas não é *usar*.
 
-### 3. Log de auditoria
+`keystore_usa_aes()` já existe e já faz a parte difícil: carrega a chave no
+coprocessador, **não devolve os bytes**, e recusa se o `modo` do slot não
+permitir a operação pedida. Falta só o comando por cima.
+
+### 5. Log de auditoria
 
 `fw/src/audit_log.c` e `host/audit.py` continuam placeholders de uma linha.
 O `ZEROIZE` é o comando que mais o pede, e o comentário do handler diz isso.

@@ -41,6 +41,54 @@ fases. **Este projeto não substitui o equipamento nem o manual dele.**
 Se algum dia o alvo mudar, esta seção muda primeiro, e as duas escolhas
 acima mudam com ela.
 
+### Aderência antes de variação — *decidido em 2026-08-31*
+
+O objetivo é **aprender a usar um HSM comercial**. Portanto, em comandos e
+em experiência de uso, este dispositivo segue o padrão da categoria; ideias
+próprias vêm **depois**, e só depois de o padrão estar implementado e
+entendido.
+
+A regra prática, para quando uma decisão aparecer:
+
+> Diante de uma escolha, a pergunta não é "o que seria melhor" — é **"o que
+> um HSM comercial faz"**. Se as duas respostas coincidirem, ótimo. Se
+> divergirem, segue-se o padrão e registra-se a divergência como ideia para
+> depois, em vez de implementá-la.
+
+**Por que a regra vale mais que o julgamento caso a caso:** um projeto
+didático que "melhora" o modelo enquanto o ensina produz alguém que aprendeu
+o projeto, não o assunto. As decisões de um HSM comercial que parecem
+estranhas de fora quase sempre têm uma cicatriz atrás — e descobrir qual é o
+conteúdo. Trocar a decisão antes de entender a cicatriz apaga a lição.
+
+**O que isso já decide**, sem esperar caso a caso:
+
+- comandos que aceitam **chave em claro no pedido** não existem na
+  categoria; manter os nossos é que seria a variação
+- recusa automática de "chave mestra fraca" **não** é o controle padrão — o
+  controle é o KCV a cada componente, conferido pelo custodiante contra o
+  registro dele. Recusa por paridade existe, mas é herança do DES
+- apagar uma chave individual é padrão, e falta aqui
+
+⚠ **O desvio estrutural que ainda não foi enfrentado**, e é o maior:
+
+| | |
+|---|---|
+| **console** | local, física. Carga de LMK, mudança de estado, diagnóstico |
+| **host** | onde as transações entram. Nunca vê chave em claro, nunca carrega LMK |
+
+Um HSM comercial tem **duas interfaces separadas**. Aqui há **uma só**, e a
+cerimônia de LMK viaja pela mesma UART que tudo o mais. Já está registrado
+como a maior distância deste projeto em relação ao modelo (§4); esta seção
+acrescenta que fechá-la é **aderência**, não melhoria.
+
+⚠ **Limite de fidelidade, e ele é deliberado.** Mnemônicos, códigos de erro
+e esquemas de LMK de fabricante **não** entram — nem de memória, nem de
+manual proprietário (ver `THIRD-PARTY.md` e a seção acima). Onde a fidelidade
+exigir um detalhe desses, a fonte é **norma pública** — X9.24, X9.143,
+ISO 9564, PCI PIN Security — e a procedência é registrada, como já se faz
+com os vetores de teste.
+
 ---
 
 ## 0. Restrições invioláveis do projeto

@@ -11,6 +11,22 @@ de host. Objetivo é **aprender arquitetura de HSM**, não proteger nada.
 
 Nenhuma chave de produção entra aqui. Nunca.
 
+## Rumo — aderência antes de variação
+
+*Decidido em 2026-08-31. Ver `PLANO.md`, "Alvo declarado".*
+
+O objetivo é **aprender a usar um HSM comercial**. Diante de uma escolha de
+comando ou de experiência de uso, a pergunta não é "o que seria melhor" — é
+**"o que um HSM comercial faz"**. Divergências viram ideia registrada, não
+implementação.
+
+Um projeto didático que "melhora" o modelo enquanto o ensina produz alguém
+que aprendeu o projeto, não o assunto.
+
+⚠ **Não propor design novo sem ser pedido.** E não confundir pergunta com
+decisão: se o usuário questiona algo, ele está questionando — perguntar
+antes de mexer.
+
 ## Regras invioláveis
 
 Estas não são preferências. Se uma tarefa pedir qualquer coisa desta lista,
