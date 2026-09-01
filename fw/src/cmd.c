@@ -141,68 +141,44 @@ static hsm_status_t h_get_dna(const uint8_t *in, uint16_t in_len,
 /* ==================================================================== */
 /* Fase 2 -- primitivas                                                 */
 /*                                                                      */
-/* LEIA cmd.h antes de mexer aqui. AES e HMAC recebem a chave no payload */
-/* e por isso rodam SO em UNINITIALIZED: no instante em que existir uma  */
-/* LMK, a mascara de estados os desliga. Um comando que aceita chave em  */
-/* claro nao pode coexistir com chave de verdade no mesmo dispositivo.   */
+/* ⚠ AES_ENC (0x10) e AES_DEC (0x11) NAO EXISTEM MAIS. Removidos em     */
+/*    2026-09-01.                                                       */
+/*                                                                      */
+/* ⚠ HMAC (0x13) CONTINUA, e continua ERRADO pelo mesmo motivo. Ele     */
+/*    fica ate existir um MAC por HANDLE que o substitua -- remove-lo   */
+/*    agora deixaria o dispositivo SEM SERVICO DE MAC nenhum, o que     */
+/*    afasta do padrao da categoria em vez de aproximar. A regra e      */
+/*    "escrever o substituto primeiro e apagar depois", e ela vale      */
+/*    aqui. Ver doc/fase3-notas.md.                                     */
+/*                                                                      */
+/* Eles recebiam a CHAVE NO PAYLOAD e rodavam so em UNINITIALIZED. A    */
+/* justificativa antiga era que uma chave em claro nao pode coexistir   */
+/* com chave de verdade -- verdadeira, e o argumento fraco.             */
+/*                                                                      */
+/* O forte: um comando que recebe chave em claro faz material de chave  */
+/* ATRAVESSAR A FRONTEIRA na direcao de ENTRADA. Isso e errado em       */
+/* UNINITIALIZED exatamente tanto quanto em OPERATIONAL -- o defeito    */
+/* nao e de estado, entao nenhuma mascara conserta. So a remocao.       */
+/*                                                                      */
+/* E o que decidiu foi mensuravel: o criterio de aceitacao da fase 3 e  */
+/* "a captura da UART nao contem nenhum byte de chave em claro".        */
+/* Enquanto existissem, esse criterio nao podia passar -- ou passaria   */
+/* com uma excecao que o esvaziaria.                                    */
+/*                                                                      */
+/* A remocao do AES so foi possivel sem deixar buraco porque 0x27       */
+/* ENCRYPT e 0x28 DECRYPT ja existem: mesma operacao, chave por HANDLE. */
+/* Fazer o substituto primeiro e apagar depois evitou o intervalo em    */
+/* que o dispositivo nao saberia cifrar por caminho nenhum. E e por NAO */
+/* haver esse substituto que o HMAC continua aqui.                      */
+/*                                                                      */
+/* Quem quiser primitiva crua para bring-up usa o bitstream de          */
+/* diagnostico (rtl/diag/), que nao e build de producao.                */
+/*                                                                      */
+/* SHA-256 e RANDOM nao recebem chave -- funcao publica e saida do      */
+/* DRBG -- e rodam em qualquer estado normal sem nada atravessar.       */
+/*                                                                      */
+/* Os opcodes 0x10 e 0x11 ficam RESERVADOS -- ver cmd.h.                */
 /* ==================================================================== */
-
-/* AES-256 ECB, um bloco.
- *
- * Checklist do CLAUDE.md:
- *   estados      SO ST_UNINIT -- ver acima
- *   dual control nao (nao ha chave do dispositivo envolvida)
- *   vazamento    em laco com entradas escolhidas, e um oraculo de AES para
- *                uma chave que o CHAMADOR ja possui: ele escolheu. Nao ha
- *                nada aqui que ele nao pudesse calcular sozinho.
- *   exportability nao se aplica -- nao ha slot
- *   log          fase 3, junto com o key store
- *
- * ECB de um bloco so, de proposito. Encadeamento e do host, mesma divisao
- * dos testbenches de KAT: modo de operacao em RTL custa fabric e esconde
- * erro de padding onde depurar exige simulacao.
- */
-static hsm_status_t h_aes(const uint8_t *in, uint16_t in_len,
-                          uint8_t *out, uint16_t *out_len, int cifra)
-{
-    hsm_status_t st = STATUS_OK;
-
-    *out_len = 0u;
-
-    if (in_len != (HSM_AES_KEY_LEN + HSM_AES_BLOCK_LEN)) {
-        return STATUS_BAD_PARAM;
-    }
-
-    if (hsm_cfs_aes_key(in) != 0) {
-        st = STATUS_INTERNAL_ERROR;
-    } else if (hsm_cfs_aes_block(&in[HSM_AES_KEY_LEN], out, cifra) != 0) {
-        st = STATUS_INTERNAL_ERROR;
-    } else {
-        *out_len = HSM_AES_BLOCK_LEN;
-    }
-
-    /* A chave expandida fica no aes_key_mem depois da operacao. Apagar
-     * agora, e nao "na proxima vez que alguem carregar chave": material de
-     * chave nao espera pelo proximo comando. */
-    (void)hsm_cfs_wipe();
-
-    if (st != STATUS_OK) {
-        wipe(out, HSM_AES_BLOCK_LEN);
-    }
-    return st;
-}
-
-static hsm_status_t h_aes_enc(const uint8_t *in, uint16_t in_len,
-                              uint8_t *out, uint16_t *out_len)
-{
-    return h_aes(in, in_len, out, out_len, 1);
-}
-
-static hsm_status_t h_aes_dec(const uint8_t *in, uint16_t in_len,
-                              uint8_t *out, uint16_t *out_len)
-{
-    return h_aes(in, in_len, out, out_len, 0);
-}
 
 /* SHA-256 de mensagem inteira.
  *
@@ -610,10 +586,10 @@ static hsm_status_t h_lmk_status(const uint8_t *in, uint16_t in_len,
  *   vazamento    devolve o proprio estado, que o GET_VERSION ja da.
  *   exportability nao se aplica.
  *
- * O efeito colateral que interessa e o que DESAPARECE: em OPERATIONAL, os
- * comandos da fase 2 que recebem chave em claro (AES_ENC, AES_DEC, HMAC)
- * param de responder, porque a mascara deles e ST_UNINIT. Nao ha linha de
- * codigo desligando nada -- a tabela e que nao os permite mais.
+ * O efeito colateral que este comando tinha -- os comandos da fase 2 com
+ * chave em claro sumindo em OPERATIONAL -- deixou de existir junto com
+ * eles: foram REMOVIDOS do firmware, e nao apenas restringidos por
+ * mascara. Ver o bloco "Fase 2 -- primitivas" acima.
  */
 static hsm_status_t h_set_state(const uint8_t *in, uint16_t in_len,
                                 uint8_t *out, uint16_t *out_len)
@@ -687,8 +663,9 @@ static hsm_status_t h_set_state(const uint8_t *in, uint16_t in_len,
  *
  * O CONTRASTE COM A FASE 2 e o que este comando ensina. `AES_ENC` recebia
  * a chave no payload; aqui o host escolhe os METADADOS e nunca ve o
- * material. Os dois comandos nao podem coexistir com chave de verdade no
- * dispositivo, e nao coexistem: a mascara de `AES_ENC` e ST_UNINIT.
+ * material. Os dois nao podiam coexistir, e a resolucao foi REMOVER o
+ * primeiro -- nao restringi-lo por estado: chave em claro atravessando a
+ * fronteira e errado em TODO estado.
  */
 static hsm_status_t h_gen_key(const uint8_t *in, uint16_t in_len,
                               uint8_t *out, uint16_t *out_len)
@@ -1073,13 +1050,17 @@ static const cmd_entry_t g_cmds[] = {
     { CMD_GET_VERSION, ST_NORMAL,               h_get_version },
     { CMD_GET_DNA,     ST_NORMAL,               h_get_dna     },
 
-    /* Fase 2. AES e HMAC so em UNINITIALIZED porque recebem chave em
-     * claro -- ver cmd.h. Nao e convencao: e esta mascara. */
-    { CMD_AES_ENC,     ST_UNINIT,               h_aes_enc     },
-    { CMD_AES_DEC,     ST_UNINIT,               h_aes_dec     },
+    /* Fase 2. Sobraram os dois que NAO recebem chave: SHA-256 e funcao
+     * publica, RANDOM devolve saida do DRBG. AES_ENC, AES_DEC e HMAC
+     * foram REMOVIDOS -- ver o bloco de comentario acima. */
     { CMD_SHA256,      ST_NORMAL,               h_sha256      },
-    { CMD_HMAC,        ST_UNINIT,               h_hmac        },
     { CMD_RANDOM,      ST_NORMAL,               h_random      },
+
+    /* ⚠ HMAC recebe a chave no payload, e por isso so responde em
+     * UNINITIALIZED. Nao e convencao: e esta mascara. Ele fica ate
+     * existir um MAC por handle -- remove-lo antes deixaria o
+     * dispositivo sem servico de MAC nenhum. */
+    { CMD_HMAC,        ST_UNINIT,               h_hmac        },
 
     /* SELFTEST responde ate em TAMPERED, de proposito. Ver o handler. */
     { CMD_SELFTEST,    ST_NORMAL | ST_TAMPERED, h_selftest    },

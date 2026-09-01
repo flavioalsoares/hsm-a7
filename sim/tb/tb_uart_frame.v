@@ -428,6 +428,56 @@ module tb_uart_frame;
             $display("[tb_uart_frame] opcode desconhecido -> STATUS_UNKNOWN_CMD");
         end
 
+        // ---- 4b. AES com chave no payload nao existe mais ------------
+        //
+        // 0x10 AES_ENC e 0x11 AES_DEC recebiam a chave no pedido. Foram
+        // REMOVIDOS, e nao apenas restringidos por mascara: material de
+        // chave atravessando a fronteira e errado em TODO estado, entao
+        // mascara nenhuma conserta.
+        //
+        // Este teste roda em UNINITIALIZED, que era justamente o unico
+        // estado em que eles respondiam. Se alguem os trouxer de volta
+        // "so para bring-up", reprova aqui.
+        for (i = 0; i < 2; i = i + 1) begin
+            if (i == 0) send_cmd(8'h10, 1'b0);
+            else        send_cmd(8'h11, 1'b0);
+            get_response();
+            if (st !== 8'h10) begin
+                $display("[tb_uart_frame] FAIL: AES com chave no payload ainda responde (status=0x%02h)",
+                         st);
+                errors = errors + 1;
+            end
+        end
+        $display("[tb_uart_frame] 0x10/0x11 (chave no payload) -> UNKNOWN_CMD");
+
+        // ---- 4c. o HMAC AINDA existe, e isso e deliberado -------------
+        //
+        // Ele tem o mesmo defeito -- chave no payload -- e fica ate haver
+        // um MAC por HANDLE que o substitua. Remove-lo antes deixaria o
+        // dispositivo SEM SERVICO DE MAC nenhum, o que afasta do padrao
+        // da categoria em vez de aproximar.
+        //
+        // Este teste existe para que a divida seja VISIVEL: no dia em que
+        // o 0x29 MAC nascer e o 0x13 for removido, ele reprova e obriga
+        // quem removeu a vir aqui apagar a divida junto.
+        //
+        // ⚠ Enquanto ele passar, o criterio "a captura da UART nao contem
+        // nenhum byte de chave em claro" NAO pode passar.
+        req_pl[0] = 8'd1;        // klen = 1
+        req_pl[1] = 8'hAB;       // a chave -- em claro na linha, e o ponto
+        req_pl[2] = 8'h00;       // mensagem de 1 byte
+        req_plen  = 3;
+        send_cmd_pl(8'h13);
+        get_response();
+        if (st !== 8'h00 || resp_len !== 33) begin
+            $display("[tb_uart_frame] FAIL: HMAC -> status=0x%02h len=%0d, esperado 0x00/33",
+                     st, resp_len);
+            errors = errors + 1;
+        end else begin
+            $display("[tb_uart_frame] 0x13 HMAC ainda responde -- DIVIDA CONHECIDA,");
+            $display("[tb_uart_frame]   ate existir um MAC por handle");
+        end
+
         // ---- 5. o dispositivo continua vivo depois dos erros ----------
         // Este e o criterio que importa (PLANO.md secao 2): frame malformado
         // nunca trava a maquina de estados. Se o parser tivesse ficado preso
@@ -678,22 +728,47 @@ module tb_uart_frame;
             errors = errors + 1;
         end
 
-        // ---- 6g. os comandos da fase 2 morrem sozinhos -----------------
+        // ---- 6g. um comando com chave em claro morre sozinho -----------
         //
-        // AES_ENC recebe chave em claro no payload e por isso tem mascara
-        // ST_UNINIT. Com LMK carregada, o dispositivo saiu de UNINITIALIZED
-        // e ele para de responder -- sem uma linha de codigo desligando
-        // nada. O payload vai vazio de proposito: a checagem de estado
-        // acontece ANTES do handler, entao nem chega a ser lido.
-        send_cmd(8'h10, 1'b0);
+        // A propriedade: um comando que recebe chave em claro tem mascara
+        // ST_UNINIT, entao com LMK carregada o dispositivo saiu de
+        // UNINITIALIZED e ele para de responder -- sem uma linha de codigo
+        // desligando nada. O payload vai vazio de proposito: a checagem de
+        // estado acontece ANTES do handler, entao nem chega a ser lido.
+        //
+        // ⚠ O SUJEITO DESTE TESTE MUDOU em 2026-09-01. Era o AES_ENC
+        // (0x10); ele foi REMOVIDO e hoje devolve UNKNOWN_CMD em qualquer
+        // estado, o que nao demonstra nada sobre mascara. Passou a ser o
+        // HMAC (0x13), o unico comando com chave em claro que resta.
+        //
+        // ⚠ E quando o HMAC tambem for removido -- assim que existir um
+        // MAC por handle -- este teste vai reprovar, e a reprovacao sera
+        // CORRETA: nao havera mais nenhum comando que demonstre a
+        // propriedade, porque nao havera mais nenhum comando com chave em
+        // claro. Que e o objetivo. Quem chegar aqui nesse dia deve apagar
+        // o teste, nao consertar a expectativa.
+        req_pl[0] = 8'd1;
+        req_pl[1] = 8'hAB;
+        req_pl[2] = 8'h00;
+        req_plen  = 3;
+        send_cmd_pl(8'h13);
         get_response();
 
         if (st !== 8'h20) begin
-            $display("[tb_uart_frame] FAIL: AES_ENC com LMK -> status=0x%02h, esperado 0x20 (WRONG_STATE)",
+            $display("[tb_uart_frame] FAIL: HMAC com LMK -> status=0x%02h, esperado 0x20 (WRONG_STATE)",
                      st);
             errors = errors + 1;
         end else begin
-            $display("[tb_uart_frame] AES_ENC (chave em claro) -> STATUS_WRONG_STATE");
+            $display("[tb_uart_frame] HMAC (chave em claro) -> STATUS_WRONG_STATE");
+        end
+
+        // E o AES_ENC, que foi removido, nao responde em estado nenhum.
+        send_cmd(8'h10, 1'b0);
+        get_response();
+        if (st !== 8'h10) begin
+            $display("[tb_uart_frame] FAIL: AES_ENC removido -> status=0x%02h, esperado 0x10",
+                     st);
+            errors = errors + 1;
         end
 
         // E a propria cerimonia nao se repete: nao ha caminho para trocar a

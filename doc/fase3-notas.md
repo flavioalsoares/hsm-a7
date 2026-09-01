@@ -846,43 +846,45 @@ definição óbvia além do caso todo-zero. Recusar só o zero é pouco e dá fa
 sensação de cobertura; recusar mais exige decidir o quê, e critérios de
 chave fraca mal escolhidos já reprovaram chaves boas em sistemas reais.
 
-### 3. Questão em aberto — os comandos com chave em claro
+### 3. Um MAC por handle, para poder remover o `HMAC`
 
-*Levantada em 2026-08-31 pelo Flavio, revisando o resultado do `zeroize`.
-**Não decidida** — uma implementação foi feita e revertida a pedido.*
+*2026-09-01. **Lacuna de aderência**, com prazo.*
 
-`AES_ENC` (`0x10`), `AES_DEC` (`0x11`) e `HMAC` (`0x13`) recebem a **chave no
-payload** e respondem só em `UNINITIALIZED`.
+`AES_ENC` (`0x10`) e `AES_DEC` (`0x11`) foram removidos: recebiam a chave
+no payload, e material de chave atravessando a fronteira é errado em todo
+estado — máscara nenhuma conserta um defeito que não é de estado. O
+substituto (`ENCRYPT`/`DECRYPT`, por handle) já existia, então não sobrou
+buraco.
 
-**O argumento que estava no código** era que chave em claro não pode
-coexistir com chave de verdade — correto, e é o argumento fraco.
+⚠ **`HMAC` (`0x13`) ficou**, e tem exatamente o mesmo defeito. Ele fica
+porque **não há substituto**: removê-lo deixaria o dispositivo sem serviço
+de MAC nenhum para o host, e um HSM de pagamento comercial tem comandos de
+**gerar e verificar MAC**. A remoção pura afastaria do padrão em vez de
+aproximar.
 
-**O argumento forte, que só apareceu na discussão:** um comando que recebe
-chave em claro faz material de chave **atravessar a fronteira na direção de
-entrada**, e isso é errado em `UNINITIALIZED` exatamente tanto quanto em
-`OPERATIONAL`. O defeito não é de estado, então **nenhuma máscara conserta —
-só a remoção**.
+A regra é "escrever o substituto primeiro e apagar depois". Com o AES ela
+foi seguida; com o MAC ela é o motivo de o comando ainda estar lá.
 
-E há a parte mensurável: o critério de aceitação da fase é *"a captura da
-UART não contém nenhum byte de chave em claro"*. Enquanto eles existirem,
-esse critério **não pode passar** — ou passa com uma exceção que o esvazia.
+⚠ **Enquanto o `0x13` existir, o critério de aceitação "a captura da UART
+não contém nenhum byte de chave em claro" NÃO PODE PASSAR.** É dívida
+conhecida, com prazo: até o MAC por handle existir. E é a única coisa
+segurando aquele critério.
 
-⚠ **Nota sobre a formulação, porque a distinção importa:** esses comandos
-não dependem de chave *armazenada*. Eles usam a chave que o chamador
-mandou, e não consultam nada interno. Então o raciocínio "está vazio, logo
-não deveria conseguir" não se aplica a eles — aplica-se a
-`GEN_KEY`/`EXPORT_KEY`/`IMPORT_KEY`/`KEY_INFO`, que **já** recusam em
-`UNINITIALIZED` pela máscara.
+**O `tb_uart_frame` guarda a dívida**, e essa é a parte que vale copiar
+como método: ele testa que o `0x13` **ainda responde**. No dia em que o
+`0x29 MAC` nascer e o `0x13` for removido, esse teste reprova — e obriga
+quem removeu a vir aqui apagar a dívida junto. Um teste que falha quando a
+dívida é paga vale mais que um comentário que ninguém relê.
 
-**Contra a remoção pura:** o dispositivo fica sem caminho nenhum para AES
-até as versões por handle existirem. Um meio-termo é escrever as
-substitutas primeiro e apagar as antigas depois, sem intervalo.
+Duas escolhas ficam abertas para o comando novo:
 
-**Onde a primitiva crua deveria morar, se for útil:** no bitstream de
-diagnóstico (`rtl/diag/`), que não é build de produção.
-
-Medido durante a tentativa revertida: remover os três libera **260 bytes**
-de IMEM.
+- **CMAC-AES ou HMAC-SHA-256?** Os dois existem no firmware. CMAC é o que a
+  categoria usa para MAC de dados com chave AES, e já está validado contra
+  o CAVP. HMAC é o que o comando atual faz.
+- **Gerar e verificar, ou só gerar?** Verificar dentro do dispositivo é o
+  padrão, e é melhor: a comparação em tempo constante fica do lado certo da
+  fronteira. Devolver o MAC para o host comparar reintroduz o canal lateral
+  que o `cmac_aes256_verifica()` existe para fechar.
 
 ### 4. Formar chave de trabalho a partir de componentes
 

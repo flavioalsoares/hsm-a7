@@ -77,10 +77,16 @@ CMD_GET_DNA = 0x03
 # do firmware. Um HSM de verdade nao aceita chave em claro do host -- estes
 # comandos existem para exercitar as primitivas antes de existir key store,
 # e a fase 3 os substitui por versoes que falam por handle de slot.
-CMD_AES_ENC = 0x10
-CMD_AES_DEC = 0x11
-CMD_SHA256 = 0x12
+# 0x10 (AES_ENC) e 0x11 (AES_DEC) foram REMOVIDOS do firmware em
+# 2026-09-01: recebiam a chave no payload, e material de chave nao pode
+# atravessar a fronteira em direcao nenhuma. Substitutos: `encrypt` e
+# `decrypt`, por handle.
+#
+# ⚠ `hmac` (0x13) CONTINUA, e continua errado pelo mesmo motivo. Fica ate
+# existir um MAC por handle -- sem ele o dispositivo nao teria servico de
+# MAC nenhum. Ver doc/fase3-notas.md.
 CMD_HMAC = 0x13
+CMD_SHA256 = 0x12
 CMD_RANDOM = 0x14
 CMD_SELFTEST = 0x15
 
@@ -454,27 +460,6 @@ def cmd_dna(client, args):
         return 1
 
     print("DNA: %015X  (57 bits)" % v)
-    return 0
-
-
-def cmd_aes(client, args):
-    """Um bloco de AES-256 ECB, com a chave vinda daqui.
-
-    Deliberadamente sem encadeamento: o dispositivo faz ECB de um bloco e
-    o modo de operacao e do host, a mesma divisao dos testbenches de KAT.
-    """
-    chave = bytes.fromhex(args.key)
-    bloco = bytes.fromhex(args.block)
-    if len(chave) != 32:
-        print("chave precisa ter 32 bytes (AES-256), veio %d" % len(chave))
-        return 1
-    if len(bloco) != 16:
-        print("bloco precisa ter 16 bytes, veio %d" % len(bloco))
-        return 1
-
-    op = CMD_AES_DEC if args.decrypt else CMD_AES_ENC
-    p = client.command(op, chave + bloco)
-    print(p.hex())
     return 0
 
 
@@ -1052,11 +1037,6 @@ def main(argv=None):
     sub.add_parser("version")
     sub.add_parser("dna")
 
-    p_aes = sub.add_parser("aes", help="um bloco AES-256 ECB (chave no payload)")
-    p_aes.add_argument("key", help="32 bytes em hex")
-    p_aes.add_argument("block", help="16 bytes em hex")
-    p_aes.add_argument("-d", "--decrypt", action="store_true")
-
     p_sha = sub.add_parser("sha256", help="SHA-256 de uma mensagem")
     p_sha.add_argument("data", nargs="?", default="", help="mensagem em hex")
 
@@ -1142,7 +1122,6 @@ def main(argv=None):
         "dna": cmd_dna,
         "raw": cmd_raw,
         "bench": cmd_bench,
-        "aes": cmd_aes,
         "sha256": cmd_sha256,
         "hmac": cmd_hmac,
         "random": cmd_random,

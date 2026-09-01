@@ -43,23 +43,39 @@
 #define CMD_GET_DNA       0x03u
 
 /* ---------------------------------------------------------------------
- * Fase 2 -- primitivas. LEIA ANTES DE USAR.
+ * Fase 2 -- primitivas
  *
- * AES_ENC, AES_DEC e HMAC recebem a CHAVE NO PAYLOAD, vinda do host. Um
- * HSM de verdade nao faz isso: chave entra uma vez, na cerimonia, e depois
- * so se fala com ela por HANDLE. Estes comandos existem porque a fase 2 e
- * sobre primitivas e o key store so chega na fase 3.
+ * ⚠ 0x10 (AES_ENC) e 0x11 (AES_DEC) FORAM REMOVIDOS em 2026-09-01. Os
+ * opcodes ficam RESERVADOS: nao reaproveitar, para que um host antigo
+ * receba UNKNOWN_CMD em vez de acertar outro comando por acidente.
  *
- * Por isso eles sao permitidos APENAS em UNINITIALIZED. No instante em que
- * o dispositivo tiver uma LMK, param de responder -- e nao por convencao,
- * por mascara de estado na tabela. Um comando que aceita chave em claro nao
- * pode coexistir com chave de verdade no mesmo dispositivo.
+ * Eles recebiam a CHAVE NO PAYLOAD. O argumento que decidiu nao foi "nao
+ * podem coexistir com chave de verdade" -- foi que um comando assim faz
+ * material de chave ATRAVESSAR A FRONTEIRA na direcao de ENTRADA, e isso
+ * e errado em UNINITIALIZED tanto quanto em OPERATIONAL. Defeito que nao
+ * e de estado nao se conserta com mascara de estado.
  *
- * Na fase 3 eles sao SUBSTITUIDOS por versoes que recebem handle de slot.
- * Nao "estendidos": substituidos.
+ * E o mensuravel: o criterio de aceitacao da fase 3 e "a captura da UART
+ * nao contem nenhum byte de chave em claro". Enquanto existissem, esse
+ * criterio nao podia passar.
+ *
+ * SUBSTITUTOS: 0x27 ENCRYPT e 0x28 DECRYPT fazem a mesma coisa com a
+ * chave por HANDLE.
+ *
+ * ⚠ 0x13 (HMAC) CONTINUA, e continua errado pelo mesmo motivo -- ele
+ * tambem recebe a chave no payload. Fica porque NAO HA SUBSTITUTO: sem
+ * ele o dispositivo ficaria sem servico de MAC nenhum para o host, e um
+ * HSM comercial tem comandos de gerar e verificar MAC. Removê-lo agora
+ * afastaria do padrao em vez de aproximar.
+ *
+ * A regra e "escrever o substituto primeiro e apagar depois". Com o AES
+ * ela foi seguida; com o MAC ela e o motivo de o comando ainda estar
+ * aqui. O conserto e um 0x29 MAC por handle -- ver doc/fase3-notas.md.
+ *
+ * ⚠ Enquanto ele existir, o criterio de aceitacao "a captura da UART nao
+ * contem nenhum byte de chave em claro" NAO PODE PASSAR. E divida
+ * conhecida, com prazo: ate o MAC por handle existir.
  * ------------------------------------------------------------------- */
-#define CMD_AES_ENC       0x10u   /* chave(32) || bloco(16)  -> 16 bytes  */
-#define CMD_AES_DEC       0x11u   /* chave(32) || bloco(16)  -> 16 bytes  */
 #define CMD_SHA256        0x12u   /* mensagem                -> 32 bytes  */
 #define CMD_HMAC          0x13u   /* klen(1) || chave || msg -> 32 bytes  */
 #define CMD_RANDOM        0x14u   /* n(2, big-endian)        -> n bytes   */
