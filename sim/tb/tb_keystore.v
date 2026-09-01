@@ -290,7 +290,9 @@ module tb_keystore;
     reg [7:0] bloco2 [0:255];
     integer   bloco_n, bloco2_n;
     reg [7:0] kcv_e [0:2];
-    reg [7:0] h_nao, h_sim, h_imp;
+    reg [7:0] h_nao, h_sim, h_imp, h_cifra;
+    reg [7:0] ct_a [0:15];
+    reg [7:0] ct_b [0:15];
     integer   k, difs;
 
     // ⚠ Este e o testbench mais LENTO da suite, e a razao e aritmetica: ele
@@ -428,6 +430,92 @@ module tb_keystore;
             $display("[tb_keystore] IDA E VOLTA: handle %0d tem o mesmo KCV do %0d --",
                      h_imp, h_sim);
             $display("[tb_keystore]   gerar -> exportar -> reimportar devolveu a MESMA chave");
+        end
+
+        // ---- 5b. O CRITERIO DE ACEITACAO DA FASE ---------------------
+        //
+        // "gerar -> exportar -> reimportar -> USAR EM AES: resultado
+        // identico". Ate os comandos por handle existirem, o ida-e-volta
+        // era provado so pelo KCV -- que e forte (AES da chave inteira
+        // sobre um bloco de zeros) mas nao e USAR.
+        //
+        // Aqui as duas chaves cifram o MESMO bloco com o MESMO IV. Se os
+        // criptogramas baterem, a chave que voltou e a mesma bit a bit --
+        // e nao apenas "tem o mesmo KCV", que seria 24 bits de evidencia.
+        req_pl[0] = h_sim;
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + k]      = 8'hA5 ^ k[7:0];
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + 16 + k] = 8'h5A ^ k[7:0];
+        req_plen = 33;
+        send_cmd_pl(8'h27);
+        get_response();
+        espera_status("ENCRYPT origem", 8'h00);
+        for (k = 0; k < 16; k = k + 1) ct_a[k] = resp[1 + k];
+
+        req_pl[0] = h_imp;
+        req_plen = 33;
+        send_cmd_pl(8'h27);
+        get_response();
+        espera_status("ENCRYPT reimportada", 8'h00);
+        for (k = 0; k < 16; k = k + 1) ct_b[k] = resp[1 + k];
+
+        difs = 0;
+        for (k = 0; k < 16; k = k + 1)
+            if (ct_a[k] !== ct_b[k]) difs = difs + 1;
+
+        if (difs != 0) begin
+            $display("[tb_keystore] FAIL: os dois handles cifraram DIFERENTE em %0d bytes",
+                     difs);
+            errors = errors + 1;
+        end else begin
+            $display("[tb_keystore] CRITERIO: gerar -> exportar -> reimportar -> USAR");
+            $display("[tb_keystore]   os dois handles cifram identico -- e a mesma chave");
+        end
+
+        // Decifrar tem de devolver o texto claro. Fecha o outro sentido.
+        req_pl[0] = h_imp;
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + k]      = 8'hA5 ^ k[7:0];
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + 16 + k] = ct_a[k];
+        req_plen = 33;
+        send_cmd_pl(8'h28);
+        get_response();
+        espera_status("DECRYPT", 8'h00);
+
+        difs = 0;
+        for (k = 0; k < 16; k = k + 1)
+            if (resp[1 + k] !== (8'h5A ^ k[7:0])) difs = difs + 1;
+        if (difs != 0) begin
+            $display("[tb_keystore] FAIL: decifrar nao devolveu o texto claro (%0d bytes)",
+                     difs);
+            errors = errors + 1;
+        end else begin
+            $display("[tb_keystore] decifrar devolve o texto claro");
+        end
+
+        // ---- 5c. separacao de uso: 'E' recusa decifrar ----------------
+        //
+        // Confusao de tipo de chave e a origem de uma familia inteira de
+        // ataques de API (manual, secao 15). A checagem vive DENTRO do
+        // keystore, num lugar so -- nao no handler.
+        gera_chave("E", "E");            // modo 'E' = so cifrar
+        espera_status("GEN_KEY modo E", 8'h00);
+        h_cifra = resp[1];
+
+        req_pl[0] = h_cifra;
+        for (k = 0; k < 32; k = k + 1) req_pl[1 + k] = 8'h00;
+        req_plen = 33;
+        send_cmd_pl(8'h27);
+        get_response();
+        espera_status("ENCRYPT com modo E", 8'h00);
+
+        req_pl[0] = h_cifra;
+        req_plen = 33;
+        send_cmd_pl(8'h28);
+        get_response();
+        if (st !== 8'h24) begin
+            $display("[tb_keystore] FAIL: chave so-de-cifrar DECIFROU (status 0x%02h)", st);
+            errors = errors + 1;
+        end else begin
+            $display("[tb_keystore] chave marcada 'E' recusa decifrar: BAD_KEY_USE");
         end
 
         // ---- 6. um bit trocado invalida ------------------------------

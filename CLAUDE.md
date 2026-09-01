@@ -227,14 +227,38 @@ reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
 disso.
 
 ⚠ **IMEM em 13 768 de 16 384 bytes (84,0%).** A folga que resta tem de
-cobrir o `DELETE_KEY`, as versões por handle dos comandos da fase 2 e o log
-de auditoria. A série: 10 444 (cerimônia) → 12 700 (key block) → 12 860
-(zeroize) → 13 768 (comandos de chave).
+cobrir o `DELETE_KEY`, a formação de chave por componentes e o log de
+auditoria. A série: 10 444 (cerimônia) → 12 700 (key block) → 12 860
+(zeroize) → 13 768 (comandos de chave) → 13 984 (usar por handle).
+
+⚠ **Sobram 2 400 bytes**, e é improvável que os três caibam. Essa conta vai
+ter de ser feita antes, não descoberta no fim.
 
 - **Comandos de chave** (`0x22 GEN_KEY` · `0x23 EXPORT_KEY`
   · `0x24 IMPORT_KEY` · `0x25 KEY_INFO`) — os quatro em `ST_OPER`, e
   **nenhum com dual control**: dual control é para *cerimônia*, não para
   operação. O que os protege é o embrulho e a `exportabilidade`.
+- **Usar a chave guardada** (`0x27 ENCRYPT` · `0x28 DECRYPT`) — AES-CBC com
+  IV explícito, chave referida por **handle**. Fecha o critério "gerar →
+  exportar → reimportar → **usar em AES**".
+
+⚠ **`aes_cbc()` NÃO tem parâmetro de chave** (`fw/src/aes_modos.c`). Ela
+opera sobre a chave já carregada no coprocessador, então não há como a
+função de modo ver material de chave nem deixá-lo num buffer. Quem carrega é
+quem tem direito: `keystore_usa_aes()` para slots (checando o `modo`), ou
+`hsm_cfs_aes_key()` para quem já tem os bytes legitimamente — hoje só o
+`tr31.c`, com as subchaves derivadas da LMK.
+
+⚠ **`ENCRYPT`/`DECRYPT` são um oráculo de cifragem, e isso está escrito no
+handler.** Quem tem o handle cifra e decifra o que quiser sob aquela chave,
+em laço. Não há como não ser — é o serviço que um HSM presta. O que ele não
+entrega é a chave. O controle real é o `modo` do slot e o log de auditoria,
+que ainda não existe.
+
+⚠ **`exportabilidade='N'` NÃO impede usar** — impede sair. Quem restringe o
+que a chave pode fazer é o `modo`. E ⚠ **`'S'` é aceito e se comporta como
+`'E'`**: a regra mais estrita que o nome promete não existe
+(`doc/fase3-notas.md` §6a).
 
 ⚠ **Faltam duas funções que são PADRÃO da categoria**, e nenhuma das duas
 estava no plano: **apagar uma chave individual** e **formar chave de

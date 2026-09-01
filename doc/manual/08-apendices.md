@@ -184,6 +184,8 @@ deliberada: sem ele, um dispositivo que reprovou no boot ficaria mudo sobre
 | `0x24` | `IMPORT_KEY` | key block X9.143 em ASCII | handle(1) ‖ kcv(3) |
 | `0x25` | `KEY_INFO` | handle(1) | uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) ‖ len(1) ‖ kcv(3) ‖ usos(4) |
 | `0x26` | `SET_STATE` | estado alvo(1) | estado atual(1) |
+| `0x27` | `ENCRYPT` | handle(1) ‖ iv(16) ‖ dados | dados cifrados |
+| `0x28` | `DECRYPT` | handle(1) ‖ iv(16) ‖ dados | dados em claro |
 | `0x2F` | `ZEROIZE` | vazio | estado atual(1) |
 
 **Estados em que cada um responde.** Não é convenção — é uma máscara na
@@ -193,7 +195,7 @@ tabela de comandos, e é ela que faz a cerimônia ser uma escada de uma via.
 |---|---|
 | `LMK_LOAD_COMPONENT` | só `UNINITIALIZED` |
 | `SET_STATE` | só `AUTHORIZED` |
-| `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO` | só `OPERATIONAL` |
+| `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO`, `ENCRYPT`, `DECRYPT` | só `OPERATIONAL` |
 | `LMK_STATUS` | os três normais |
 | `ZEROIZE` | **todos**, `TAMPERED` inclusive |
 
@@ -206,7 +208,7 @@ Nenhum degrau se repete, e não há como descer sem apagar.
 | | |
 |---|---|
 | exigem | `LMK_LOAD_COMPONENT`, `SET_STATE`, `ZEROIZE` |
-| não exigem | `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO` |
+| não exigem | `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO`, `ENCRYPT`, `DECRYPT` |
 
 Dual control é para **cerimônia**, não para operação. Carregar a chave
 mestra, ativar o dispositivo e apagar tudo são eventos raros, com gente na
@@ -243,6 +245,22 @@ sobreviver ao comprometimento.
 - **`KEY_INFO`** — metadados, nunca chave. Handle inválido e slot vazio
   devolvem o mesmo código: separar permitiria mapear o key store sem
   instalar nada.
+- **`ENCRYPT` / `DECRYPT`** — usar a chave guardada, referida por
+  **handle**. É o contraste que fecha a fase: os comandos da Fase 2
+  recebiam a chave no pedido; aqui vai um número de gaveta.
+
+  **AES-CBC com IV explícito**, e não ECB — ECB para dados é o erro que a
+  seção 16 usa como exemplo. O IV vem de quem chama, porque uma função que
+  puxa entropia sozinha não é testável de forma determinística.
+
+  O `modo` do slot decide: uma chave marcada `'E'` (só cifrar) recusa
+  `DECRYPT` com `BAD_KEY_USE`. E `exportabilidade='N'` **não** impede usar
+  — não poder sair é diferente de não poder trabalhar.
+
+  ⚠ **É um oráculo de cifragem, e vale dizer.** Quem tem o handle cifra e
+  decifra o que quiser sob aquela chave, em laço. Não há como não ser — é o
+  serviço que um HSM presta. O que ele não entrega é a chave, e é para isso
+  que o handle existe. O controle real está no `modo` e no log de auditoria.
 
 O `0x20` e o `0x26` exigem **dual control**: os dois botões pressionados no
 instante em que o frame chega, e um aperto *novo* a cada autorização (seção
@@ -269,6 +287,7 @@ tamanho do frame não anuncie nada.
 | `0x21` | `NOT_AUTHORIZED` | falta dual control |
 | `0x22` | `NOT_EXPORTABLE` | exportabilidade do slot proíbe |
 | `0x23` | `NO_SLOT` | key store cheio |
+| `0x24` | `BAD_KEY_USE` | o `modo` do slot proíbe a operação |
 | `0x30` | `SELFTEST_FAIL` | |
 | `0x31` | `TAMPERED` | |
 | `0xFF` | `INTERNAL_ERROR` | |
@@ -754,6 +773,37 @@ hsmtool.py key-info 1
 
 Metadados, nunca chave. Não existe "me devolva o slot inteiro".
 
+E finalmente **usar** a chave — que é o que separa um cofre de um depósito:
+
+```bash
+hsmtool.py encrypt 1 <iv 16 bytes> <dados múltiplos de 16>
+hsmtool.py decrypt 1 <mesmo iv>    <o criptograma>
+```
+
+A chave é referida por **handle**. Compare com o que a Fase 2 fazia: lá a
+chave ia dentro do pedido. Aqui vai um número de gaveta, e o material nunca
+atravessa a linha.
+
+O experimento que fecha o assunto: exporte uma chave, reimporte, e cifre o
+**mesmo bloco com o mesmo IV** usando os dois handles. Os criptogramas têm de
+ser idênticos — é a prova de que a chave voltou bit a bit, e é bem mais forte
+que comparar os três bytes do KCV.
+
+E o negativo, que ensina mais:
+
+```bash
+hsmtool.py gen-key --modo E        # 'E' = só cifrar
+hsmtool.py decrypt <handle> ...    # -> BAD_KEY_USE
+```
+
+**Confusão de tipo de chave** é a origem de uma família inteira de ataques de
+API (seção 15). A defesa é o campo `modo`, e a verificação vive num lugar só
+— dentro do key store, não espalhada pelos comandos.
+
+⚠ Uma distinção que confunde: `exportabilidade='N'` **não** impede usar.
+Impede **sair**. Uma chave que nunca sai e trabalha o dia inteiro é o caso
+mais comum de uma chave bem configurada.
+
 E o comando que desfaz tudo:
 
 ```bash
@@ -780,11 +830,17 @@ que não foi escrito:
   dois botões. A função existe no firmware e não tem comando — é a lacuna
   que só apareceu quando se tentou usar o dispositivo em laço, e não quando
   se planejou a fase.
-- **Não há como USAR uma chave por handle.** Os comandos de AES e HMAC da
-  Fase 2 recebem a chave no pedido e, com LMK carregada, param de responder
-  sozinhos — a máscara de estados deles é `UNINITIALIZED`. As versões que
-  falam por handle ainda não foram escritas, e é por isso que o ida-e-volta
-  é conferido pelo KCV e não usando a chave.
+- **Os comandos da Fase 2 que recebem chave em claro ainda existem**, e
+  respondem em `UNINITIALIZED`. Já há substitutos por handle (`ENCRYPT` e
+  `DECRYPT`), mas os antigos não foram removidos — e enquanto existirem, o
+  critério "a captura da UART não contém nenhum byte de chave em claro" não
+  pode passar. Está registrado como questão em aberto, não como tarefa.
+- **`exportabilidade='S'` é aceito e se comporta como `'E'`.** A "regra mais
+  estrita" que o nome promete não existe. Um campo que o dispositivo não sabe
+  honrar é uma promessa no código.
+- **A exportação não é qualificada.** Aqui o campo é praticamente booleano e
+  a chave que embrulha é sempre a mestra. No modelo comercial se diz sob
+  *qual* chave a exportação pode acontecer, e para qual zona.
 - **Não há log de auditoria.** É transversal, e o `ZEROIZE` é quem mais o
   pede: apagar tudo sem deixar registro de quem pediu e quando é
   exatamente o evento que um log existe para cobrir.

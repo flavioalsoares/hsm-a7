@@ -31,6 +31,8 @@ Cerimonia de LMK (fase 3) -- exige os dois botoes da placa:
     hsmtool.py export-key 1
     hsmtool.py import-key D0144...
     hsmtool.py key-info 1
+    hsmtool.py encrypt 1 <iv hex> <dados hex>
+    hsmtool.py decrypt 1 <iv hex> <dados hex>
     hsmtool.py keycycle --lmk <hex>  # o Python confere o firmware
     hsmtool.py zeroize               # APAGA tudo, irreversivel
 
@@ -95,6 +97,8 @@ CMD_GEN_KEY = 0x22
 CMD_EXPORT_KEY = 0x23
 CMD_IMPORT_KEY = 0x24
 CMD_KEY_INFO = 0x25
+CMD_ENCRYPT = 0x27
+CMD_DECRYPT = 0x28
 CMD_ZEROIZE = 0x2F
 
 LMK_N_COMPONENTES = 3
@@ -125,6 +129,7 @@ STATUS_NAMES = {
     0x21: "NOT_AUTHORIZED",
     0x22: "NOT_EXPORTABLE",
     0x23: "NO_SLOT",
+    0x24: "BAD_KEY_USE",
     0x30: "SELFTEST_FAIL",
     0x31: "TAMPERED",
     0xFF: "INTERNAL_ERROR",
@@ -753,6 +758,35 @@ def cmd_key_info(client, args):
     return 0
 
 
+def _cripto(client, args, op):
+    """ENCRYPT/DECRYPT por handle. A chave nunca aparece aqui."""
+    try:
+        iv = bytes.fromhex(args.iv)
+        dados = bytes.fromhex(args.data)
+    except ValueError:
+        print("iv ou dados nao sao hex validos", file=sys.stderr)
+        return 2
+    if len(iv) != 16:
+        print("iv tem %d bytes, esperado 16" % len(iv), file=sys.stderr)
+        return 2
+    if len(dados) == 0 or len(dados) % 16 != 0:
+        print("dados: %d bytes -- tem de ser multiplo de 16 e nao vazio"
+              % len(dados), file=sys.stderr)
+        return 2
+
+    p = client.command(op, bytes([args.handle]) + iv + dados)
+    print(p.hex().upper())
+    return 0
+
+
+def cmd_encrypt(client, args):
+    return _cripto(client, args, CMD_ENCRYPT)
+
+
+def cmd_decrypt(client, args):
+    return _cripto(client, args, CMD_DECRYPT)
+
+
 def cmd_keycycle(client, args):
     """Gerar -> exportar -> reimportar, com o Python conferindo o C.
 
@@ -1064,6 +1098,13 @@ def main(argv=None):
     p_kinfo = sub.add_parser("key-info", help="metadados de um slot (nunca chave)")
     p_kinfo.add_argument("handle", type=int)
 
+    for nome, ajuda in (("encrypt", "cifra dados com a chave de um slot"),
+                        ("decrypt", "decifra dados com a chave de um slot")):
+        q = sub.add_parser(nome, help=ajuda + " (AES-CBC, IV explicito)")
+        q.add_argument("handle", type=int)
+        q.add_argument("iv", help="16 bytes em hex")
+        q.add_argument("data", help="multiplo de 16 bytes, em hex")
+
     p_kc = sub.add_parser("keycycle",
                           help="gerar/exportar/importar, com o Python conferindo")
     p_kc.add_argument("--lmk", required=True,
@@ -1113,6 +1154,8 @@ def main(argv=None):
         "export-key": cmd_export_key,
         "import-key": cmd_import_key,
         "key-info": cmd_key_info,
+        "encrypt": cmd_encrypt,
+        "decrypt": cmd_decrypt,
         "keycycle": cmd_keycycle,
         "zeroize": cmd_zeroize,
     }

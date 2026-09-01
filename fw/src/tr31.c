@@ -8,6 +8,7 @@
  * cada vez (hsm_cfs.h).
  */
 #include "tr31.h"
+#include "aes_modos.h"
 #include "cmac.h"
 #include "hsm_cfs.h"
 #include "kat_vectors.h"
@@ -30,14 +31,6 @@
 /* ---------------------------------------------------------------------
  * Utilitarios
  * ------------------------------------------------------------------- */
-static void bloco_xor(uint8_t dst[BLK], const uint8_t src[BLK])
-{
-    uint32_t i;
-    for (i = 0u; i < BLK; i++) {
-        dst[i] ^= src[i];
-    }
-}
-
 static char nibble_hex(uint8_t v)
 {
     return (char)((v < 10u) ? (uint8_t)('0' + v) : (uint8_t)('A' + (v - 10u)));
@@ -77,66 +70,6 @@ static int hex_le(const char *src, uint8_t *dst, uint32_t n)
         dst[i] = (uint8_t)((alto << 4) | baixo);
     }
     return 0;
-}
-
-/* ---------------------------------------------------------------------
- * AES-CBC sobre o coprocessador
- *
- * Carrega a chave uma vez e encadeia. `n` e multiplo de BLK e o chamador
- * garante isso -- um CBC que "trata" tamanho invalido silenciosamente e
- * um CBC que processa lixo.
- * ------------------------------------------------------------------- */
-static int cbc(const uint8_t chave[TR31_SUBCHAVE_LEN], const uint8_t iv[BLK],
-               const uint8_t *entrada, uint8_t *saida, uint32_t n, int cifrar)
-{
-    uint8_t  encadeia[BLK], anterior[BLK], tmp[BLK];
-    uint32_t i, j;
-    int      r = 0;
-
-    if (hsm_cfs_aes_key(chave) != 0) {
-        return -1;
-    }
-    for (i = 0u; i < BLK; i++) {
-        encadeia[i] = iv[i];
-    }
-
-    for (i = 0u; i < n; i += BLK) {
-        if (cifrar) {
-            for (j = 0u; j < BLK; j++) {
-                tmp[j] = entrada[i + j];
-            }
-            bloco_xor(tmp, encadeia);
-            if (hsm_cfs_aes_block(tmp, &saida[i], 1) != 0) {
-                r = -1;
-                goto fim;
-            }
-            for (j = 0u; j < BLK; j++) {
-                encadeia[j] = saida[i + j];
-            }
-        } else {
-            /* O criptograma deste bloco e o encadeamento do proximo, e
-             * precisa ser guardado ANTES de decifrar: entrada e saida
-             * podem ser o mesmo buffer. */
-            for (j = 0u; j < BLK; j++) {
-                anterior[j] = entrada[i + j];
-            }
-            if (hsm_cfs_aes_block(&entrada[i], tmp, 0) != 0) {
-                r = -1;
-                goto fim;
-            }
-            bloco_xor(tmp, encadeia);
-            for (j = 0u; j < BLK; j++) {
-                saida[i + j]  = tmp[j];
-                encadeia[j]   = anterior[j];
-            }
-        }
-    }
-
-fim:
-    wipe(encadeia, sizeof encadeia);
-    wipe(anterior, sizeof anterior);
-    wipe(tmp, sizeof tmp);
-    return r;
 }
 
 /* ---------------------------------------------------------------------
@@ -329,7 +262,12 @@ int tr31_embrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
     if (cmac_aes256(kbak, autentica, TR31_CAB_LEN + corpo_n, mac) != 0) {
         goto fim;
     }
-    if (cbc(kbek, mac, corpo, cifrado, corpo_n, 1) != 0) {
+    /* A chave vai para o coprocessador aqui, e nao dentro do aes_cbc():
+     * a funcao de modo nao ve chave nenhuma. */
+    if (hsm_cfs_aes_key(kbek) != 0) {
+        goto fim;
+    }
+    if (aes_cbc(mac, corpo, cifrado, corpo_n, 1) != 0) {
         goto fim;
     }
 
@@ -394,7 +332,10 @@ int tr31_desembrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
     }
 
     /* corpo entra cifrado e sai em claro, no mesmo buffer. */
-    if (cbc(kbek, mac, corpo, corpo, corpo_n, 0) != 0) {
+    if (hsm_cfs_aes_key(kbek) != 0) {
+        goto fim;
+    }
+    if (aes_cbc(mac, corpo, corpo, corpo_n, 0) != 0) {
         goto fim;
     }
 

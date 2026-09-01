@@ -14,6 +14,7 @@
  * "menos coisa que eu nao escrevi" e um objetivo, nao um efeito colateral. */
 #include <neorv32.h>
 
+#include "aes_modos.h"
 #include "cmd.h"
 #include "drbg.h"
 #include "dualctl.h"
@@ -958,6 +959,95 @@ static hsm_status_t h_key_info(const uint8_t *in, uint16_t in_len,
     return STATUS_OK;
 }
 
+/* ENCRYPT / DECRYPT -- usar uma chave guardada.
+ *
+ * Payload: handle(1) || iv(16) || dados (multiplo de 16).
+ * Resposta: dados processados, mesmo comprimento.
+ *
+ * ESTES SAO OS COMANDOS QUE FALTAVAM PARA O DISPOSITIVO SER UM HSM. Ate
+ * eles, o key store sabia guardar, exportar e importar chave, e nao sabia
+ * USA-LA -- um cofre que nao deixa trabalhar com o que guarda e deposito.
+ *
+ * Checklist:
+ *   estados      ST_OPER. Fora dele nao ha slot para referir.
+ *   dual control nao -- e operacao, nao cerimonia.
+ *   vazamento    E UM ORACULO DE CIFRAGEM, e vale ser honesto sobre isso:
+ *                quem tem o handle pode cifrar e decifrar o que quiser
+ *                sob aquela chave, em laco. Nao ha como nao ser -- e
+ *                exatamente o servico que um HSM presta. O que ele NAO
+ *                da e a chave, e e por isso que o handle existe.
+ *
+ *                O controle real nao esta aqui: esta no `modo` do slot,
+ *                que separa cifrar de decifrar, e no log de auditoria,
+ *                que ainda nao existe. A Parte III do manual mostra o que
+ *                se faz com um oraculo desses quando a separacao de uso
+ *                falha.
+ *   exportability nao se aplica -- nada de chave sai. Uma chave marcada
+ *                'N' PODE ser usada aqui, e deve: nao poder sair e
+ *                diferente de nao poder trabalhar.
+ *   log          TODO -- e o comando que mais vai precisar dele.
+ *
+ * A CHAVE NAO PASSA POR AQUI. `keystore_usa_aes()` a carrega no
+ * coprocessador e nao devolve os bytes; `aes_cbc()` nao tem parametro de
+ * chave. Este handler nunca toca material de chave, e nao ha buffer local
+ * onde ele pudesse sobrar.
+ */
+static hsm_status_t h_cripto(const uint8_t *in, uint16_t in_len,
+                             uint8_t *out, uint16_t *out_len, int cifrar)
+{
+    ks_info_t info;
+    uint32_t  n;
+
+    *out_len = 0u;
+
+    /* handle + IV + pelo menos um bloco */
+    if (in_len < (1u + AES_BLOCO + AES_BLOCO)) {
+        return STATUS_BAD_PARAM;
+    }
+    n = (uint32_t)in_len - 1u - AES_BLOCO;
+    if (((n % AES_BLOCO) != 0u) || (n > CMD_CRIPTO_MAX)) {
+        return STATUS_BAD_PARAM;
+    }
+
+    /* Duas checagens, e a ordem separa duas coisas diferentes: "este slot
+     * nao existe" e "existe, mas o modo dele proibe". A segunda e
+     * informacao de politica que o operador precisa; a primeira nao
+     * revela nada que o KEY_INFO ja nao revele. */
+    if (keystore_info(in[0], &info) != 0) {
+        return STATUS_BAD_PARAM;
+    }
+    if (keystore_usa_aes(in[0],
+                         cifrar ? (uint8_t)KS_MODO_CIFRA
+                                : (uint8_t)KS_MODO_DECIFRA) != 0) {
+        return STATUS_BAD_KEY_USE;
+    }
+
+    if (aes_cbc(&in[1], &in[1u + AES_BLOCO], out, n, cifrar) != 0) {
+        wipe(out, n);
+        (void)hsm_cfs_wipe();
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    /* A chave expandida fica no aes_key_mem depois da operacao. Apagar
+     * agora, e nao "na proxima vez que alguem carregar chave". */
+    (void)hsm_cfs_wipe();
+
+    *out_len = (uint16_t)n;
+    return STATUS_OK;
+}
+
+static hsm_status_t h_encrypt(const uint8_t *in, uint16_t in_len,
+                              uint8_t *out, uint16_t *out_len)
+{
+    return h_cripto(in, in_len, out, out_len, 1);
+}
+
+static hsm_status_t h_decrypt(const uint8_t *in, uint16_t in_len,
+                              uint8_t *out, uint16_t *out_len)
+{
+    return h_cripto(in, in_len, out, out_len, 0);
+}
+
 /* ------------------------------------------------------------------ */
 /* Tabela de comandos                                                  */
 /* ------------------------------------------------------------------ */
@@ -1017,6 +1107,11 @@ static const cmd_entry_t g_cmds[] = {
     { CMD_EXPORT_KEY,         ST_OPER,   h_export_key         },
     { CMD_IMPORT_KEY,         ST_OPER,   h_import_key         },
     { CMD_KEY_INFO,           ST_OPER,   h_key_info           },
+
+    /* Usar a chave guardada. O `modo` do slot decide o que cada uma pode
+     * fazer -- e a checagem vive dentro do keystore, num lugar so. */
+    { CMD_ENCRYPT,            ST_OPER,   h_encrypt            },
+    { CMD_DECRYPT,            ST_OPER,   h_decrypt            },
 
     /* ZEROIZE e o UNICO comando permitido em todo estado -- ver o handler.
      * Nao ha estado do qual apagar a chave seja a resposta errada. */

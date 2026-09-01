@@ -140,6 +140,40 @@
  * aparece no header do key store. */
 #define CMD_KEY_INFO            0x25u
 
+/* ---------------------------------------------------------------------
+ * USAR uma chave guardada -- e o que faltava para o dispositivo ser um HSM
+ *
+ * Ate aqui ele sabia GUARDAR, EXPORTAR e IMPORTAR chave, e nao sabia
+ * USA-LA. Um cofre que nao deixa trabalhar com o que guarda nao e cofre,
+ * e deposito.
+ *
+ * A chave e referida por HANDLE. O contraste com os comandos da fase 2 e
+ * o ponto: la a chave vinha no payload, aqui vem um numero de gaveta.
+ *
+ * CBC com IV explicito, e nao ECB de um bloco. ECB para dados e o erro
+ * que a Parte III do manual usa como exemplo -- blocos iguais viram
+ * criptogramas iguais, e a estrutura do texto claro atravessa a cifra.
+ *
+ * O IV vem do host e nao e gerado aqui: uma funcao que puxa entropia por
+ * conta propria e impossivel de testar de forma deterministica. Quem
+ * quiser IV aleatorio pede ao RANDOM.
+ * ------------------------------------------------------------------- */
+
+/*   pedido    handle(1) || iv(16) || dados (multiplo de 16)
+ *   resposta  dados processados, mesmo comprimento
+ *
+ * O `modo` do slot decide: uma chave marcada 'E' (so cifrar) recusa
+ * DECRYPT com STATUS_BAD_KEY_USE. A checagem vive dentro de
+ * `keystore_usa_aes()`, num lugar so -- e a confusao de tipo de chave e a
+ * origem de uma familia inteira de ataques de API. */
+#define CMD_ENCRYPT             0x27u
+#define CMD_DECRYPT             0x28u
+
+/* Maximo de dados por chamada. Cabe no buffer de resposta com folga; para
+ * mais que isso o host encadeia, e encadear e trabalho do host -- o
+ * dispositivo nao guarda estado entre comandos. */
+#define CMD_CRIPTO_MAX    256u
+
 /* Transicao de estado operada por gente. Exige dual control.
  *   pedido    estado_alvo(1)
  *   resposta  estado_atual(1)

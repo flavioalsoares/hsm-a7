@@ -718,6 +718,81 @@ auditoria. **É o recurso que aperta agora**, não o fabric.
 Série da fase: 10 444 (cerimônia) → 12 700 (key block) → 12 860 (zeroize)
 → 13 768 (comandos de chave).
 
+### Usar a chave guardada (`0x27` · `0x28`, `fw/src/aes_modos.c`)
+
+Até aqui o dispositivo sabia **guardar, exportar e importar** chave, e não
+sabia **usá-la**. Um cofre que não deixa trabalhar com o que guarda é um
+depósito.
+
+```
+0x27 ENCRYPT   handle(1) || iv(16) || dados  ->  dados cifrados
+0x28 DECRYPT   handle(1) || iv(16) || dados  ->  dados em claro
+```
+
+#### A função de modo não tem parâmetro de chave
+
+Essa é a decisão que carrega o resto. `aes_cbc()` opera sobre a chave que
+**já está** carregada no coprocessador — não há parâmetro de chave, então
+não há como a função de modo ver material de chave nem deixá-lo num buffer
+esquecido.
+
+Quem carrega é quem tem direito:
+
+| | |
+|---|---|
+| `keystore_usa_aes()` | carrega a chave de um **slot**, e checa o `modo` antes. É o caminho dos comandos de operação |
+| `hsm_cfs_aes_key()` | carrega bytes crus. Só quem já tem os bytes legitimamente — hoje só o `tr31.c`, com as subchaves derivadas da LMK |
+
+Consequência prática: acrescentar um comando que cifra dados **não abriu
+caminho novo para chave**. O comando pede ao key store que carregue, e o key
+store decide. A separação de uso vive num lugar só.
+
+O CBC foi extraído do `tr31.c` para `fw/src/aes_modos.c` no mesmo movimento —
+antes ele recebia a chave e a carregava por conta própria.
+
+#### CBC com IV explícito, não ECB
+
+ECB para dados é o erro que a Parte III do manual usa como exemplo: blocos
+iguais viram criptogramas iguais, e a estrutura do texto claro atravessa a
+cifra intacta. O IV vem de quem chama, pelo mesmo motivo do enchimento do
+key block — uma função que puxa entropia por conta própria é impossível de
+testar de forma determinística.
+
+#### O que o comando é, dito no próprio handler
+
+⚠ **É um oráculo de cifragem.** Quem tem o handle cifra e decifra o que
+quiser sob aquela chave, em laço. **Não há como não ser** — é exatamente o
+serviço que um HSM presta. O que ele não entrega é a chave, e é para isso
+que o handle existe.
+
+O controle real não está no comando: está no `modo` do slot, que separa
+cifrar de decifrar, e no log de auditoria, que ainda não existe.
+
+⚠ **`exportabilidade='N'` não impede usar.** Impede **sair**. Uma chave que
+nunca sai e trabalha o dia inteiro é o caso mais comum de uma chave bem
+configurada — e confundir os dois campos é confundir "não posso levar" com
+"não posso mexer".
+
+#### O critério de aceitação, fechado
+
+```
+[tb_keystore] CRITERIO: gerar -> exportar -> reimportar -> USAR
+[tb_keystore]   os dois handles cifram identico -- e a mesma chave
+[tb_keystore] decifrar devolve o texto claro
+[tb_keystore] chave marcada 'E' recusa decifrar: BAD_KEY_USE
+```
+
+Os dois handles — a chave original e a que voltou do key block — cifram o
+**mesmo bloco com o mesmo IV**, e os criptogramas batem. É mais forte que o
+KCV: **128 bits de evidência contra 24**. O KCV prova que provavelmente é a
+mesma chave; isto prova que é, bit a bit.
+
+#### Custo
+
+**IMEM: 13 768 → 13 984 bytes** (85,4%). Sobram **2 400** para o
+`DELETE_KEY`, a formação por componentes e o log de auditoria — e é
+improvável que os três caibam.
+
 ---
 
 ## O que falta, na ordem
@@ -864,19 +939,58 @@ número de componentes escolhido na hora. O equivalente ao "tipo de chave"
 nós já temos — são os campos `uso`/`modo`/`exportabilidade` do cabeçalho
 X9.143.
 
-### 5. Usar chave por handle
+### 5. Lacunas do controle de exportabilidade
 
-A outra metade do item 3, e ela vale por si mesmo: **não existe forma de
-usar uma chave guardada**. O key store instala, exporta e importa; não há
-comando que diga "cifre isto com o slot 2".
+*Levantadas em 2026-08-31, respondendo "isso existe aqui?". **Ambas
+padrão da categoria; ambas faltam.***
 
-É o que fecha o critério "gerar → exportar → reimportar → **usar em AES**:
-resultado idêntico". Hoje o ida-e-volta é provado pelo KCV, que é forte
-(AES da chave inteira sobre um bloco de zeros) mas não é *usar*.
+O que **existe e funciona**: os três valores da norma (`'E'`, `'N'`, `'S'`)
+no cabeçalho X9.143, um **único** ponto de saída para os bytes
+(`keystore_exporta()`) que consulta o campo, e o campo viajando **dentro do
+MAC** — trocar o caractere da posição 11 mata o bloco. Validado no POST, no
+`tb_keystore` e em hardware (`gen-key --exp N` → `export-key` →
+`NOT_EXPORTABLE`).
 
-`keystore_usa_aes()` já existe e já faz a parte difícil: carrega a chave no
-coprocessador, **não devolve os bytes**, e recusa se o `modo` do slot não
-permitir a operação pedida. Falta só o comando por cima.
+#### 6a. `'S'` é aceito e não significa nada
+
+`KS_EXP_SENSIVEL` aparece **só** nas listas de validação de cabeçalho
+(`header_valido()` em keystore.c, `cab_valido()` em tr31.c). Nenhum código
+trata "sensível" diferente de "exportável": `keystore_exporta()` recusa
+apenas `KS_EXP_NAO`.
+
+Ou seja, o comentário no header — *"sai só sob regra mais estrita"* —
+descreve uma regra que **não existe**. É pior que uma lacuna: é uma
+promessa no código.
+
+Duas saídas honestas, e nenhuma é deixar como está:
+
+1. **Implementar a semântica**, e aí decidir qual é. O que a categoria faz
+   é qualificar a exportação — ver 6b —, então essa decisão não é
+   independente da outra.
+2. **Recusar `'S'` na instalação** enquanto não houver semântica, e dizer
+   por quê. Um campo que o dispositivo não sabe honrar não deve ser
+   aceito: aceitar e ignorar é como uma restrição de uso desaparece.
+
+⚠ A opção 2 tem um custo de interoperabilidade que precisa ser pesado: um
+key block legítimo de outro sistema, com `'S'`, passaria a ser recusado na
+importação.
+
+#### 6b. A exportação não é qualificada
+
+Aqui o campo é praticamente booleano e a KEK é **sempre a LMK**. No modelo
+comercial a exportação é qualificada: sob **qual** KEK, para qual zona, e se
+apenas em key block. É a diferença entre "esta chave pode sair" e "esta
+chave pode sair **para lá**".
+
+Coerente com só existirem 16 slots e uma chave mestra — mas é menos do que o
+padrão oferece, e a diferença aparece no momento em que existir uma segunda
+KEK (uma ZMK, por exemplo, para trocar chave com outra instituição). Nesse
+dia isto deixa de ser lacuna e passa a ser bloqueio.
+
+⚠ **Não confundir com o campo `modo`.** `exportabilidade` impede **sair**;
+`modo` restringe o que a chave pode **fazer**. Uma chave `'N'` pode e deve
+ser usada pelos comandos `ENCRYPT`/`DECRYPT` — não poder sair é diferente de
+não poder trabalhar, e é o caso mais comum de uma chave bem configurada.
 
 ### 6. Log de auditoria
 
@@ -900,9 +1014,10 @@ produto, e nada vem de manual proprietário. Ver `THIRD-PARTY.md`.
 - [x] `LMK_LOAD_COMPONENT` rejeitado sem os dois botões — e também com os
       botões **segurados** desde a autorização anterior, que é o caso que a
       fita adesiva cobriria
-- [~] Gerar chave → exportar → reimportar: **provado pelo KCV**
-      (`tb_keystore`). O "usar em AES" depende dos comandos por handle,
-      que ainda não existem
+- [x] Gerar chave → exportar → reimportar → **usar em AES**: resultado
+      idêntico (`tb_keystore`). Os dois handles cifram o mesmo bloco com o
+      mesmo IV e os criptogramas batem — 128 bits de evidência, contra os
+      24 do KCV. **Falta confirmar em hardware**, o que exige a cerimônia
 - [~] Parser Python e firmware C concordam em 100 blocos aleatórios —
       `hsmtool keycycle`. Fecha na direção **C → Python** (um slot,
       N exportações, enchimento aleatório dá N blocos distintos); na

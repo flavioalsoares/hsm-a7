@@ -75,6 +75,11 @@ Os quatro comandos de chave (`GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`,
 embrulhado, reimportar, e o KCV volta igual. Nenhum deles exige dual
 control -- dual control e para cerimonia, nao para operacao.
 
+E `ENCRYPT`/`DECRYPT` fecham o resto: a chave e referida por **handle**, e
+o material nunca atravessa a linha. Compare com os comandos da fase 2, que
+recebiam a chave dentro do pedido. AES-CBC com IV explicito -- ECB para
+dados e o erro que a Parte III do manual usa como exemplo.
+
 Faltam um `DELETE_KEY` que nao estava previsto (o key store e gravavel 16
 vezes e so o `ZEROIZE` libera), as versoes por handle dos comandos da fase
 2, e o log de auditoria. Ver `doc/fase3-notas.md`.

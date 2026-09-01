@@ -79,7 +79,11 @@ typedef uint8_t ks_handle_t;
 
 #define KS_EXP_SIM      'E'    /* exportável sob KEK        */
 #define KS_EXP_NAO      'N'    /* nunca sai, em hipótese nenhuma */
-#define KS_EXP_SENSIVEL 'S'    /* sensível: sai só sob regra mais estrita */
+/* ⚠ `'S'` é ACEITO e hoje se comporta exatamente como `'E'`. A "regra mais
+ * estrita" que o nome promete NÃO existe: `keystore_exporta()` recusa
+ * apenas `'N'`. Está registrado como lacuna em `doc/fase3-notas.md` §6a —
+ * um campo que o dispositivo não sabe honrar é uma promessa no código. */
+#define KS_EXP_SENSIVEL 'S'    /* sensível -- ver o aviso acima */
 
 /* Metadados de um slot -- tudo menos a chave.
  *
