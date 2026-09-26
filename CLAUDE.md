@@ -377,6 +377,14 @@ estados responde "em que estado", não "quem autoriza". A checagem fica dentro
 do handler, onde pode recusar **sem gastar o rearme** — se a recusa
 consumisse, um host hostil negaria a cerimônia chamando o comando em laço.
 
+⚠ **A cerimônia passa pela mesma porta que o host, e o defeito NÃO é a
+chave viajar em claro.** Num equipamento comercial o console também é uma
+serial comum — o controle é ambiental e procedimental, e este projeto
+assume a mesma premissa: a cerimônia acontece em ambiente controlado. O que
+falta é **console e host em portas separadas**: aqui os componentes passam
+pela máquina do host. Dual control impede *carregar*, não impede
+*observar*. Ver `PLANO.md`, "Aderência antes de variação".
+
 ⚠ **A LMK não sobrevive a um desligamento** (BRAM é volátil, e é o que a
 regra nº 2 pede). Toda sessão de bancada que precise de LMK refaz a
 cerimônia. A persistência é a fase 4, e a ordem é essa de propósito: guardar

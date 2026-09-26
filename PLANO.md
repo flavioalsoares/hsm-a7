@@ -88,6 +88,25 @@ cerimônia de LMK viaja pela mesma UART que tudo o mais. Já está registrado
 como a maior distância deste projeto em relação ao modelo (§4); esta seção
 acrescenta que fechá-la é **aderência**, não melhoria.
 
+⚠ **E o defeito NÃO é a chave viajar em claro.** A porta de console de um
+equipamento comercial é uma serial comum, e os componentes digitados ali
+atravessam o cabo em claro do mesmo jeito. O controle nunca foi
+criptográfico — é **ambiental e procedimental**: sala controlada, acesso
+registrado, dois custodiantes, dual control.
+
+**A premissa deste projeto é a mesma, e fica escrita aqui:** assume-se que a
+cerimônia acontece em ambiente controlado. O dispositivo não sabe se está
+numa sala cofre; quem garante isso é o procedimento.
+
+O que falta, então, é outra coisa: **console e host compartilham a porta e
+a máquina**. Num equipamento comercial o host — a máquina na rede, a que
+pode ser comprometida — fica na outra porta e nunca carrega componente. Aqui
+os componentes passam pelo host.
+
+> O dual control protege contra **carregar** a chave mestra. Não protege
+> contra **observá-la** sendo carregada. Quem protege contra observar é a
+> separação de portas.
+
 ⚠ **Limite de fidelidade, e ele é deliberado.** Mnemônicos, códigos de erro
 e esquemas de LMK de fabricante **não** entram — nem de memória, nem de
 manual proprietário (ver `THIRD-PARTY.md` e a seção acima). Onde a fidelidade

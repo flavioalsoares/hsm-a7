@@ -1148,27 +1148,69 @@ produto, e nada vem de manual proprietário. Ver `THIRD-PARTY.md`.
       metadados, `MAC_VERIFY` devolve um bit. E desde 2026-09-25 nenhum
       comando **aceita** chave em claro, então não há como induzir o
       dispositivo a isso
-- [ ] **Nada entra em claro.** Sobra **um** caminho: o componente de LMK
-      na cerimônia (`LMK_LOAD_COMPONENT`)
+- [x] **Captura durante a OPERAÇÃO não contém byte de chave em claro.**
+      Nenhum comando aceita nem devolve material de chave; a única coisa
+      que atravessa é handle, KCV, key block embrulhado e criptograma
+- [ ] **Console e host em portas separadas.** Hoje os componentes de LMK
+      passam pela mesma porta — e pela mesma máquina — que o host usa. O
+      dual control impede *carregar*; não impede *observar*. É desvio
+      estrutural, não defeito de comando
 
-#### ⚠ Sobre o critério original, que foi desdobrado em 2026-09-26
+#### ⚠ Sobre o critério original, desdobrado em 2026-09-26
 
 O critério dizia: *"captura da UART durante toda a suíte não contém nenhum
-byte de chave em claro"*. Ele **não pode passar como escrito**, e o motivo
-não é um comando mal projetado — é estrutural.
+byte de chave em claro"*. Ele **não pode passar como escrito** — e a
+primeira explicação que eu registrei para isso estava **incompleta**.
 
-**Os componentes da LMK atravessam a UART em claro**, e sempre atravessaram.
-Num equipamento comercial eles entram pelo **console**, com os custodiantes
-presentes, nunca pela porta do host. Aqui só existe **uma interface**, e
-isso está registrado no `PLANO.md` ("Aderência antes de variação") como o
-maior desvio do projeto em relação ao modelo.
+##### A leitura errada, e por que ela era errada
 
-Então remover os comandos com chave em claro — o que foi feito, e era certo
-— fecha **metade** do critério. A outra metade depende da separação
-console/host, que é item de fase posterior.
+Eu escrevi que o problema era os componentes da LMK atravessarem a UART
+**em claro**. Isso trata "material de chave num fio" como defeito em si, e
+não é.
+
+**Num HSM de pagamento comercial a porta de console é uma serial comum**, e
+os componentes digitados ali atravessam o cabo em claro exatamente do mesmo
+jeito. O controle nunca foi criptográfico: é **ambiental e procedimental** —
+sala controlada, acesso registrado, dois custodiantes presentes, dual
+control. Chave em claro num fio só é violação **em relação a um modelo de
+ameaça**, e o modelo daquela porta pressupõe o ambiente.
+
+⚠ **A premissa precisa estar escrita, e é esta:** este projeto assume, como
+o modelo comercial assume, que a cerimônia acontece em ambiente controlado.
+O dispositivo **não sabe** se está numa sala cofre — quem garante isso é o
+procedimento. Um documento que não escreve a premissa deixa o leitor achar
+que o equipamento se defende sozinho.
+
+##### O que de fato falta, e não é o fio
+
+Num equipamento comercial as duas portas são **fisicamente distintas**. O
+host — a máquina na rede, a que pode ser comprometida — fica na *outra*
+porta e **nunca** carrega componente de LMK. O console costuma ser um
+terminal dedicado, não o host de transações.
+
+Aqui é **a mesma porta e a mesma máquina**. E a consequência concreta não é
+o cabo: é que **os componentes passam pelo host**.
+
+Um host comprometido não consegue *carregar* LMK — não aperta os botões, e
+o dual control segura isso. Mas ele **vê** os componentes quando o
+custodiante os digita.
+
+> O dual control protege contra **carregar**. Não protege contra
+> **observar**. Quem protege contra observar é a separação de portas, e é
+> ela que falta.
+
+##### Como o critério fica
+
+Dividido por **fase de operação**, e aí a metade que importa vira testável:
+
+| captura | conteúdo | veredito |
+|---|---|---|
+| durante a **cerimônia** | contém componentes | **esperado** — é tráfego de console, aceitável sob a premissa de ambiente controlado |
+| durante a **operação** | não pode conter byte de chave | **verificável hoje**, e é o que a remoção dos comandos com chave em claro garantiu |
+
+E a lacuna real deixa de ser "chave em claro na UART" e passa a ser
+**"console e host compartilham a porta e a máquina"** — que já está
+registrada como desvio estrutural no `PLANO.md`, agora com a razão certa.
 
 Desdobrar não é abrandar: é parar de tratar como um item o que são duas
-propriedades com causas e prazos diferentes. Marcar o original hoje seria
-esvaziá-lo; deixá-lo aberto sem explicação faria parecer que o trabalho de
-remoção não serviu para nada, quando ele fechou a direção que estava ao
-alcance do firmware.
+propriedades com causas e prazos diferentes.
