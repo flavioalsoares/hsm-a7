@@ -31,6 +31,7 @@ typedef enum {
     STATUS_NOT_EXPORTABLE  = 0x22,  /* exportability do slot proibe */
     STATUS_NO_SLOT         = 0x23,  /* key store cheio */
     STATUS_BAD_KEY_USE     = 0x24,  /* o `modo` do slot proibe a operacao */
+    STATUS_MAC_INVALID     = 0x25,  /* MAC nao confere */
 
     /* Falhas do dispositivo */
     STATUS_SELFTEST_FAIL   = 0x30,

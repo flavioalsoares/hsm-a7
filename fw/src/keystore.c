@@ -4,6 +4,7 @@
  * cabeçalho de keystore.h para as decisões de projeto.
  */
 #include "keystore.h"
+#include "cmac.h"
 #include "hsm_cfs.h"
 #include "tr31.h"
 #include "wipe.h"
@@ -91,8 +92,13 @@ static int header_valido(const uint8_t uso[2], uint8_t algoritmo,
     if (algoritmo != KS_ALG_AES) {
         return 0;
     }
+    /* Sete valores, em dois grupos: cifra (E/D/B) e MAC (G/V/C), mais o
+     * 'N' que não faz nada. Os grupos não se cruzam, e é isso que fecha a
+     * confusão de tipo -- uma chave de cifrar não autentica. */
     if ((modo != KS_MODO_CIFRA) && (modo != KS_MODO_DECIFRA) &&
-        (modo != KS_MODO_AMBOS) && (modo != KS_MODO_NENHUM)) {
+        (modo != KS_MODO_AMBOS) && (modo != KS_MODO_NENHUM) &&
+        (modo != KS_MODO_GERA) && (modo != KS_MODO_VERIFICA) &&
+        (modo != KS_MODO_MAC)) {
         return 0;
     }
     if ((exportabilidade != KS_EXP_SIM) && (exportabilidade != KS_EXP_NAO) &&
@@ -310,6 +316,61 @@ int keystore_usa_aes(ks_handle_t h, uint8_t precisa_modo)
     }
     g_slots[i].contador_uso++;
     return 0;
+}
+
+/* 1 se o `modo` do slot permite a operacao de MAC pedida.
+ *
+ * `precisa` e KS_MODO_GERA ou KS_MODO_VERIFICA. 'C' permite as duas; uma
+ * chave de cifra nao entra aqui de jeito nenhum, porque nenhum valor do
+ * grupo de cifra casa com nenhum do grupo de MAC. */
+static int modo_mac_ok(uint8_t modo, uint8_t precisa)
+{
+    if (modo == KS_MODO_MAC) {
+        return 1;
+    }
+    return (modo == precisa) ? 1 : 0;
+}
+
+int keystore_cmac(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
+                  uint8_t tag[CMAC_TAG_LEN])
+{
+    int i = indice(h);
+
+    if ((i < 0) || (tag == 0)) {
+        return -1;
+    }
+    if (!modo_mac_ok(g_slots[i].modo, KS_MODO_GERA)) {
+        return -1;
+    }
+    if (cmac_aes256(g_slots[i].chave, msg, msg_n, tag) != 0) {
+        return -1;
+    }
+    g_slots[i].contador_uso++;
+
+    /* A chave expandida fica no coprocessador depois do CMAC. Limpar
+     * agora, e nao "na proxima vez que alguem carregar chave". */
+    (void)hsm_cfs_wipe();
+    return 0;
+}
+
+int keystore_cmac_verifica(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
+                           const uint8_t tag[CMAC_TAG_LEN])
+{
+    int i = indice(h);
+    int r;
+
+    if ((i < 0) || (tag == 0)) {
+        return -1;
+    }
+    if (!modo_mac_ok(g_slots[i].modo, KS_MODO_VERIFICA)) {
+        return -1;
+    }
+
+    /* Tempo constante, e DENTRO da fronteira -- ver keystore.h. */
+    r = cmac_aes256_verifica(g_slots[i].chave, msg, msg_n, tag);
+    g_slots[i].contador_uso++;
+    (void)hsm_cfs_wipe();
+    return r;
 }
 
 uint8_t keystore_exporta(ks_handle_t h, uint8_t out[KS_KEY_MAX])

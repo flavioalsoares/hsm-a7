@@ -45,39 +45,28 @@
 /* ---------------------------------------------------------------------
  * Fase 2 -- primitivas
  *
- * ⚠ 0x10 (AES_ENC) e 0x11 (AES_DEC) FORAM REMOVIDOS em 2026-09-01. Os
- * opcodes ficam RESERVADOS: nao reaproveitar, para que um host antigo
- * receba UNKNOWN_CMD em vez de acertar outro comando por acidente.
+ * ⚠ 0x10 (AES_ENC), 0x11 (AES_DEC) e 0x13 (HMAC) FORAM REMOVIDOS. Os
+ * dois primeiros em 2026-09-01, o HMAC em 2026-09-25. Os opcodes ficam
+ * RESERVADOS: nao reaproveitar, para que um host antigo receba
+ * UNKNOWN_CMD em vez de acertar outro comando por acidente.
  *
- * Eles recebiam a CHAVE NO PAYLOAD. O argumento que decidiu nao foi "nao
+ * NENHUM COMANDO DESTE DISPOSITIVO ACEITA MAIS CHAVE EM CLARO.
+ *
+ * Eles recebiam a chave no payload. O argumento que decidiu nao foi "nao
  * podem coexistir com chave de verdade" -- foi que um comando assim faz
  * material de chave ATRAVESSAR A FRONTEIRA na direcao de ENTRADA, e isso
  * e errado em UNINITIALIZED tanto quanto em OPERATIONAL. Defeito que nao
  * e de estado nao se conserta com mascara de estado.
  *
- * E o mensuravel: o criterio de aceitacao da fase 3 e "a captura da UART
- * nao contem nenhum byte de chave em claro". Enquanto existissem, esse
- * criterio nao podia passar.
+ * SUBSTITUTOS, todos escritos ANTES da remocao correspondente:
  *
- * SUBSTITUTOS: 0x27 ENCRYPT e 0x28 DECRYPT fazem a mesma coisa com a
- * chave por HANDLE.
+ *   0x10 / 0x11  ->  0x27 ENCRYPT / 0x28 DECRYPT
+ *   0x13         ->  0x29 MAC_GENERATE / 0x2A MAC_VERIFY
  *
- * ⚠ 0x13 (HMAC) CONTINUA, e continua errado pelo mesmo motivo -- ele
- * tambem recebe a chave no payload. Fica porque NAO HA SUBSTITUTO: sem
- * ele o dispositivo ficaria sem servico de MAC nenhum para o host, e um
- * HSM comercial tem comandos de gerar e verificar MAC. Removê-lo agora
- * afastaria do padrao em vez de aproximar.
- *
- * A regra e "escrever o substituto primeiro e apagar depois". Com o AES
- * ela foi seguida; com o MAC ela e o motivo de o comando ainda estar
- * aqui. O conserto e um 0x29 MAC por handle -- ver doc/fase3-notas.md.
- *
- * ⚠ Enquanto ele existir, o criterio de aceitacao "a captura da UART nao
- * contem nenhum byte de chave em claro" NAO PODE PASSAR. E divida
- * conhecida, com prazo: ate o MAC por handle existir.
+ * ⚠ O que sobra aqui NAO recebe chave: SHA-256 e funcao publica e RANDOM
+ * devolve saida do DRBG.
  * ------------------------------------------------------------------- */
 #define CMD_SHA256        0x12u   /* mensagem                -> 32 bytes  */
-#define CMD_HMAC          0x13u   /* klen(1) || chave || msg -> 32 bytes  */
 #define CMD_RANDOM        0x14u   /* n(2, big-endian)        -> n bytes   */
 #define CMD_SELFTEST      0x15u   /* vazio                   -> 1 byte    */
 
@@ -189,6 +178,48 @@
  * mais que isso o host encadeia, e encadear e trabalho do host -- o
  * dispositivo nao guarda estado entre comandos. */
 #define CMD_CRIPTO_MAX    256u
+
+/* ---------------------------------------------------------------------
+ * MAC por handle -- CMAC-AES-256 (SP 800-38B)
+ *
+ * CMAC e nao HMAC, e a escolha nao e de gosto: os slots guardam chaves
+ * AES (`algoritmo='A'`), e usa-las para HMAC seria a confusao de tipo que
+ * o resto do projeto passa o tempo todo evitando. CMAC e o que a
+ * categoria usa para MAC de dados com chave AES, e ja esta validado
+ * contra o CAVP.
+ *
+ * A CHAVE NAO SAI DO KEYSTORE. `cmac_aes256()` precisa dos bytes, entao
+ * o calculo mora em `keystore_cmac()`, dentro de keystore.c -- mesmo
+ * padrao de `lmk_deriva_kb()`. Um handler que calculasse por conta
+ * propria precisaria de `keystore_exporta()`, e aí uma chave marcada
+ * 'N' nao poderia mais autenticar -- ou `exportabilidade` viraria um
+ * controle sobre USO, que nao e o que ela e.
+ *
+ * MODO DE USO: estes comandos exigem o grupo de MAC ('G', 'V' ou 'C').
+ * Uma chave de cifra ('E'/'D'/'B') e RECUSADA, e vice-versa. Os dois
+ * grupos nao se cruzam -- e e isso que fecha a confusao de tipo.
+ * ------------------------------------------------------------------- */
+
+/*   pedido    handle(1) || mensagem
+ *   resposta  tag(16)
+ * Exige modo 'G' ou 'C'. */
+#define CMD_MAC_GENERATE        0x29u
+
+/*   pedido    handle(1) || tag(16) || mensagem
+ *   resposta  vazio -- o veredito e o STATUS
+ * Exige modo 'V' ou 'C'. Devolve STATUS_MAC_INVALID se nao confere.
+ *
+ * O dispositivo COMPARA e devolve o veredito; ele nao devolve o MAC para
+ * o host comparar. Comparar MAC do lado de fora e um canal lateral: o
+ * tempo de retorno conta quantos bytes bateram, e com isso se forja tag
+ * byte a byte em 16*256 tentativas em vez de 2^128. E por isso que
+ * verificar dentro vale mais que gerar. */
+#define CMD_MAC_VERIFY          0x2Au
+
+/* Maior mensagem por chamada. Cabe no buffer com folga; para mais que
+ * isso o host teria de encadear, e CMAC nao encadeia entre comandos --
+ * o dispositivo nao guarda estado. */
+#define CMD_MAC_MSG_MAX   256u
 
 /* Transicao de estado operada por gente. Exige dual control.
  *   pedido    estado_alvo(1)

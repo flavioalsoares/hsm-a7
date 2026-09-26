@@ -100,9 +100,17 @@ USO_PIN = "P0"
 ALG_AES = "A"
 ALG_3DES = "T"
 
+# Modo de uso -- X9.143, em dois grupos que nao se cruzam: cifra e MAC.
+# Tem de casar com fw/include/keystore.h. Se as duas implementacoes
+# divergirem aqui, um key block legitimo e recusado de um lado e aceito do
+# outro -- que e exatamente o tipo de divergencia que este par existe para
+# pegar.
 MODO_CIFRA = "E"
 MODO_DECIFRA = "D"
 MODO_AMBOS = "B"
+MODO_GERA = "G"
+MODO_VERIFICA = "V"
+MODO_MAC = "C"
 MODO_NENHUM = "N"
 
 EXP_SIM = "E"
@@ -249,7 +257,8 @@ def _valida_campos(cab):
     """
     if cab["algoritmo"] != ALG_AES:
         raise Tr31Erro(f"algoritmo {cab['algoritmo']!r}: este projeto so faz AES")
-    if cab["modo"] not in (MODO_CIFRA, MODO_DECIFRA, MODO_AMBOS, MODO_NENHUM):
+    if cab["modo"] not in (MODO_CIFRA, MODO_DECIFRA, MODO_AMBOS, MODO_NENHUM,
+                           MODO_GERA, MODO_VERIFICA, MODO_MAC):
         raise Tr31Erro(f"modo de uso {cab['modo']!r} invalido")
     if cab["exportabilidade"] not in (EXP_SIM, EXP_NAO, EXP_SENSIVEL):
         raise Tr31Erro(f"exportabilidade {cab['exportabilidade']!r} invalida")

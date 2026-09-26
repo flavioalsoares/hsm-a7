@@ -138,10 +138,18 @@ static int cab_valido(const tr31_cab_t *cab)
          * seria produzir um bloco que promete 3DES a quem for importar. */
         return 0;
     }
+    /* Os sete modos de uso da X9.143, em dois grupos: cifra (E/D/B) e
+     * MAC (G/V/C), mais 'N'. Tem de casar com `header_valido()` do
+     * keystore -- se um aceitar e o outro nao, um key block legitimo
+     * atravessa a importacao e para na instalacao, com o erro apontando
+     * para o lugar errado. */
     if (cab->modo != (uint8_t)KS_MODO_CIFRA &&
         cab->modo != (uint8_t)KS_MODO_DECIFRA &&
         cab->modo != (uint8_t)KS_MODO_AMBOS &&
-        cab->modo != (uint8_t)KS_MODO_NENHUM) {
+        cab->modo != (uint8_t)KS_MODO_NENHUM &&
+        cab->modo != (uint8_t)KS_MODO_GERA &&
+        cab->modo != (uint8_t)KS_MODO_VERIFICA &&
+        cab->modo != (uint8_t)KS_MODO_MAC) {
         return 0;
     }
     if (cab->exportabilidade != (uint8_t)KS_EXP_SIM &&

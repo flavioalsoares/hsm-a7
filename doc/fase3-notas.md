@@ -5,9 +5,15 @@ projeto — a partir daqui o dispositivo deixa de ser uma caixa de primitivas
 e passa a guardar chave.
 
 Estado: **em andamento.** CMAC, key store, a cerimônia de LMK, o key block
-X9.143, o zeroize e os comandos de chave `0x22`–`0x25` prontos. Faltam um
-`DELETE_KEY` que não estava previsto, as versões por handle dos comandos da
-fase 2, e o log de auditoria.
+X9.143, o zeroize, os comandos de chave `0x22`–`0x25`, o uso por handle
+(`0x27`/`0x28`) e o MAC por handle (`0x29`/`0x2A`) prontos.
+
+⚠ **Nenhum comando deste dispositivo aceita mais chave em claro** — os três
+da fase 2 que aceitavam foram removidos, cada um depois de o substituto
+existir.
+
+Faltam um `DELETE_KEY` que não estava previsto, a formação de chave por
+componentes, e o log de auditoria.
 
 ---
 
@@ -830,6 +836,110 @@ dois.
 A série completa: 13 768 (comandos de chave) → 13 984 (usar por handle) →
 13 724 (remoção do AES em claro) → 13 816 (o `HMAC` de volta).
 
+### MAC por handle (`0x29` · `0x2A`), e o fim da chave em claro
+
+O último comando que aceitava **chave no payload** era o `HMAC` (`0x13`).
+Ele só pôde sair depois que o substituto existiu — a regra de sempre,
+"escrever o substituto primeiro e apagar depois".
+
+```
+0x29 MAC_GENERATE   handle(1) || mensagem       -> tag(16)
+0x2A MAC_VERIFY     handle(1) || tag(16) || msg -> vazio; o veredito é o STATUS
+```
+
+⚠ **Hoje nenhum comando deste dispositivo aceita chave em claro.** É a
+frase que o `cmd.h` passou a poder dizer.
+
+#### CMAC, não HMAC
+
+Os slots guardam chaves **AES** (`algoritmo='A'`); usá-las para HMAC seria
+a confusão de tipo que o resto do projeto passa o tempo todo evitando. CMAC
+é o que a categoria usa para MAC de dados com chave AES, e já estava
+validado contra o CAVP desde a fase 2.
+
+#### Os modos de uso estavam incompletos, e isso era a lacuna de verdade
+
+O keystore aceitava `'E'`/`'D'`/`'B'`/`'N'` — **todos do grupo de cifra**. A
+X9.143 define também `'G'` (gerar MAC), `'V'` (verificar) e `'C'` (ambos).
+Acrescentar os três não foi variação: era aderência que faltava.
+
+E é o que fecha a confusão de tipo **de verdade**:
+
+| grupo | valores | quem aceita |
+|---|---|---|
+| cifra | `E` `D` `B` | `ENCRYPT`/`DECRYPT` |
+| MAC | `G` `V` `C` | `MAC_GENERATE`/`MAC_VERIFY` |
+
+**Os dois grupos não se cruzam.** Uma chave `'B'` não autentica; uma `'C'`
+não cifra. E dentro do grupo de MAC, `'G'` gera e **não** verifica — porque
+gerar e verificar são permissões distintas, e uma chave que só gera não
+deve servir de oráculo de verificação.
+
+⚠ **Os dois parsers de X9.143 mudaram JUNTOS** — `fw/src/tr31.c` e
+`host/tr31.py`. Se só um aceitasse `'C'`, um key block legítimo seria
+recusado de um lado e aceito do outro: exatamente a divergência que o par
+de implementações existe para pegar.
+
+#### A chave não sai do keystore, de novo
+
+`cmac_aes256()` precisa dos bytes, então o cálculo mora em
+`keystore_cmac()` — mesmo padrão de `lmk_deriva_kb()`. Um handler que
+calculasse por conta própria precisaria de `keystore_exporta()`, e aí uma
+chave marcada `'N'` não poderia mais autenticar — ou `exportabilidade`
+viraria um controle sobre **uso**, que não é o que ela é.
+
+#### `MAC_VERIFY` devolve um bit, e é isso que o torna melhor que gerar
+
+O dispositivo compara em **tempo constante, dentro da fronteira**, e
+devolve o veredito no status. Ele não devolve a tag calculada para o host
+comparar — isso entregaria 128 bits em vez de 1, e reintroduziria o canal
+lateral que `cmac_aes256_verifica()` existe para fechar.
+
+⚠ Vazar um bit por chamada é **inerente** ao serviço de verificação, e está
+certo. O valor está em o atacante não conseguir mais que esse bit.
+
+#### Provado em
+
+```
+[tb_keystore] MAC gerado, verificado, e tag trocada recusada
+[tb_keystore] os dois grupos de modo nao se cruzam:
+[tb_keystore]   'C' recusa cifrar, 'B' recusa autenticar
+[tb_keystore] modo 'G': gera, e recusa verificar
+[tb_uart_frame] 0x10/0x11/0x13 -> UNKNOWN_CMD: nenhum comando
+[tb_uart_frame]   deste dispositivo aceita chave em claro
+```
+
+⚠ **Não validado em hardware ainda** — exige a cerimônia, que exige os dois
+botões.
+
+#### As duas dívidas que os próprios testes cobraram
+
+O `tb_uart_frame` guardava duas armadilhas deliberadas, e as duas
+dispararam quando o `HMAC` saiu:
+
+1. um teste que cobrava que o `0x13` **ainda respondesse** — a dívida
+   guardada por teste, para ser impossível esquecê-la;
+2. o teste da propriedade "um comando com chave em claro para de responder
+   sozinho quando existe LMK", cujo sujeito era o `HMAC`.
+
+O primeiro foi apagado junto com a dívida. O segundo também — e não
+consertado, porque era o que a própria nota dele mandava: **não há mais
+nenhum comando que demonstre a propriedade, já que não há mais nenhum
+comando com chave em claro.** Que era o objetivo.
+
+Vale como método: uma reprovação futura que **significa sucesso**, com a
+instrução do que fazer escrita ao lado. Sem isso, alguém veria um `FAIL` e
+o "consertaria" baixando a expectativa.
+
+#### Custo
+
+**IMEM: 13 816 → 14 292 (MAC) → 14 192 (HMAC removido)**, 86,6%. Sobram
+**2 192 bytes** para o `DELETE_KEY`, a formação por componentes e o log de
+auditoria.
+
+Fabric: zero. 7 427 LUTs, 7 495 FF, BRAM 7, WNS +0,247 ns — iguais desde a
+cerimônia de LMK.
+
 ---
 
 ## O que falta, na ordem
@@ -883,47 +993,7 @@ definição óbvia além do caso todo-zero. Recusar só o zero é pouco e dá fa
 sensação de cobertura; recusar mais exige decidir o quê, e critérios de
 chave fraca mal escolhidos já reprovaram chaves boas em sistemas reais.
 
-### 3. Um MAC por handle, para poder remover o `HMAC`
-
-*2026-09-01. **Lacuna de aderência**, com prazo.*
-
-`AES_ENC` (`0x10`) e `AES_DEC` (`0x11`) foram removidos: recebiam a chave
-no payload, e material de chave atravessando a fronteira é errado em todo
-estado — máscara nenhuma conserta um defeito que não é de estado. O
-substituto (`ENCRYPT`/`DECRYPT`, por handle) já existia, então não sobrou
-buraco.
-
-⚠ **`HMAC` (`0x13`) ficou**, e tem exatamente o mesmo defeito. Ele fica
-porque **não há substituto**: removê-lo deixaria o dispositivo sem serviço
-de MAC nenhum para o host, e um HSM de pagamento comercial tem comandos de
-**gerar e verificar MAC**. A remoção pura afastaria do padrão em vez de
-aproximar.
-
-A regra é "escrever o substituto primeiro e apagar depois". Com o AES ela
-foi seguida; com o MAC ela é o motivo de o comando ainda estar lá.
-
-⚠ **Enquanto o `0x13` existir, o critério de aceitação "a captura da UART
-não contém nenhum byte de chave em claro" NÃO PODE PASSAR.** É dívida
-conhecida, com prazo: até o MAC por handle existir. E é a única coisa
-segurando aquele critério.
-
-**O `tb_uart_frame` guarda a dívida**, e essa é a parte que vale copiar
-como método: ele testa que o `0x13` **ainda responde**. No dia em que o
-`0x29 MAC` nascer e o `0x13` for removido, esse teste reprova — e obriga
-quem removeu a vir aqui apagar a dívida junto. Um teste que falha quando a
-dívida é paga vale mais que um comentário que ninguém relê.
-
-Duas escolhas ficam abertas para o comando novo:
-
-- **CMAC-AES ou HMAC-SHA-256?** Os dois existem no firmware. CMAC é o que a
-  categoria usa para MAC de dados com chave AES, e já está validado contra
-  o CAVP. HMAC é o que o comando atual faz.
-- **Gerar e verificar, ou só gerar?** Verificar dentro do dispositivo é o
-  padrão, e é melhor: a comparação em tempo constante fica do lado certo da
-  fronteira. Devolver o MAC para o host comparar reintroduz o canal lateral
-  que o `cmac_aes256_verifica()` existe para fechar.
-
-### 4. Formar chave de trabalho a partir de componentes
+### 3. Formar chave de trabalho a partir de componentes
 
 *Lacuna de aderência levantada em 2026-08-31. **Vai existir**; a fase ainda
 não está decidida.*
@@ -978,7 +1048,7 @@ número de componentes escolhido na hora. O equivalente ao "tipo de chave"
 nós já temos — são os campos `uso`/`modo`/`exportabilidade` do cabeçalho
 X9.143.
 
-### 5. Lacunas do controle de exportabilidade
+### 4. Lacunas do controle de exportabilidade
 
 *Levantadas em 2026-08-31, respondendo "isso existe aqui?". **Ambas
 padrão da categoria; ambas faltam.***
@@ -1031,7 +1101,7 @@ dia isto deixa de ser lacuna e passa a ser bloqueio.
 ser usada pelos comandos `ENCRYPT`/`DECRYPT` — não poder sair é diferente de
 não poder trabalhar, e é o caso mais comum de uma chave bem configurada.
 
-### 6. Log de auditoria
+### 5. Log de auditoria
 
 `fw/src/audit_log.c` e `host/audit.py` continuam placeholders de uma linha.
 O `ZEROIZE` é o comando que mais o pede, e o comentário do handler diz isso.
@@ -1072,12 +1142,33 @@ produto, e nada vem de manual proprietário. Ver `THIRD-PARTY.md`.
       (`keystore_exporta()`), e é ele que consulta o campo
 - [x] `ZEROIZE` apaga, e a prova é independente do firmware — o KCV da
       cerimônia seguinte tem de voltar a bater com o vetor do CAVP
-- [ ] Captura da UART durante a suíte inteira **não contém nenhum byte de
-      chave em claro**
+- [x] **Nada que o dispositivo gere ou guarde sai em claro.** Nenhum
+      comando devolve material de chave: `GEN_KEY` devolve handle e KCV,
+      `EXPORT_KEY` devolve key block embrulhado, `KEY_INFO` devolve
+      metadados, `MAC_VERIFY` devolve um bit. E desde 2026-09-25 nenhum
+      comando **aceita** chave em claro, então não há como induzir o
+      dispositivo a isso
+- [ ] **Nada entra em claro.** Sobra **um** caminho: o componente de LMK
+      na cerimônia (`LMK_LOAD_COMPONENT`)
 
-O último é o que fecha a fase, e é o único que não se prova lendo código.
+#### ⚠ Sobre o critério original, que foi desdobrado em 2026-09-26
 
-⚠ **E hoje há exatamente uma coisa segurando ele: o `HMAC` (`0x13`).** Os
-comandos de AES com chave em claro saíram; o `HMAC` ficou porque não tem
-substituto, e enquanto ele existir a captura vai conter a chave que o
-chamador mandou. Marcar este critério antes disso seria esvaziá-lo. Ver §3.
+O critério dizia: *"captura da UART durante toda a suíte não contém nenhum
+byte de chave em claro"*. Ele **não pode passar como escrito**, e o motivo
+não é um comando mal projetado — é estrutural.
+
+**Os componentes da LMK atravessam a UART em claro**, e sempre atravessaram.
+Num equipamento comercial eles entram pelo **console**, com os custodiantes
+presentes, nunca pela porta do host. Aqui só existe **uma interface**, e
+isso está registrado no `PLANO.md` ("Aderência antes de variação") como o
+maior desvio do projeto em relação ao modelo.
+
+Então remover os comandos com chave em claro — o que foi feito, e era certo
+— fecha **metade** do critério. A outra metade depende da separação
+console/host, que é item de fase posterior.
+
+Desdobrar não é abrandar: é parar de tratar como um item o que são duas
+propriedades com causas e prazos diferentes. Marcar o original hoje seria
+esvaziá-lo; deixá-lo aberto sem explicação faria parecer que o trabalho de
+remoção não serviu para nada, quando ele fechou a direção que estava ao
+alcance do firmware.

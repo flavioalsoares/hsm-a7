@@ -290,7 +290,8 @@ module tb_keystore;
     reg [7:0] bloco2 [0:255];
     integer   bloco_n, bloco2_n;
     reg [7:0] kcv_e [0:2];
-    reg [7:0] h_nao, h_sim, h_imp, h_cifra;
+    reg [7:0] h_nao, h_sim, h_imp, h_cifra, h_mac, h_gera;
+    reg [7:0] tag_a [0:15];
     reg [7:0] ct_a [0:15];
     reg [7:0] ct_b [0:15];
     integer   k, difs;
@@ -516,6 +517,105 @@ module tb_keystore;
             errors = errors + 1;
         end else begin
             $display("[tb_keystore] chave marcada 'E' recusa decifrar: BAD_KEY_USE");
+        end
+
+        // ---- 5d. MAC por handle, e os dois grupos que nao se cruzam --
+        //
+        // Este bloco prova a propriedade que mais importa dos modos de
+        // uso: chave de cifra NAO autentica, e chave de MAC NAO cifra.
+        // Confusao de tipo de chave e a origem de uma familia inteira de
+        // ataques de API, e a defesa vive num lugar so -- dentro do
+        // keystore, nao espalhada pelos handlers.
+        gera_chave("C", "E");            // 'C' = gerar e verificar MAC
+        espera_status("GEN_KEY modo C", 8'h00);
+        h_mac = resp[1];
+
+        req_pl[0] = h_mac;
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + k] = 8'h5A ^ k[7:0];
+        req_plen = 17;
+        send_cmd_pl(8'h29);
+        get_response();
+        espera_status("MAC_GENERATE", 8'h00);
+        if (resp_len !== 17) begin
+            $display("[tb_keystore] FAIL: tag com %0d bytes, esperado 16", resp_len - 1);
+            errors = errors + 1;
+        end
+        for (k = 0; k < 16; k = k + 1) tag_a[k] = resp[1 + k];
+
+        // Verificar dentro do dispositivo: o veredito e o STATUS.
+        req_pl[0] = h_mac;
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + k]      = tag_a[k];
+        for (k = 0; k < 16; k = k + 1) req_pl[17 + k]     = 8'h5A ^ k[7:0];
+        req_plen = 33;
+        send_cmd_pl(8'h2A);
+        get_response();
+        espera_status("MAC_VERIFY correto", 8'h00);
+
+        // Um bit trocado na tag tem de reprovar.
+        req_pl[1] = tag_a[0] ^ 8'h01;
+        req_plen = 33;
+        send_cmd_pl(8'h2A);
+        get_response();
+        if (st !== 8'h25) begin
+            $display("[tb_keystore] FAIL: tag adulterada -> 0x%02h, esperado 0x25", st);
+            errors = errors + 1;
+        end else begin
+            $display("[tb_keystore] MAC gerado, verificado, e tag trocada recusada");
+        end
+
+        // ---- 5e. OS DOIS GRUPOS NAO SE CRUZAM ------------------------
+        //
+        // A chave de MAC ('C') nao cifra, e a chave de cifra ('B') nao
+        // autentica. Cada uma recusa o grupo do outro.
+        req_pl[0] = h_mac;
+        for (k = 0; k < 32; k = k + 1) req_pl[1 + k] = 8'h00;
+        req_plen = 33;
+        send_cmd_pl(8'h27);
+        get_response();
+        if (st !== 8'h24) begin
+            $display("[tb_keystore] FAIL: chave de MAC CIFROU (status 0x%02h)", st);
+            errors = errors + 1;
+        end
+
+        req_pl[0] = h_sim;               // 'B' -- cifra e decifra
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + k] = 8'h00;
+        req_plen = 17;
+        send_cmd_pl(8'h29);
+        get_response();
+        if (st !== 8'h24) begin
+            $display("[tb_keystore] FAIL: chave de cifra AUTENTICOU (status 0x%02h)", st);
+            errors = errors + 1;
+        end else begin
+            $display("[tb_keystore] os dois grupos de modo nao se cruzam:");
+            $display("[tb_keystore]   'C' recusa cifrar, 'B' recusa autenticar");
+        end
+
+        // ---- 5f. 'G' gera e NAO verifica -----------------------------
+        //
+        // O caso fino: dentro do proprio grupo de MAC, gerar e verificar
+        // sao permissoes distintas. Uma chave que so gera nao pode ser
+        // usada como oraculo de verificacao.
+        gera_chave("G", "E");
+        espera_status("GEN_KEY modo G", 8'h00);
+        h_gera = resp[1];
+
+        req_pl[0] = h_gera;
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + k] = 8'h00;
+        req_plen = 17;
+        send_cmd_pl(8'h29);
+        get_response();
+        espera_status("MAC_GENERATE com modo G", 8'h00);
+
+        req_pl[0] = h_gera;
+        for (k = 0; k < 32; k = k + 1) req_pl[1 + k] = 8'h00;
+        req_plen = 33;
+        send_cmd_pl(8'h2A);
+        get_response();
+        if (st !== 8'h24) begin
+            $display("[tb_keystore] FAIL: chave 'G' VERIFICOU (status 0x%02h)", st);
+            errors = errors + 1;
+        end else begin
+            $display("[tb_keystore] modo 'G': gera, e recusa verificar");
         end
 
         // ---- 6. um bit trocado invalida ------------------------------

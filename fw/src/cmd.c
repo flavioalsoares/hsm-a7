@@ -15,6 +15,7 @@
 #include <neorv32.h>
 
 #include "aes_modos.h"
+#include "cmac.h"
 #include "cmd.h"
 #include "drbg.h"
 #include "dualctl.h"
@@ -141,15 +142,12 @@ static hsm_status_t h_get_dna(const uint8_t *in, uint16_t in_len,
 /* ==================================================================== */
 /* Fase 2 -- primitivas                                                 */
 /*                                                                      */
-/* ⚠ AES_ENC (0x10) e AES_DEC (0x11) NAO EXISTEM MAIS. Removidos em     */
-/*    2026-09-01.                                                       */
+/* ⚠ AES_ENC (0x10), AES_DEC (0x11) e HMAC (0x13) NAO EXISTEM MAIS.     */
+/*    Os dois primeiros sairam em 2026-09-01; o HMAC em 2026-09-25,     */
+/*    quando o substituto ficou pronto.                                 */
 /*                                                                      */
-/* ⚠ HMAC (0x13) CONTINUA, e continua ERRADO pelo mesmo motivo. Ele     */
-/*    fica ate existir um MAC por HANDLE que o substitua -- remove-lo   */
-/*    agora deixaria o dispositivo SEM SERVICO DE MAC nenhum, o que     */
-/*    afasta do padrao da categoria em vez de aproximar. A regra e      */
-/*    "escrever o substituto primeiro e apagar depois", e ela vale      */
-/*    aqui. Ver doc/fase3-notas.md.                                     */
+/* NENHUM COMANDO DESTE DISPOSITIVO ACEITA MAIS CHAVE EM CLARO. Essa e  */
+/* a frase que este bloco existe para poder dizer.                      */
 /*                                                                      */
 /* Eles recebiam a CHAVE NO PAYLOAD e rodavam so em UNINITIALIZED. A    */
 /* justificativa antiga era que uma chave em claro nao pode coexistir   */
@@ -165,11 +163,14 @@ static hsm_status_t h_get_dna(const uint8_t *in, uint16_t in_len,
 /* Enquanto existissem, esse criterio nao podia passar -- ou passaria   */
 /* com uma excecao que o esvaziaria.                                    */
 /*                                                                      */
-/* A remocao do AES so foi possivel sem deixar buraco porque 0x27       */
-/* ENCRYPT e 0x28 DECRYPT ja existem: mesma operacao, chave por HANDLE. */
-/* Fazer o substituto primeiro e apagar depois evitou o intervalo em    */
-/* que o dispositivo nao saberia cifrar por caminho nenhum. E e por NAO */
-/* haver esse substituto que o HMAC continua aqui.                      */
+/* Nenhuma das remocoes deixou buraco, porque o substituto veio antes:  */
+/*                                                                      */
+/*   0x10 / 0x11  ->  0x27 ENCRYPT / 0x28 DECRYPT   (chave por handle)  */
+/*   0x13         ->  0x29 MAC_GENERATE / 0x2A MAC_VERIFY               */
+/*                                                                      */
+/* "Escrever o substituto primeiro e apagar depois" nao e cerimonia: e  */
+/* o que impediu que o dispositivo passasse um so instante sem saber    */
+/* cifrar ou sem saber autenticar.                                      */
 /*                                                                      */
 /* Quem quiser primitiva crua para bring-up usa o bitstream de          */
 /* diagnostico (rtl/diag/), que nao e build de producao.                */
@@ -177,7 +178,7 @@ static hsm_status_t h_get_dna(const uint8_t *in, uint16_t in_len,
 /* SHA-256 e RANDOM nao recebem chave -- funcao publica e saida do      */
 /* DRBG -- e rodam em qualquer estado normal sem nada atravessar.       */
 /*                                                                      */
-/* Os opcodes 0x10 e 0x11 ficam RESERVADOS -- ver cmd.h.                */
+/* Os opcodes 0x10, 0x11 e 0x13 ficam RESERVADOS -- ver cmd.h.          */
 /* ==================================================================== */
 
 /* SHA-256 de mensagem inteira.
@@ -194,38 +195,6 @@ static hsm_status_t h_sha256(const uint8_t *in, uint16_t in_len,
     *out_len = 0u;
 
     if (hsm_sha256(in, in_len, out) != 0) {
-        return STATUS_INTERNAL_ERROR;
-    }
-    *out_len = HSM_SHA256_LEN;
-    return STATUS_OK;
-}
-
-/* HMAC-SHA-256.
- *
- * Payload: klen(1) || chave(klen) || mensagem
- *
- * Checklist:
- *   estados      SO ST_UNINIT -- recebe chave em claro
- *   vazamento    oraculo de HMAC sob chave escolhida pelo chamador
- */
-static hsm_status_t h_hmac(const uint8_t *in, uint16_t in_len,
-                           uint8_t *out, uint16_t *out_len)
-{
-    uint16_t klen;
-
-    *out_len = 0u;
-
-    if (in_len < 1u) {
-        return STATUS_BAD_PARAM;
-    }
-    klen = in[0];
-    if ((uint32_t)klen + 1u > (uint32_t)in_len) {
-        return STATUS_BAD_PARAM;
-    }
-
-    if (hsm_hmac_sha256(&in[1], klen,
-                        &in[1u + klen], (uint16_t)(in_len - 1u - klen),
-                        out) != 0) {
         return STATUS_INTERNAL_ERROR;
     }
     *out_len = HSM_SHA256_LEN;
@@ -586,10 +555,10 @@ static hsm_status_t h_lmk_status(const uint8_t *in, uint16_t in_len,
  *   vazamento    devolve o proprio estado, que o GET_VERSION ja da.
  *   exportability nao se aplica.
  *
- * O efeito colateral que este comando tinha -- os comandos da fase 2 com
- * chave em claro sumindo em OPERATIONAL -- deixou de existir junto com
- * eles: foram REMOVIDOS do firmware, e nao apenas restringidos por
- * mascara. Ver o bloco "Fase 2 -- primitivas" acima.
+ * O efeito colateral que este comando tinha -- os comandos com chave em
+ * claro sumindo em OPERATIONAL -- deixou de existir junto com eles: os
+ * tres foram REMOVIDOS, e nao apenas restringidos por mascara. Hoje
+ * nenhum comando do dispositivo aceita chave em claro, em estado nenhum.
  */
 static hsm_status_t h_set_state(const uint8_t *in, uint16_t in_len,
                                 uint8_t *out, uint16_t *out_len)
@@ -1025,6 +994,97 @@ static hsm_status_t h_decrypt(const uint8_t *in, uint16_t in_len,
     return h_cripto(in, in_len, out, out_len, 0);
 }
 
+/* MAC_GENERATE / MAC_VERIFY -- autenticar com a chave guardada.
+ *
+ * MAC_GENERATE  handle(1) || mensagem          -> tag(16)
+ * MAC_VERIFY    handle(1) || tag(16) || msg    -> vazio; o veredito e o
+ *                                                 STATUS
+ * Checklist:
+ *   estados      ST_OPER.
+ *   dual control nao -- e operacao, nao cerimonia.
+ *   vazamento    MAC_GENERATE e um oraculo de MAC sob a chave do slot, e
+ *                MAC_VERIFY e um oraculo de verificacao. Os dois sao o
+ *                servico; nao ha como um HSM autenticar sem oferece-los.
+ *                O que NAO se entrega e a chave.
+ *
+ *                ⚠ MAC_VERIFY vaza UM BIT por chamada (confere ou nao).
+ *                Isso e inerente e esta certo: o valor dele esta em o
+ *                atacante nao conseguir mais que esse bit. Devolver o MAC
+ *                calculado para o host comparar entregaria 128.
+ *   exportability nao se aplica -- nada de chave sai. Uma chave 'N' pode
+ *                e deve autenticar.
+ *   log          TODO.
+ *
+ * MODO DE USO: gerar exige 'G' ou 'C'; verificar exige 'V' ou 'C'. Uma
+ * chave de cifra ('E'/'D'/'B') e recusada com BAD_KEY_USE, e uma chave de
+ * MAC e recusada pelo ENCRYPT do mesmo jeito. Os dois grupos nao se
+ * cruzam, e a checagem vive dentro do keystore -- num lugar so.
+ *
+ * A CHAVE NAO PASSA POR AQUI. `keystore_cmac()` calcula com os bytes que
+ * nao saem de keystore.c. Este handler nunca toca material de chave.
+ */
+static hsm_status_t h_mac_generate(const uint8_t *in, uint16_t in_len,
+                                   uint8_t *out, uint16_t *out_len)
+{
+    ks_info_t info;
+    uint32_t  n;
+
+    *out_len = 0u;
+
+    if (in_len < 1u) {
+        return STATUS_BAD_PARAM;
+    }
+    n = (uint32_t)in_len - 1u;
+    if (n > CMD_MAC_MSG_MAX) {
+        return STATUS_BAD_PARAM;
+    }
+
+    /* Slot inexistente e modo proibido sao coisas diferentes, e o
+     * operador precisa distinguir. Nenhuma das duas revela algo que o
+     * KEY_INFO ja nao revele. */
+    if (keystore_info(in[0], &info) != 0) {
+        return STATUS_BAD_PARAM;
+    }
+    if (keystore_cmac(in[0], (n > 0u) ? &in[1] : 0, n, out) != 0) {
+        return STATUS_BAD_KEY_USE;
+    }
+
+    *out_len = CMAC_TAG_LEN;
+    return STATUS_OK;
+}
+
+static hsm_status_t h_mac_verify(const uint8_t *in, uint16_t in_len,
+                                 uint8_t *out, uint16_t *out_len)
+{
+    ks_info_t info;
+    uint32_t  n;
+    int       r;
+
+    (void)out;
+    *out_len = 0u;
+
+    if (in_len < (1u + CMAC_TAG_LEN)) {
+        return STATUS_BAD_PARAM;
+    }
+    n = (uint32_t)in_len - 1u - CMAC_TAG_LEN;
+    if (n > CMD_MAC_MSG_MAX) {
+        return STATUS_BAD_PARAM;
+    }
+
+    if (keystore_info(in[0], &info) != 0) {
+        return STATUS_BAD_PARAM;
+    }
+
+    r = keystore_cmac_verifica(in[0],
+                               (n > 0u) ? &in[1u + CMAC_TAG_LEN] : 0, n,
+                               &in[1]);
+    if (r < 0) {
+        return STATUS_BAD_KEY_USE;
+    }
+    /* Um bit, e so. Ver o checklist acima. */
+    return (r == 1) ? STATUS_OK : STATUS_MAC_INVALID;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tabela de comandos                                                  */
 /* ------------------------------------------------------------------ */
@@ -1055,12 +1115,6 @@ static const cmd_entry_t g_cmds[] = {
      * foram REMOVIDOS -- ver o bloco de comentario acima. */
     { CMD_SHA256,      ST_NORMAL,               h_sha256      },
     { CMD_RANDOM,      ST_NORMAL,               h_random      },
-
-    /* ⚠ HMAC recebe a chave no payload, e por isso so responde em
-     * UNINITIALIZED. Nao e convencao: e esta mascara. Ele fica ate
-     * existir um MAC por handle -- remove-lo antes deixaria o
-     * dispositivo sem servico de MAC nenhum. */
-    { CMD_HMAC,        ST_UNINIT,               h_hmac        },
 
     /* SELFTEST responde ate em TAMPERED, de proposito. Ver o handler. */
     { CMD_SELFTEST,    ST_NORMAL | ST_TAMPERED, h_selftest    },
@@ -1093,6 +1147,11 @@ static const cmd_entry_t g_cmds[] = {
      * fazer -- e a checagem vive dentro do keystore, num lugar so. */
     { CMD_ENCRYPT,            ST_OPER,   h_encrypt            },
     { CMD_DECRYPT,            ST_OPER,   h_decrypt            },
+
+    /* MAC pela chave guardada. Grupo de modo de uso DIFERENTE do
+     * ENCRYPT/DECRYPT: uma chave de cifra nao autentica, e vice-versa. */
+    { CMD_MAC_GENERATE,       ST_OPER,   h_mac_generate       },
+    { CMD_MAC_VERIFY,         ST_OPER,   h_mac_verify         },
 
     /* ZEROIZE e o UNICO comando permitido em todo estado -- ver o handler.
      * Nao ha estado do qual apagar a chave seja a resposta errada. */

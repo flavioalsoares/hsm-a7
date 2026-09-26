@@ -72,10 +72,20 @@ typedef uint8_t ks_handle_t;
 #define KS_ALG_AES      'A'
 #define KS_ALG_3DES     'T'    /* aceito no header, NÃO implementado aqui */
 
-#define KS_MODO_CIFRA   'E'
-#define KS_MODO_DECIFRA 'D'
-#define KS_MODO_AMBOS   'B'
-#define KS_MODO_NENHUM  'N'
+/* Modo de uso -- X9.143. É ESTE campo que restringe operações, não o
+ * `uso`: `uso` diz que tipo de chave é, `modo` diz o que ela pode fazer.
+ *
+ * A separação entre os dois grupos é o que fecha a confusão de tipo: uma
+ * chave marcada `'B'` (cifra e decifra) NÃO autentica, e uma marcada
+ * `'C'` (MAC) NÃO cifra. Não é convenção — `keystore_usa_aes()` e
+ * `keystore_cmac()` consultam o campo, cada uma exigindo o seu grupo. */
+#define KS_MODO_CIFRA    'E'   /* cifrar                    */
+#define KS_MODO_DECIFRA  'D'   /* decifrar                  */
+#define KS_MODO_AMBOS    'B'   /* cifrar e decifrar         */
+#define KS_MODO_GERA     'G'   /* gerar MAC                 */
+#define KS_MODO_VERIFICA 'V'   /* verificar MAC             */
+#define KS_MODO_MAC      'C'   /* gerar e verificar MAC     */
+#define KS_MODO_NENHUM   'N'   /* nenhuma operação          */
 
 #define KS_EXP_SIM      'E'    /* exportável sob KEK        */
 #define KS_EXP_NAO      'N'    /* nunca sai, em hipótese nenhuma */
@@ -164,6 +174,36 @@ uint8_t keystore_livres(void);
  *
  * Devolve 0 em sucesso. */
 int keystore_usa_aes(ks_handle_t h, uint8_t precisa_modo);
+
+/* MAC sob a chave de um slot -- CMAC-AES-256, SP 800-38B.
+ *
+ * Vive AQUI, e não em `cmd.c`, pelo mesmo motivo de `lmk_deriva_kb()`:
+ * `cmac_aes256()` precisa dos bytes da chave, e os bytes não saem deste
+ * arquivo. Um handler que calculasse o MAC por conta própria precisaria
+ * de `keystore_exporta()` — e aí uma chave marcada `'N'` deixaria de
+ * poder ser usada para MAC, ou pior, `exportabilidade` viraria um
+ * controle sobre USO, que não é o que ela é.
+ *
+ * Exige `modo` do grupo de MAC: gerar precisa de `'G'` ou `'C'`,
+ * verificar precisa de `'V'` ou `'C'`. Uma chave de cifra é recusada —
+ * é a mesma separação que `keystore_usa_aes()` aplica do outro lado.
+ *
+ * Devolve 0 em sucesso. */
+int keystore_cmac(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
+                  uint8_t tag[16]);
+
+/* Verificação em TEMPO CONSTANTE, e dentro da fronteira.
+ *
+ * Devolve 1 se confere, 0 se não, -1 se o slot ou o modo não permitem.
+ *
+ * O dispositivo compara e devolve o veredito; ele NÃO devolve o MAC para
+ * o host comparar. Comparar MAC com `memcmp` do lado de fora é um canal
+ * lateral -- o tempo de retorno conta quantos bytes bateram, e com isso
+ * se forja tag byte a byte em 16·256 tentativas em vez de 2^128. Manter
+ * a comparação aqui é o que torna o comando de verificar melhor que o de
+ * gerar, e não apenas uma conveniência. */
+int keystore_cmac_verifica(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
+                           const uint8_t tag[16]);
 
 /* ÚNICO caminho que devolve material de chave.
  *

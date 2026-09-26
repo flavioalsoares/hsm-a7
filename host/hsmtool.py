@@ -33,6 +33,8 @@ Cerimonia de LMK (fase 3) -- exige os dois botoes da placa:
     hsmtool.py key-info 1
     hsmtool.py encrypt 1 <iv hex> <dados hex>
     hsmtool.py decrypt 1 <iv hex> <dados hex>
+    hsmtool.py mac 2 <mensagem hex>          # chave de modo G ou C
+    hsmtool.py mac-verify 2 <tag> <mensagem>
     hsmtool.py keycycle --lmk <hex>  # o Python confere o firmware
     hsmtool.py zeroize               # APAGA tudo, irreversivel
 
@@ -81,11 +83,9 @@ CMD_GET_DNA = 0x03
 # 2026-09-01: recebiam a chave no payload, e material de chave nao pode
 # atravessar a fronteira em direcao nenhuma. Substitutos: `encrypt` e
 # `decrypt`, por handle.
-#
-# ⚠ `hmac` (0x13) CONTINUA, e continua errado pelo mesmo motivo. Fica ate
-# existir um MAC por handle -- sem ele o dispositivo nao teria servico de
-# MAC nenhum. Ver doc/fase3-notas.md.
-CMD_HMAC = 0x13
+# 0x13 (HMAC) saiu em 2026-09-25, quando o substituto ficou pronto:
+# `mac` e `mac-verify`, com a chave por handle. NENHUM COMANDO DESTE
+# DISPOSITIVO ACEITA MAIS CHAVE EM CLARO.
 CMD_SHA256 = 0x12
 CMD_RANDOM = 0x14
 CMD_SELFTEST = 0x15
@@ -105,6 +105,8 @@ CMD_IMPORT_KEY = 0x24
 CMD_KEY_INFO = 0x25
 CMD_ENCRYPT = 0x27
 CMD_DECRYPT = 0x28
+CMD_MAC_GENERATE = 0x29
+CMD_MAC_VERIFY = 0x2A
 CMD_ZEROIZE = 0x2F
 
 LMK_N_COMPONENTES = 3
@@ -136,6 +138,7 @@ STATUS_NAMES = {
     0x22: "NOT_EXPORTABLE",
     0x23: "NO_SLOT",
     0x24: "BAD_KEY_USE",
+    0x25: "MAC_INVALID",
     0x30: "SELFTEST_FAIL",
     0x31: "TAMPERED",
     0xFF: "INTERNAL_ERROR",
@@ -470,17 +473,6 @@ def cmd_sha256(client, args):
     return 0
 
 
-def cmd_hmac(client, args):
-    chave = bytes.fromhex(args.key)
-    msg = bytes.fromhex(args.data) if args.data else b""
-    if len(chave) > 255:
-        print("chave maior que 255 bytes nao cabe no formato do payload")
-        return 1
-    p = client.command(CMD_HMAC, bytes([len(chave)]) + chave + msg)
-    print(p.hex())
-    return 0
-
-
 def cmd_random(client, args):
     """Bytes do CTR_DRBG.
 
@@ -681,8 +673,11 @@ USOS = ("B0", "K0", "D0", "M0", "P0")
 def _cab_args(p):
     p.add_argument("--uso", default="D0", choices=USOS,
                    help="uso X9.143 (padrao D0, chave de dados)")
-    p.add_argument("--modo", default="B", choices=("E", "D", "B", "N"),
-                   help="modo de uso (padrao B, cifra e decifra)")
+    # Dois grupos que nao se cruzam: cifra (E/D/B) e MAC (G/V/C).
+    p.add_argument("--modo", default="B",
+                   choices=("E", "D", "B", "G", "V", "C", "N"),
+                   help="modo de uso: E/D/B cifram, G/V/C fazem MAC "
+                        "(padrao B)")
     p.add_argument("--exp", default="E", choices=("E", "N", "S"),
                    help="exportabilidade (padrao E)")
 
@@ -770,6 +765,45 @@ def cmd_encrypt(client, args):
 
 def cmd_decrypt(client, args):
     return _cripto(client, args, CMD_DECRYPT)
+
+
+def cmd_mac(client, args):
+    """CMAC-AES-256 sob a chave de um slot. A chave nunca aparece aqui."""
+    try:
+        msg = bytes.fromhex(args.data)
+    except ValueError:
+        print("mensagem nao e hex valido", file=sys.stderr)
+        return 2
+    p = client.command(CMD_MAC_GENERATE, bytes([args.handle]) + msg)
+    print(p.hex().upper())
+    return 0
+
+
+def cmd_mac_verify(client, args):
+    """Verifica um MAC DENTRO do dispositivo.
+
+    O veredito vem no status, nao no payload -- o dispositivo compara em
+    tempo constante e devolve um bit. Devolver o MAC calculado para o host
+    comparar entregaria 128 bits e reintroduziria o canal lateral.
+    """
+    try:
+        tag = bytes.fromhex(args.tag)
+        msg = bytes.fromhex(args.data)
+    except ValueError:
+        print("tag ou mensagem nao sao hex validos", file=sys.stderr)
+        return 2
+    if len(tag) != 16:
+        print("tag tem %d bytes, esperado 16" % len(tag), file=sys.stderr)
+        return 2
+    try:
+        client.command(CMD_MAC_VERIFY, bytes([args.handle]) + tag + msg)
+    except HsmError as e:
+        if e.status == 0x25:
+            print("MAC INVALIDO")
+            return 1
+        raise
+    print("MAC confere")
+    return 0
 
 
 def cmd_keycycle(client, args):
@@ -1040,10 +1074,6 @@ def main(argv=None):
     p_sha = sub.add_parser("sha256", help="SHA-256 de uma mensagem")
     p_sha.add_argument("data", nargs="?", default="", help="mensagem em hex")
 
-    p_hmac = sub.add_parser("hmac", help="HMAC-SHA-256 (chave no payload)")
-    p_hmac.add_argument("key", help="chave em hex")
-    p_hmac.add_argument("data", nargs="?", default="", help="mensagem em hex")
-
     p_rand = sub.add_parser("random", help="bytes do CTR_DRBG")
     p_rand.add_argument("-n", type=int, default=32, help="quantos bytes")
     p_rand.add_argument("-o", "--out", help="grava num arquivo em vez de imprimir")
@@ -1077,6 +1107,16 @@ def main(argv=None):
 
     p_kinfo = sub.add_parser("key-info", help="metadados de um slot (nunca chave)")
     p_kinfo.add_argument("handle", type=int)
+
+    p_mac = sub.add_parser("mac", help="CMAC-AES-256 com a chave de um slot")
+    p_mac.add_argument("handle", type=int)
+    p_mac.add_argument("data", nargs="?", default="", help="mensagem em hex")
+
+    p_macv = sub.add_parser("mac-verify",
+                            help="verifica um MAC DENTRO do dispositivo")
+    p_macv.add_argument("handle", type=int)
+    p_macv.add_argument("tag", help="16 bytes em hex")
+    p_macv.add_argument("data", nargs="?", default="", help="mensagem em hex")
 
     for nome, ajuda in (("encrypt", "cifra dados com a chave de um slot"),
                         ("decrypt", "decifra dados com a chave de um slot")):
@@ -1123,7 +1163,6 @@ def main(argv=None):
         "raw": cmd_raw,
         "bench": cmd_bench,
         "sha256": cmd_sha256,
-        "hmac": cmd_hmac,
         "random": cmd_random,
         "post": cmd_selftest_dev,
         "lmk-status": cmd_lmk_status,
@@ -1133,6 +1172,8 @@ def main(argv=None):
         "export-key": cmd_export_key,
         "import-key": cmd_import_key,
         "key-info": cmd_key_info,
+        "mac": cmd_mac,
+        "mac-verify": cmd_mac_verify,
         "encrypt": cmd_encrypt,
         "decrypt": cmd_decrypt,
         "keycycle": cmd_keycycle,

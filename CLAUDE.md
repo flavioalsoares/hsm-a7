@@ -159,10 +159,22 @@ todo boot, para sempre.**
 `fw/include/kat_vectors.h` a partir de `vectors/`. **Nunca editar esse
 header à mão** — ele é a única coisa que sustenta a regra nº 5.
 
-⚠ **`AES_ENC`, `AES_DEC` e `HMAC` recebem chave no payload e só respondem em
-`UNINITIALIZED`.** Não é convenção, é a máscara de estados na tabela. Um
-comando que aceita chave em claro não pode coexistir com chave de verdade.
-A fase 3 os **substitui** por versões que falam por handle.
+⚠ **`AES_ENC` (`0x10`), `AES_DEC` (`0x11`) e `HMAC` (`0x13`) FORAM
+REMOVIDOS.** Recebiam a chave no payload — material de chave atravessando a
+fronteira na direção de **entrada**, o que é errado em `UNINITIALIZED`
+tanto quanto em `OPERATIONAL`. Defeito que não é de estado não se conserta
+com máscara de estado.
+
+**Hoje nenhum comando deste dispositivo aceita chave em claro.** Cada
+remoção só aconteceu depois de o substituto existir:
+
+```
+0x10 / 0x11  ->  0x27 ENCRYPT / 0x28 DECRYPT
+0x13         ->  0x29 MAC_GENERATE / 0x2A MAC_VERIFY
+```
+
+Os opcodes ficam **reservados**: não reaproveitar, para que um host antigo
+receba `UNKNOWN_CMD` em vez de acertar outro comando por acidente.
 
 **Fase 3 em andamento.** Prontos:
 
@@ -226,17 +238,16 @@ sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste que
 reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
 disso.
 
-⚠ **IMEM em 13 816 de 16 384 bytes (84,3%).** A folga que resta tem de
-cobrir o `DELETE_KEY`, o MAC por handle, a formação de chave por
-componentes e o log de auditoria. A série: 10 444 (cerimônia) → 12 700
-(key block) → 12 860 (zeroize) → 13 768 (comandos de chave) → 13 984
-(usar por handle) → 13 724 (remoção do AES em claro) → 13 816 (o `HMAC`
-de volta).
+⚠ **IMEM em 14 192 de 16 384 bytes (86,6%).** A folga que resta tem de
+cobrir o `DELETE_KEY`, a formação de chave por componentes e o log de
+auditoria. A série: 10 444 (cerimônia) → 12 700 (key block) → 12 860
+(zeroize) → 13 768 (comandos de chave) → 13 984 (usar por handle) →
+13 816 (AES em claro removido, `HMAC` mantido) → 14 292 (MAC por handle)
+→ 14 192 (`HMAC` removido).
 
-⚠ **Sobram 2 568 bytes** para QUATRO candidatos — `DELETE_KEY`, o MAC por
-handle, a formação de chave por componentes e o log de auditoria. É
-improvável que caibam dois. Essa conta vai ter de ser feita antes, não
-descoberta no fim.
+⚠ **Sobram 2 192 bytes** para três candidatos — `DELETE_KEY`, a formação de
+chave por componentes e o log de auditoria. Essa conta vai ter de ser feita
+antes, não descoberta no fim.
 
 - **Comandos de chave** (`0x22 GEN_KEY` · `0x23 EXPORT_KEY`
   · `0x24 IMPORT_KEY` · `0x25 KEY_INFO`) — os quatro em `ST_OPER`, e
@@ -247,6 +258,27 @@ descoberta no fim.
   exportar → reimportar → **usar em AES**". ✅ **Validado em hardware
   2026-09-25**: os dois handles cifram idêntico, `'E'` recusa decifrar com
   `BAD_KEY_USE`, e `'N'` recusa sair mas cifra normalmente.
+- **MAC por handle** (`0x29 MAC_GENERATE` · `0x2A MAC_VERIFY`) — CMAC-AES,
+  e não HMAC: os slots guardam chaves AES, e usá-las para HMAC seria a
+  confusão de tipo que o projeto inteiro evita. Foi o que permitiu remover
+  o `HMAC` com chave em claro.
+
+⚠ **Os modos de uso da X9.143 estavam INCOMPLETOS, e isso era a lacuna de
+verdade.** O keystore só aceitava `'E'`/`'D'`/`'B'`/`'N'` — todos do grupo
+de cifra. Entraram `'G'` (gerar MAC), `'V'` (verificar) e `'C'` (ambos), que
+são da norma. **Os dois grupos não se cruzam**: `'B'` não autentica, `'C'`
+não cifra, e `'G'` gera mas não verifica. É isso que fecha a confusão de
+tipo de chave, e a checagem vive dentro do keystore — num lugar só.
+
+⚠ **Mexer em modo de uso exige mexer nos DOIS parsers de X9.143** —
+`fw/src/tr31.c` e `host/tr31.py`. Se só um aceitar um valor, um key block
+legítimo é recusado de um lado e aceito do outro.
+
+⚠ **`MAC_VERIFY` devolve UM BIT, no status.** O dispositivo compara em
+tempo constante dentro da fronteira. Devolver a tag calculada para o host
+comparar entregaria 128 bits e reintroduziria o canal lateral que
+`cmac_aes256_verifica()` existe para fechar. Vazar um bit é inerente ao
+serviço de verificação e está certo.
 
 ⚠ **`aes_cbc()` NÃO tem parâmetro de chave** (`fw/src/aes_modos.c`). Ela
 opera sobre a chave já carregada no coprocessador, então não há como a
