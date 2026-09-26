@@ -226,13 +226,17 @@ sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste que
 reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
 disso.
 
-⚠ **IMEM em 13 768 de 16 384 bytes (84,0%).** A folga que resta tem de
-cobrir o `DELETE_KEY`, a formação de chave por componentes e o log de
-auditoria. A série: 10 444 (cerimônia) → 12 700 (key block) → 12 860
-(zeroize) → 13 768 (comandos de chave) → 13 984 (usar por handle).
+⚠ **IMEM em 13 816 de 16 384 bytes (84,3%).** A folga que resta tem de
+cobrir o `DELETE_KEY`, o MAC por handle, a formação de chave por
+componentes e o log de auditoria. A série: 10 444 (cerimônia) → 12 700
+(key block) → 12 860 (zeroize) → 13 768 (comandos de chave) → 13 984
+(usar por handle) → 13 724 (remoção do AES em claro) → 13 816 (o `HMAC`
+de volta).
 
-⚠ **Sobram 2 400 bytes**, e é improvável que os três caibam. Essa conta vai
-ter de ser feita antes, não descoberta no fim.
+⚠ **Sobram 2 568 bytes** para QUATRO candidatos — `DELETE_KEY`, o MAC por
+handle, a formação de chave por componentes e o log de auditoria. É
+improvável que caibam dois. Essa conta vai ter de ser feita antes, não
+descoberta no fim.
 
 - **Comandos de chave** (`0x22 GEN_KEY` · `0x23 EXPORT_KEY`
   · `0x24 IMPORT_KEY` · `0x25 KEY_INFO`) — os quatro em `ST_OPER`, e
@@ -240,7 +244,9 @@ ter de ser feita antes, não descoberta no fim.
   operação. O que os protege é o embrulho e a `exportabilidade`.
 - **Usar a chave guardada** (`0x27 ENCRYPT` · `0x28 DECRYPT`) — AES-CBC com
   IV explícito, chave referida por **handle**. Fecha o critério "gerar →
-  exportar → reimportar → **usar em AES**".
+  exportar → reimportar → **usar em AES**". ✅ **Validado em hardware
+  2026-09-25**: os dois handles cifram idêntico, `'E'` recusa decifrar com
+  `BAD_KEY_USE`, e `'N'` recusa sair mas cifra normalmente.
 
 ⚠ **`aes_cbc()` NÃO tem parâmetro de chave** (`fw/src/aes_modos.c`). Ela
 opera sobre a chave já carregada no coprocessador, então não há como a

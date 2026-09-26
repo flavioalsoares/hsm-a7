@@ -787,11 +787,48 @@ Os dois handles — a chave original e a que voltou do key block — cifram o
 KCV: **128 bits de evidência contra 24**. O KCV prova que provavelmente é a
 mesma chave; isto prova que é, bit a bit.
 
+#### ✅ Validado em hardware, 2026-09-25
+
+A simulação provava o critério; faltava o silício. Sessão completa de
+bancada, com os botões apertados por gente.
+
+```
+KCVs previstos    componentes 749629 · 85053C · 6285D1, LMK 1DED8C
+                  todos calculados no host ANTES de perguntar à placa
+
+gen-key           handle 1, KCV C031D1
+export/import     handle 2, KCV C031D1
+
+encrypt 1         D9F91B5399080DEC363CED65B628C6F9
+encrypt 2         D9F91B5399080DEC363CED65B628C6F9   <- mesmo IV, mesmo bloco
+decrypt 2         00112233445566778899AABBCCDDEEFF
+
+modo 'E'          cifra ok            decifra -> BAD_KEY_USE
+exp  'N'          exporta -> NOT_EXPORTABLE   cifra ok
+
+keycycle -n 100   C -> Python: 100 blocos, 100 distintos
+                  Python -> C: 11 (parou por falta de slot)
+```
+
+⚠ **A linha do `'N'` é a distinção registrada em §5, agora medida.** Uma
+chave marcada `'N'` **recusa sair e cifra normalmente**. Não poder sair é
+diferente de não poder trabalhar — e é o caso mais comum de uma chave bem
+configurada.
+
+⚠ **E o `11 de 100` é o `DELETE_KEY` cobrando de novo**, um a menos que na
+sessão de agosto porque os testes acima gastaram um slot. Cada importação
+come um slot e não há como devolvê-lo. O número muda conforme o que se fez
+antes — é lacuna, não medida estável.
+
 #### Custo
 
-**IMEM: 13 768 → 13 984 bytes** (85,4%). Sobram **2 400** para o
-`DELETE_KEY`, a formação por componentes e o log de auditoria — e é
-improvável que os três caibam.
+**IMEM: 13 768 → 13 816 bytes** (84,3%). Sobram **2 568** para o
+`DELETE_KEY`, o MAC por handle, a formação por componentes e o log de
+auditoria — quatro candidatos para um espaço que provavelmente comporta
+dois.
+
+A série completa: 13 768 (comandos de chave) → 13 984 (usar por handle) →
+13 724 (remoção do AES em claro) → 13 816 (o `HMAC` de volta).
 
 ---
 
@@ -1017,13 +1054,15 @@ produto, e nada vem de manual proprietário. Ver `THIRD-PARTY.md`.
       botões **segurados** desde a autorização anterior, que é o caso que a
       fita adesiva cobriria
 - [x] Gerar chave → exportar → reimportar → **usar em AES**: resultado
-      idêntico (`tb_keystore`). Os dois handles cifram o mesmo bloco com o
-      mesmo IV e os criptogramas batem — 128 bits de evidência, contra os
-      24 do KCV. **Falta confirmar em hardware**, o que exige a cerimônia
+      idêntico. Os dois handles cifram o mesmo bloco com o mesmo IV e os
+      criptogramas batem — 128 bits de evidência, contra os 24 do KCV.
+      Provado em `tb_keystore` e **confirmado em hardware em 2026-09-25**
 - [~] Parser Python e firmware C concordam em 100 blocos aleatórios —
-      `hsmtool keycycle`. Fecha na direção **C → Python** (um slot,
-      N exportações, enchimento aleatório dá N blocos distintos); na
-      direção **Python → C** para em 16, por falta de `DELETE_KEY`
+      `hsmtool keycycle`, rodado em hardware em 2026-08-30 e 2026-09-25.
+      Fecha na direção **C → Python** (um slot, N exportações, e o
+      enchimento aleatório dá N blocos distintos); na direção
+      **Python → C** para quando os slots acabam, por falta de
+      `DELETE_KEY`
 - [x] Alterar 1 bit do header ou do corpo → MAC inválido — provado nas
       112 posições do bloco (`host/test_tr31.py`) e no POST do firmware.
       Falta o "import recusado", que depende do comando
@@ -1037,3 +1076,8 @@ produto, e nada vem de manual proprietário. Ver `THIRD-PARTY.md`.
       chave em claro**
 
 O último é o que fecha a fase, e é o único que não se prova lendo código.
+
+⚠ **E hoje há exatamente uma coisa segurando ele: o `HMAC` (`0x13`).** Os
+comandos de AES com chave em claro saíram; o `HMAC` ficou porque não tem
+substituto, e enquanto ele existir a captura vai conter a chave que o
+chamador mandou. Marcar este critério antes disso seria esvaziá-lo. Ver §3.
