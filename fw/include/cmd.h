@@ -221,6 +221,74 @@
  * o dispositivo nao guarda estado. */
 #define CMD_MAC_MSG_MAX   256u
 
+/* KEY_FROM_COMPONENTS -- monta uma chave de trabalho a partir de partes.
+ *
+ *   pedido    n(1) || total(1) || uso(2) || alg(1) || modo(1) || exp(1)
+ *             || componente(32)                                = 39 bytes
+ *   resposta  kcv_do_componente(3) || carregados(1) || total(1) || handle(1)
+ *
+ * O handle vem ZERO (invalido) enquanto a montagem nao termina. A
+ * resposta tem COMPRIMENTO FIXO de proposito: resposta curta e longa
+ * distinguiveis de fora sao um canal, ainda que estreito.
+ *
+ * E o mesmo split knowledge da cerimonia de LMK, um nivel abaixo -- cada
+ * custodiante entra com a sua parte e ninguem ve a chave inteira. A
+ * diferenca de destino e toda: a LMK fica DENTRO sem handle, a chave de
+ * trabalho vai para um SLOT.
+ *
+ * Checklist:
+ *   estados      ST_OPER. Precisa da LMK, porque a chave montada so vale
+ *                se puder ser embrulhada depois.
+ *   dual control SIM, a cada componente, com aperto NOVO. E cerimonia,
+ *                nao operacao -- a mesma regra do LMK_LOAD_COMPONENT.
+ *   vazamento    o KCV de cada COMPONENTE, nunca o do acumulado. E o que
+ *                permite ao custodiante conferir o dele; o do acumulado
+ *                seria um oraculo sobre a chave em construcao.
+ *   exportability o host escolhe, como no GEN_KEY. O ponto nao e impedir
+ *                que se peca 'E', e que uma vez marcada 'N' a chave nao
+ *                saia.
+ *   log          TODO.
+ *
+ * ⚠ `n == 0` REINICIA a montagem. E como se abandona uma cerimonia
+ * comecada errado, sem precisar de um opcode de cancelar.
+ *
+ * ⚠ O componente atravessa o link em claro, como na cerimonia de LMK --
+ * mesma ressalva, mesma razao: ha uma interface so. Ver PLANO.md,
+ * "Aderencia antes de variacao".
+ */
+#define CMD_KEY_FROM_COMPONENTS 0x2Cu
+
+/* DELETE_KEY -- apaga UM slot.
+ *   pedido    handle(1)
+ *   resposta  livres(1)   -- quantos slots restam livres
+ *
+ * Checklist (doc/fase3-notas.md §1):
+ *   estados      ST_OPER.
+ *   dual control NAO, e a assimetria com o ZEROIZE e deliberada: apagar
+ *                UM slot e reversivel -- o key block daquela chave
+ *                continua existindo fora, e reimportar devolve tudo.
+ *                Apagar TUDO nao e reversivel, e por isso o ZEROIZE pede
+ *                dois dedos e este nao pede.
+ *   vazamento    ver abaixo.
+ *   log          obrigatorio quando o log existir. E um comando
+ *                destrutivo; sem registro, "sumiu uma chave" vira
+ *                arqueologia.
+ *
+ * ⚠ DESVIO DO CHECKLIST ORIGINAL, e vale explicar. Ele dizia que apagar
+ * um handle inexistente e um existente deviam devolver o MESMO codigo,
+ * "senao e um mapa do key store".
+ *
+ * Esse mapa JA EXISTE: o KEY_INFO responde para todo handle de 1 a 16, e
+ * quem esta em OPERATIONAL enumera o store inteiro em dezesseis
+ * comandos. Esconder a distincao aqui nao fecha nada -- e custa ao
+ * operador saber se apagou algo ou digitou o handle errado, num comando
+ * DESTRUTIVO. Entao slot vazio devolve BAD_PARAM.
+ *
+ * A regra que continua valendo e a outra: nao inventar codigo novo para
+ * cada causa. "Handle fora da faixa" e "slot vazio" sao o mesmo
+ * BAD_PARAM, porque a diferenca entre os dois nao ajuda ninguem. */
+#define CMD_DELETE_KEY          0x2Bu
+
 /* Transicao de estado operada por gente. Exige dual control.
  *   pedido    estado_alvo(1)
  *   resposta  estado_atual(1)

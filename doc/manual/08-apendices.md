@@ -186,6 +186,10 @@ deliberada: sem ele, um dispositivo que reprovou no boot ficaria mudo sobre
 | `0x26` | `SET_STATE` | estado alvo(1) | estado atual(1) |
 | `0x27` | `ENCRYPT` | handle(1) ‖ iv(16) ‖ dados | dados cifrados |
 | `0x28` | `DECRYPT` | handle(1) ‖ iv(16) ‖ dados | dados em claro |
+| `0x29` | `MAC_GENERATE` | handle(1) ‖ mensagem | tag(16) |
+| `0x2A` | `MAC_VERIFY` | handle(1) ‖ tag(16) ‖ mensagem | vazio — o veredito é o status |
+| `0x2B` | `DELETE_KEY` | handle(1) | slots livres(1) |
+| `0x2C` | `KEY_FROM_COMPONENTS` | n(1) ‖ total(1) ‖ uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) ‖ componente(32) | kcv(3) ‖ carregados(1) ‖ total(1) ‖ handle(1) |
 | `0x2F` | `ZEROIZE` | vazio | estado atual(1) |
 
 **Estados em que cada um responde.** Não é convenção — é uma máscara na
@@ -195,7 +199,7 @@ tabela de comandos, e é ela que faz a cerimônia ser uma escada de uma via.
 |---|---|
 | `LMK_LOAD_COMPONENT` | só `UNINITIALIZED` |
 | `SET_STATE` | só `AUTHORIZED` |
-| `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO`, `ENCRYPT`, `DECRYPT` | só `OPERATIONAL` |
+| `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO`, `ENCRYPT`, `DECRYPT`, `MAC_GENERATE`, `MAC_VERIFY`, `DELETE_KEY`, `KEY_FROM_COMPONENTS` | só `OPERATIONAL` |
 | `LMK_STATUS` | os três normais |
 | `ZEROIZE` | **todos**, `TAMPERED` inclusive |
 
@@ -207,8 +211,8 @@ Nenhum degrau se repete, e não há como descer sem apagar.
 
 | | |
 |---|---|
-| exigem | `LMK_LOAD_COMPONENT`, `SET_STATE`, `ZEROIZE` |
-| não exigem | `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO`, `ENCRYPT`, `DECRYPT` |
+| exigem | `LMK_LOAD_COMPONENT`, `SET_STATE`, `ZEROIZE`, `KEY_FROM_COMPONENTS` |
+| não exigem | `GEN_KEY`, `EXPORT_KEY`, `IMPORT_KEY`, `KEY_INFO`, `ENCRYPT`, `DECRYPT`, `MAC_GENERATE`, `MAC_VERIFY`, `DELETE_KEY` |
 
 Dual control é para **cerimônia**, não para operação. Carregar a chave
 mestra, ativar o dispositivo e apagar tudo são eventos raros, com gente na
@@ -261,6 +265,29 @@ sobreviver ao comprometimento.
   decifra o que quiser sob aquela chave, em laço. Não há como não ser — é o
   serviço que um HSM presta. O que ele não entrega é a chave, e é para isso
   que o handle existe. O controle real está no `modo` e no log de auditoria.
+- **`MAC_GENERATE` / `MAC_VERIFY`** — CMAC-AES sob a chave de um slot. Os
+  modos de uso se dividem em **dois grupos que não se cruzam**: `E`/`D`/`B`
+  cifram, `G`/`V`/`C` autenticam. Uma chave de cifra não assina, e uma de
+  MAC não cifra — é assim que a confusão de tipo de chave se fecha.
+
+  ⚠ **`MAC_VERIFY` devolve um bit**, no status. O dispositivo compara em
+  tempo constante, do lado de dentro. Devolver a tag calculada para quem
+  perguntou comparar entregaria 128 bits em vez de 1, e reabriria o canal
+  lateral de tempo que a comparação interna existe para fechar.
+- **`DELETE_KEY`** — apaga **um** slot, e **não pede dual control**. A
+  assimetria com o `ZEROIZE` é deliberada: apagar um é reversível, porque o
+  key block daquela chave continua existindo fora do equipamento. Apagar
+  tudo não é.
+- **`KEY_FROM_COMPONENTS`** — a cerimônia da chave mestra aplicada a uma
+  chave de trabalho: cada custodiante entra com a sua parte, ninguém vê a
+  chave inteira, e o equipamento monta por XOR do lado de dentro.
+
+  **É o único comando de operação que exige dual control**, e por isso: é
+  cerimônia, não operação. Aperto novo a cada componente.
+
+  O KCV que volta é o **do componente**, nunca o do acumulado — é o que
+  permite ao custodiante conferir que digitou o dele. E a resposta tem
+  comprimento fixo, com handle zero enquanto a montagem não termina.
 
 O `0x20` e o `0x26` exigem **dual control**: os dois botões pressionados no
 instante em que o frame chega, e um aperto *novo* a cada autorização (seção
@@ -288,6 +315,7 @@ tamanho do frame não anuncie nada.
 | `0x22` | `NOT_EXPORTABLE` | exportabilidade do slot proíbe |
 | `0x23` | `NO_SLOT` | key store cheio |
 | `0x24` | `BAD_KEY_USE` | o `modo` do slot proíbe a operação |
+| `0x25` | `MAC_INVALID` | o MAC não confere |
 | `0x30` | `SELFTEST_FAIL` | |
 | `0x31` | `TAMPERED` | |
 | `0xFF` | `INTERNAL_ERROR` | |
@@ -804,6 +832,69 @@ API (seção 15). A defesa é o campo `modo`, e a verificação vive num lugar s
 Impede **sair**. Uma chave que nunca sai e trabalha o dia inteiro é o caso
 mais comum de uma chave bem configurada.
 
+E autenticar, que é o outro serviço:
+
+```bash
+hsmtool.py gen-key --uso M0 --modo C --exp E   # 'C' = gerar e verificar MAC
+hsmtool.py mac 5 <mensagem hex>
+hsmtool.py mac-verify 5 <tag> <mensagem>       # "MAC confere"
+```
+
+O veredito vem do **status**, não do payload: o equipamento compara e diz
+sim ou não. Devolver a tag calculada para você comparar entregaria 128 bits
+em vez de um, e é o tipo de conveniência que abre canal lateral.
+
+E repare no `--modo C`. Os modos se dividem em **dois grupos que não se
+cruzam**:
+
+| grupo | valores | o que faz |
+|---|---|---|
+| cifra | `E` `D` `B` | `encrypt` / `decrypt` |
+| MAC | `G` `V` `C` | `mac` / `mac-verify` |
+
+Tente `mac` numa chave `--modo B` e veja `BAD_KEY_USE`. Tente `encrypt`
+numa `--modo C` e veja o mesmo. Essa separação não é burocracia de campo —
+é a defesa contra **confusão de tipo de chave**, que é a origem de uma
+família inteira de ataques de API (seção 15).
+
+### E.7 Liberar um slot, e montar uma chave a várias mãos
+
+O key store tem dezesseis slots. Para devolver um:
+
+```bash
+hsmtool.py delete-key 5
+#   apagado. slots livres: 12
+```
+
+**Sem dual control**, ao contrário do `zeroize`. A razão é que apagar um
+slot é **reversível**: se você guardou o key block daquela chave,
+reimportar devolve tudo. Apagar o equipamento inteiro não é reversível, e
+por isso pede duas pessoas.
+
+E a operação que fecha o capítulo — montar uma chave que **ninguém conhece
+inteira**:
+
+```bash
+hsmtool.py comp-load 0 2 --random --uso K0 --modo B --exp E
+hsmtool.py comp-load 1 2 --random --uso K0 --modo B --exp E
+#   handle : 6  <- chave montada e instalada
+```
+
+É a cerimônia da chave mestra aplicada a uma chave de trabalho. Cada
+custodiante entra com a sua parte, sob dual control, e o equipamento
+combina por XOR **do lado de dentro**. É assim que uma chave combinada
+entre duas instituições entra num HSM sem que nenhuma das duas a conheça.
+
+Três detalhes que valem reparar:
+
+- **É o único comando de operação que pede os dois botões.** Os outros são
+  trabalho; este é cerimônia.
+- **O KCV que volta é o do componente**, não o da chave em construção.
+  Serve para o custodiante conferir a parte dele. O do acumulado seria um
+  oráculo sobre a chave que ainda está sendo montada.
+- **Começar pelo componente 0 reinicia a montagem.** É como se abandona uma
+  cerimônia que saiu errada, sem precisar de um comando para isso.
+
 E o comando que desfaz tudo:
 
 ```bash
@@ -815,7 +906,7 @@ apagou. Funciona em qualquer estado — inclusive em `TAMPERED`, e ali ele
 apaga a chave sem tirar o dispositivo de `TAMPERED`: um HSM que se cura de
 tamper não detectou tamper nenhum.
 
-### E.7 O que ainda não existe
+### E.8 O que ainda não existe
 
 Honestidade sobre o estado do projeto, para que ninguém procure um comando
 que não foi escrito:
@@ -825,16 +916,13 @@ que não foi escrito:
   precise de LMK refaz a cerimônia. Persistência é a Fase 4, e a ordem é
   essa de propósito: guardar chave antes de saber embrulhá-la seria guardar
   chave em claro.
-- **Não há como apagar UM slot.** O key store tem 16 e é gravável 16 vezes;
-  depois disso só o `ZEROIZE` libera espaço, e ele apaga tudo e exige os
-  dois botões. A função existe no firmware e não tem comando — é a lacuna
-  que só apareceu quando se tentou usar o dispositivo em laço, e não quando
-  se planejou a fase.
-- **Os comandos da Fase 2 que recebem chave em claro ainda existem**, e
-  respondem em `UNINITIALIZED`. Já há substitutos por handle (`ENCRYPT` e
-  `DECRYPT`), mas os antigos não foram removidos — e enquanto existirem, o
-  critério "a captura da UART não contém nenhum byte de chave em claro" não
-  pode passar. Está registrado como questão em aberto, não como tarefa.
+- **Não há log de auditoria**, e ele foi adiado para a fase seguinte por
+  dois motivos. O primeiro é espaço: a memória de código está em 90% e ele
+  não cabe. O segundo é melhor — **um log que não sobrevive ao desligamento
+  não é log de auditoria**. Ele registra exatamente os eventos que alguém
+  teria interesse em apagar, e um registro volátil some junto com a
+  energia, que é a primeira coisa que se corta. O lugar dele é ao lado da
+  persistência.
 - **`exportabilidade='S'` é aceito e se comporta como `'E'`.** A "regra mais
   estrita" que o nome promete não existe. Um campo que o dispositivo não sabe
   honrar é uma promessa no código.

@@ -292,6 +292,9 @@ module tb_keystore;
     reg [7:0] kcv_e [0:2];
     reg [7:0] h_nao, h_sim, h_imp, h_cifra, h_mac, h_gera;
     reg [7:0] tag_a [0:15];
+    reg [7:0] livres_1;
+    reg [7:0] h_comp;
+    reg [7:0] parte1 [0:31];
     reg [7:0] ct_a [0:15];
     reg [7:0] ct_b [0:15];
     integer   k, difs;
@@ -616,6 +619,153 @@ module tb_keystore;
             errors = errors + 1;
         end else begin
             $display("[tb_keystore] modo 'G': gera, e recusa verificar");
+        end
+
+        // ---- 5g. DELETE_KEY ------------------------------------------
+        //
+        // O opcode que faltava, e que so apareceu ao USAR o dispositivo em
+        // laco -- nao ao planejar a fase. Sem ele o key store e gravavel
+        // 16 vezes e depois so o ZEROIZE libera, que pede os dois botoes.
+        //
+        // Sem dual control, ao contrario do ZEROIZE: apagar UM slot e
+        // reversivel (o key block daquela chave continua existindo fora),
+        // apagar TUDO nao e.
+        req_pl[0] = h_gera; req_plen = 1;
+        send_cmd_pl(8'h2B);
+        get_response();
+        espera_status("DELETE_KEY", 8'h00);
+        if (resp_len !== 2) begin
+            $display("[tb_keystore] FAIL: DELETE_KEY devolveu %0d bytes, esperado 1",
+                     resp_len - 1);
+            errors = errors + 1;
+        end
+        livres_1 = resp[1];
+
+        // O slot morreu: nem KEY_INFO nem operacao encontram mais nada.
+        req_pl[0] = h_gera; req_plen = 1;
+        send_cmd_pl(8'h25);
+        get_response();
+        espera_status("KEY_INFO do slot apagado", 8'h11);
+
+        req_pl[0] = h_gera;
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + k] = 8'h00;
+        req_plen = 17;
+        send_cmd_pl(8'h29);
+        get_response();
+        espera_status("MAC no slot apagado", 8'h11);
+
+        // Apagar de novo: mesmo codigo de handle invalido. A distincao
+        // entre "fora da faixa" e "vazio" nao ajuda ninguem.
+        req_pl[0] = h_gera; req_plen = 1;
+        send_cmd_pl(8'h2B);
+        get_response();
+        espera_status("DELETE_KEY repetido", 8'h11);
+
+        req_pl[0] = 8'd0; req_plen = 1;
+        send_cmd_pl(8'h2B);
+        get_response();
+        espera_status("DELETE_KEY(0)", 8'h11);
+
+        // E o slot VOLTA para o pool -- e o ponto do comando.
+        gera_chave("B", "E");
+        espera_status("GEN_KEY apos apagar", 8'h00);
+        if (resp[1] !== h_gera) begin
+            $display("[tb_keystore] FAIL: o slot apagado nao foi reaproveitado (%0d, esperado %0d)",
+                     resp[1], h_gera);
+            errors = errors + 1;
+        end
+
+        req_pl[0] = resp[1]; req_plen = 1;
+        send_cmd_pl(8'h2B);
+        get_response();
+        if (resp[1] !== livres_1) begin
+            $display("[tb_keystore] FAIL: contagem de livres inconsistente (%0d vs %0d)",
+                     resp[1], livres_1);
+            errors = errors + 1;
+        end else begin
+            $display("[tb_keystore] DELETE_KEY: apaga, o handle morre, e o slot volta");
+        end
+
+        // ---- 5h. Chave de trabalho montada por COMPONENTES -----------
+        //
+        // O mesmo split knowledge da cerimonia de LMK, um nivel abaixo.
+        // E o valor esperado NAO e "o que o firmware devolveu da outra
+        // vez": as duas partes sao escolhidas para que o XOR de
+        // exatamente a chave do ECBKeySbox256, entao o KCV da chave
+        // montada tem de ser 46F2FB -- vetor oficial do NIST.
+        for (k = 0; k < 32; k = k + 1) parte1[k] = lmk[k] ^ comp0[k];
+
+        // Sem botoes: recusa. E cerimonia, nao operacao.
+        soltar();
+        req_pl[0] = 8'd0; req_pl[1] = 8'd2;
+        req_pl[2] = "D"; req_pl[3] = "0"; req_pl[4] = "A";
+        req_pl[5] = "B"; req_pl[6] = "E";
+        for (k = 0; k < 32; k = k + 1) req_pl[7 + k] = comp0[k];
+        req_plen = 39;
+        send_cmd_pl(8'h2C);
+        get_response();
+        espera_status("COMPONENTS sem botoes", 8'h21);
+
+        // Componente 0, com aperto novo.
+        aperto_novo();
+        req_plen = 39;
+        send_cmd_pl(8'h2C);
+        get_response();
+        soltar();
+        espera_status("COMPONENTS 0", 8'h00);
+        if (resp_len !== 7) begin
+            $display("[tb_keystore] FAIL: resposta com %0d bytes, esperado 6",
+                     resp_len - 1);
+            errors = errors + 1;
+        end else if (resp[4] !== 8'd1 || resp[5] !== 8'd2 || resp[6] !== 8'd0) begin
+            $display("[tb_keystore] FAIL: %0d de %0d, handle %0d -- esperado 1 de 2, handle 0",
+                     resp[4], resp[5], resp[6]);
+            errors = errors + 1;
+        end
+
+        // Total inconsistente num n>0: recusa. O firmware nao confia no
+        // host para saber onde a montagem esta.
+        //
+        // ⚠ E a recusa NAO PODE GASTAR O APERTO. Por isso o aperto novo
+        // acontece UMA vez aqui e o proximo comando vem sem soltar: se a
+        // recusa tivesse consumido o rearme, o componente legitimo logo
+        // abaixo reprovaria com NOT_AUTHORIZED. Autorizacao se consome no
+        // que vai acontecer, nao no que vai ser rejeitado.
+        aperto_novo();
+        req_pl[0] = 8'd1; req_pl[1] = 8'd3;
+        req_plen = 39;
+        send_cmd_pl(8'h2C);
+        get_response();
+        espera_status("COMPONENTS total inconsistente", 8'h11);
+
+        // SEM soltar: o mesmo aperto tem de valer, e o acumulado tem de
+        // estar intacto.
+        req_pl[0] = 8'd1; req_pl[1] = 8'd2;
+        for (k = 0; k < 32; k = k + 1) req_pl[7 + k] = parte1[k];
+        req_plen = 39;
+        send_cmd_pl(8'h2C);
+        get_response();
+        soltar();
+        espera_status("COMPONENTS 1", 8'h00);
+
+        if (resp[4] !== 8'd2 || resp[6] === 8'd0) begin
+            $display("[tb_keystore] FAIL: montagem nao completou (%0d de %0d, handle %0d)",
+                     resp[4], resp[5], resp[6]);
+            errors = errors + 1;
+        end else begin
+            h_comp = resp[6];
+            req_pl[0] = h_comp; req_plen = 1;
+            send_cmd_pl(8'h25);
+            get_response();
+            espera_status("KEY_INFO da chave montada", 8'h00);
+            if (resp[7] !== 8'h46 || resp[8] !== 8'hF2 || resp[9] !== 8'hFB) begin
+                $display("[tb_keystore] FAIL: KCV da chave montada = %02h%02h%02h, esperado 46F2FB",
+                         resp[7], resp[8], resp[9]);
+                errors = errors + 1;
+            end else begin
+                $display("[tb_keystore] chave montada por componentes: handle %0d,", h_comp);
+                $display("[tb_keystore]   KCV 46F2FB -- vetor do CAVP, nao auto-referencia");
+            end
         end
 
         // ---- 6. um bit trocado invalida ------------------------------

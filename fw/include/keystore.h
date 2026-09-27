@@ -232,6 +232,60 @@ uint8_t keystore_exporta(ks_handle_t h, uint8_t out[KS_KEY_MAX]);
  * partes -- ele já é perfeito com duas. */
 #define KS_LMK_N_COMPONENTES  3u
 
+/* ---------------------------------------------------------------------
+ * COMPONENTES DE CHAVE DE TRABALHO
+ *
+ * O mesmo split knowledge da cerimônia de LMK, um nível abaixo: cada
+ * custodiante entra com a sua parte, ninguém vê a chave inteira, e o
+ * dispositivo a monta por XOR dentro da fronteira.
+ *
+ * É assim que uma chave combinada entre duas instituições entra num HSM
+ * sem que nenhuma das duas a conheça por completo.
+ *
+ * ⚠ A diferença de DESTINO em relação à LMK é toda:
+ *
+ *     componentes -> XOR -> chave mestra      fica DENTRO, sem handle
+ *     componentes -> XOR -> chave de trabalho vai para um SLOT
+ *
+ * ⚠ E a diferença em relação ao modelo comercial, que vale registrar: lá
+ * o comando devolve a chave **embrulhada sob a LMK**. Aqui ele instala
+ * num slot e devolve **handle + KCV**, como o `GEN_KEY` e o
+ * `IMPORT_KEY` — quem quiser o key block chama `EXPORT_KEY`. A
+ * propriedade que importa é idêntica; o que muda é o formato de saída,
+ * e ele segue o modelo deste dispositivo.
+ * ------------------------------------------------------------------- */
+
+/* Quantos componentes uma chave de trabalho pode ter. Dois é o mínimo que
+ * dá split knowledge; acima de meia dúzia a cerimônia vira logística. */
+#define KS_COMP_MIN   2u
+#define KS_COMP_MAX   9u
+
+/* Acumula um componente. `n` é o índice (0..total-1) e tem de casar com
+ * quantos já entraram — o firmware não confia no host para saber onde
+ * está. `n == 0` REINICIA a montagem, que é como se abandona uma
+ * cerimônia começada errado.
+ *
+ * `kcv` recebe o KCV **do componente**, nunca o do acumulado: é o que
+ * permite ao custodiante conferir que digitou o dele. Sem isso, uma parte
+ * trocada só apareceria no fim, quando já não dá para saber qual.
+ *
+ * Devolve 0 em sucesso. */
+int comp_componente(uint8_t n, uint8_t total, const uint8_t comp[KS_KEY_MAX],
+                    uint8_t kcv[KS_KCV_LEN]);
+
+/* Quantos entraram e quantos foram anunciados. */
+uint8_t comp_carregados(void);
+uint8_t comp_total(void);
+
+/* Instala a chave montada num slot livre e LIMPA o acumulador.
+ *
+ * Só funciona com a montagem completa. Devolve o handle, ou
+ * KS_HANDLE_INVALIDO. Em qualquer desfecho o acumulador é zerado — uma
+ * chave montada que ficasse pendurada seria material de chave esperando
+ * por um comando que talvez não venha. */
+ks_handle_t comp_instala(const uint8_t uso[2], uint8_t algoritmo,
+                         uint8_t modo, uint8_t exportabilidade);
+
 /* Acumula um componente por XOR. Split knowledge: cada custodiante carrega
  * o seu e não vê os demais, e nenhum componente isolado revela nada.
  *

@@ -1085,6 +1085,127 @@ static hsm_status_t h_mac_verify(const uint8_t *in, uint16_t in_len,
     return (r == 1) ? STATUS_OK : STATUS_MAC_INVALID;
 }
 
+/* KEY_FROM_COMPONENTS -- a cerimonia de LMK, um nivel abaixo.
+ *
+ * Payload: n(1)||total(1)||uso(2)||alg(1)||modo(1)||exp(1)||comp(32).
+ * Resposta: kcv(3)||carregados(1)||total(1)||handle(1), comprimento fixo.
+ *
+ * Ver o checklist completo em cmd.h. As duas coisas que decidem a forma
+ * deste handler:
+ *
+ *   1. dual control a CADA componente, como na LMK. E cerimonia, e a
+ *      recusa nao gasta o rearme -- um host hostil nao pode consumir as
+ *      autorizacoes de quem esta na frente da placa.
+ *
+ *   2. o KCV que sai e o do COMPONENTE. O do acumulado seria um oraculo
+ *      sobre a chave em construcao, e nao serviria para o que o KCV
+ *      existe aqui: o custodiante conferir que digitou o dele.
+ *
+ * A ORDEM importa e e a mesma do LMK_LOAD_COMPONENT: forma do payload,
+ * depois parametros, depois dual control, e so entao acumular. Autorizar
+ * antes de validar gastaria o aperto do operador num pedido malformado.
+ */
+static hsm_status_t h_key_from_components(const uint8_t *in, uint16_t in_len,
+                                          uint8_t *out, uint16_t *out_len)
+{
+    uint8_t     kcv[KS_KCV_LEN];
+    ks_handle_t h = KS_HANDLE_INVALIDO;
+    uint8_t     carregados, total;
+    uint8_t     k;
+
+    *out_len = 0u;
+
+    if (in_len != (7u + KS_KEY_MAX)) {
+        return STATUS_BAD_PARAM;
+    }
+    if ((in[1] < KS_COMP_MIN) || (in[1] > KS_COMP_MAX) || (in[0] >= in[1])) {
+        return STATUS_BAD_PARAM;
+    }
+
+    /* ⚠ A SEQUENCIA E VALIDADA ANTES DO DUAL CONTROL, e a ordem e a mesma
+     * do LMK_LOAD_COMPONENT.
+     *
+     * `comp_componente()` tambem recusa fora de ordem -- mas la dentro, e
+     * depois. Se a unica checagem fosse essa, um `n` errado gastaria o
+     * APERTO do custodiante numa requisicao que ia ser recusada de
+     * qualquer jeito. Autorizacao se consome no que vai acontecer, nao no
+     * que vai ser rejeitado.
+     *
+     * `n == 0` sempre passa: e o reinicio. */
+    if ((in[0] != 0u) &&
+        ((in[0] != comp_carregados()) || (in[1] != comp_total()))) {
+        return STATUS_BAD_PARAM;
+    }
+
+    if (!dualctl_autoriza()) {
+        return STATUS_NOT_AUTHORIZED;
+    }
+
+    if (comp_componente(in[0], in[1], &in[7], kcv) != 0) {
+        return STATUS_BAD_PARAM;
+    }
+
+    /* ⚠ LE A CONTAGEM ANTES DE INSTALAR. `comp_instala()` limpa o
+     * acumulador -- de proposito, para nao deixar chave montada pendurada
+     * --, entao consultar depois devolveria "0 de 0" no componente que
+     * completa a montagem. Foi assim que a primeira versao errou, e o
+     * tb_keystore pegou. */
+    carregados = comp_carregados();
+    total      = comp_total();
+
+    /* Completou? Instala. O cabecalho vem do pedido, e
+     * `keystore_instala()` o valida -- um 3DES ou um modo invalido
+     * reprova aqui, com a chave ja montada sendo descartada junto. */
+    if (carregados == total) {
+        h = comp_instala(&in[2], in[4], in[5], in[6]);
+        if (h == KS_HANDLE_INVALIDO) {
+            wipe(kcv, sizeof kcv);
+            return (keystore_livres() == 0u) ? STATUS_NO_SLOT
+                                             : STATUS_BAD_PARAM;
+        }
+    }
+
+    for (k = 0u; k < KS_KCV_LEN; k++) {
+        out[k] = kcv[k];
+    }
+    out[KS_KCV_LEN]      = carregados;
+    out[KS_KCV_LEN + 1u] = total;
+    out[KS_KCV_LEN + 2u] = (uint8_t)h;
+    *out_len = KS_KCV_LEN + 3u;
+
+    wipe(kcv, sizeof kcv);
+    return STATUS_OK;
+}
+
+/* DELETE_KEY -- apaga um slot. Ver o checklist em cmd.h.
+ *
+ * `keystore_apaga()` ja existia e ja era exercitado pelo POST; faltava
+ * so o opcode. Ele SOBRESCREVE a chave, nao marca o slot como livre --
+ * a diferenca entre as duas coisas e a fase 4 inteira.
+ */
+static hsm_status_t h_delete_key(const uint8_t *in, uint16_t in_len,
+                                 uint8_t *out, uint16_t *out_len)
+{
+    *out_len = 0u;
+
+    if (in_len != 1u) {
+        return STATUS_BAD_PARAM;
+    }
+
+    /* Handle fora da faixa e slot vazio: mesmo codigo. A distincao entre
+     * os dois nao ajuda ninguem -- nem o operador, nem quem ataca. */
+    if (keystore_apaga(in[0]) != 0) {
+        return STATUS_BAD_PARAM;
+    }
+
+    /* Quantos sobraram. Nao e segredo -- o KEY_INFO ja permite contar --
+     * e poupa o operador de enumerar dezesseis handles para saber se
+     * ainda cabe alguma coisa. */
+    out[0]   = keystore_livres();
+    *out_len = 1u;
+    return STATUS_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tabela de comandos                                                  */
 /* ------------------------------------------------------------------ */
@@ -1152,6 +1273,16 @@ static const cmd_entry_t g_cmds[] = {
      * ENCRYPT/DECRYPT: uma chave de cifra nao autentica, e vice-versa. */
     { CMD_MAC_GENERATE,       ST_OPER,   h_mac_generate       },
     { CMD_MAC_VERIFY,         ST_OPER,   h_mac_verify         },
+
+    /* Apagar UM slot. Sem dual control, ao contrario do ZEROIZE: apagar
+     * um e reversivel pela reimportacao do key block, apagar tudo nao. */
+    { CMD_DELETE_KEY,         ST_OPER,   h_delete_key         },
+
+    /* Montar chave de trabalho por componentes. Unico comando de ST_OPER
+     * com dual control: e cerimonia, nao operacao. O dual control fica
+     * DENTRO do handler, como nos demais -- a mascara diz "em que
+     * estado", nao "quem autoriza". */
+    { CMD_KEY_FROM_COMPONENTS, ST_OPER,  h_key_from_components },
 
     /* ZEROIZE e o UNICO comando permitido em todo estado -- ver o handler.
      * Nao ha estado do qual apagar a chave seja a resposta errada. */

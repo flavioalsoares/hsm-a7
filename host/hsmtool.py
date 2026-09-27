@@ -31,6 +31,8 @@ Cerimonia de LMK (fase 3) -- exige os dois botoes da placa:
     hsmtool.py export-key 1
     hsmtool.py import-key D0144...
     hsmtool.py key-info 1
+    hsmtool.py delete-key 1          # apaga UM slot, sem botao
+    hsmtool.py comp-load 0 2 --random   # chave por componentes (dual control)
     hsmtool.py encrypt 1 <iv hex> <dados hex>
     hsmtool.py decrypt 1 <iv hex> <dados hex>
     hsmtool.py mac 2 <mensagem hex>          # chave de modo G ou C
@@ -107,6 +109,8 @@ CMD_ENCRYPT = 0x27
 CMD_DECRYPT = 0x28
 CMD_MAC_GENERATE = 0x29
 CMD_MAC_VERIFY = 0x2A
+CMD_DELETE_KEY = 0x2B
+CMD_KEY_FROM_COMPONENTS = 0x2C
 CMD_ZEROIZE = 0x2F
 
 LMK_N_COMPONENTES = 3
@@ -806,6 +810,76 @@ def cmd_mac_verify(client, args):
     return 0
 
 
+def cmd_comp_load(client, args):
+    """Monta uma chave de TRABALHO a partir de componentes.
+
+    E a cerimonia de LMK um nivel abaixo: cada custodiante entra com a sua
+    parte, ninguem ve a chave inteira, e o dispositivo monta por XOR
+    dentro da fronteira. Exige dual control a cada componente.
+
+    ⚠ O componente atravessa o link em claro, como na cerimonia de LMK.
+    Mesma ressalva, mesma razao: ha uma interface so.
+    """
+    if not 0 <= args.n < args.total:
+        print("componente %d fora de 0..%d" % (args.n, args.total - 1),
+              file=sys.stderr)
+        return 2
+
+    if args.random:
+        comp = os.urandom(LMK_KEY_LEN)
+        print("componente %d gerado aqui no host:" % args.n)
+        print("  %s" % comp.hex().upper())
+        print("  Anote. Isto e um brinquedo: material de chave na tela e")
+        print("  exatamente o que um HSM existe para evitar.")
+    else:
+        if not args.key:
+            print("informe o componente em hex, ou use --random",
+                  file=sys.stderr)
+            return 2
+        try:
+            comp = bytes.fromhex(args.key)
+        except ValueError:
+            print("componente nao e hex valido", file=sys.stderr)
+            return 2
+        if len(comp) != LMK_KEY_LEN:
+            print("componente tem %d bytes, esperado %d"
+                  % (len(comp), LMK_KEY_LEN), file=sys.stderr)
+            return 2
+
+    _pede_dual_control("Componente %d de %d de uma chave de trabalho."
+                       % (args.n, args.total))
+
+    pl = (bytes([args.n, args.total])
+          + args.uso.encode("ascii") + b"A"
+          + args.modo.encode("ascii") + args.exp.encode("ascii")
+          + comp)
+    p = client.command(CMD_KEY_FROM_COMPONENTS, pl)
+    if len(p) != KCV_LEN + 3:
+        print("payload inesperado: %r" % p)
+        return 1
+
+    kcv, carregados, total, handle = p[:KCV_LEN], p[KCV_LEN], p[KCV_LEN+1], p[KCV_LEN+2]
+    # O KCV e do COMPONENTE, nao do acumulado: e o que permite ao
+    # custodiante conferir que digitou o dele.
+    print("KCV do componente : %s" % kcv.hex().upper())
+    print("componentes       : %d de %d" % (carregados, total))
+    if handle:
+        print("handle            : %d  <- chave montada e instalada" % handle)
+    else:
+        print("handle            : -- (montagem incompleta)")
+    return 0
+
+
+def cmd_delete_key(client, args):
+    """Apaga um slot. Destrutivo, mas reversivel se voce tiver o key block."""
+    p = client.command(CMD_DELETE_KEY, bytes([args.handle]))
+    if len(p) != 1:
+        print("payload inesperado: %r" % p)
+        return 1
+    print("apagado. slots livres: %d" % p[0])
+    return 0
+
+
 def cmd_keycycle(client, args):
     """Gerar -> exportar -> reimportar, com o Python conferindo o C.
 
@@ -914,10 +988,20 @@ def cmd_keycycle(client, args):
         except HsmError:
             pass
 
+        # Devolve o slot. E o que permite esta direcao chegar aos 100:
+        # sem DELETE_KEY ela parava em ~12, porque cada importacao gastava
+        # um slot e nao havia como devolve-lo.
+        client.command(CMD_DELETE_KEY, bytes([q[0]]))
+
         n_import += 1
 
-    print("Python -> C : %d blocos importados (parou por falta de slot)"
-          % n_import)
+    print("Python -> C : %d blocos importados" % n_import)
+
+    # Devolve tambem o slot da chave que o dispositivo gerou.
+    try:
+        client.command(CMD_DELETE_KEY, bytes([h_dev]))
+    except HsmError:
+        pass
 
     print()
     if falhas:
@@ -925,10 +1009,10 @@ def cmd_keycycle(client, args):
         return 1
     print("keycycle: Python e firmware concordam nas duas direcoes")
     if n_import < args.count:
-        print("  (a direcao Python -> C parou em %d de %d: o key store tem"
+        print("  (a direcao Python -> C parou em %d de %d -- nao deveria,"
               % (n_import, args.count))
-        print("   16 slots e nao ha comando para apagar um."
-              " Ver doc/fase3-notas.md)")
+        print("   com DELETE_KEY. Investigar.)")
+        return 1
     return 0
 
 
@@ -1108,6 +1192,20 @@ def main(argv=None):
     p_kinfo = sub.add_parser("key-info", help="metadados de um slot (nunca chave)")
     p_kinfo.add_argument("handle", type=int)
 
+    p_del = sub.add_parser("delete-key", help="apaga UM slot (sem dual control)")
+    p_del.add_argument("handle", type=int)
+
+    p_cl = sub.add_parser("comp-load",
+                          help="monta chave de trabalho por componentes "
+                               "(dual control a cada um)")
+    p_cl.add_argument("n", type=int, help="indice do componente (0..total-1)")
+    p_cl.add_argument("total", type=int, help="quantos componentes ao todo")
+    p_cl.add_argument("key", nargs="?", default=None,
+                      help="componente: 32 bytes em hex")
+    p_cl.add_argument("--random", action="store_true",
+                      help="gera o componente aqui e imprime (brinquedo)")
+    _cab_args(p_cl)
+
     p_mac = sub.add_parser("mac", help="CMAC-AES-256 com a chave de um slot")
     p_mac.add_argument("handle", type=int)
     p_mac.add_argument("data", nargs="?", default="", help="mensagem em hex")
@@ -1172,6 +1270,8 @@ def main(argv=None):
         "export-key": cmd_export_key,
         "import-key": cmd_import_key,
         "key-info": cmd_key_info,
+        "delete-key": cmd_delete_key,
+        "comp-load": cmd_comp_load,
         "mac": cmd_mac,
         "mac-verify": cmd_mac_verify,
         "encrypt": cmd_encrypt,

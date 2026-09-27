@@ -238,16 +238,20 @@ sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste que
 reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
 disso.
 
-⚠ **IMEM em 14 192 de 16 384 bytes (86,6%).** A folga que resta tem de
-cobrir o `DELETE_KEY`, a formação de chave por componentes e o log de
-auditoria. A série: 10 444 (cerimônia) → 12 700 (key block) → 12 860
+⚠ **IMEM em 14 856 de 16 384 bytes (90,7%), com 1 528 livres.** A conta
+que faltava está feita: **o log de auditoria não cabe**, e foi movido para
+a Fase 4 — onde ele sempre pertenceu tecnicamente, porque um log que não
+sobrevive ao desligamento não é log de auditoria.
+
+A série: 10 444 (cerimônia) → 12 700 (key block) → 12 860
 (zeroize) → 13 768 (comandos de chave) → 13 984 (usar por handle) →
 13 816 (AES em claro removido, `HMAC` mantido) → 14 292 (MAC por handle)
-→ 14 192 (`HMAC` removido).
+→ 14 192 (`HMAC` removido) → 14 276 (`DELETE_KEY`) → 14 856
+(componentes).
 
-⚠ **Sobram 2 192 bytes** para três candidatos — `DELETE_KEY`, a formação de
-chave por componentes e o log de auditoria. Essa conta vai ter de ser feita
-antes, não descoberta no fim.
+⚠ **Sobram 1 528 bytes.** Não há mais candidato de Fase 3 esperando:
+`DELETE_KEY` e a formação por componentes entraram, e o log foi para a
+Fase 4. O que restar de espaço é margem para a Fase 4, não folga.
 
 - **Comandos de chave** (`0x22 GEN_KEY` · `0x23 EXPORT_KEY`
   · `0x24 IMPORT_KEY` · `0x25 KEY_INFO`) — os quatro em `ST_OPER`, e
@@ -262,6 +266,28 @@ antes, não descoberta no fim.
   e não HMAC: os slots guardam chaves AES, e usá-las para HMAC seria a
   confusão de tipo que o projeto inteiro evita. Foi o que permitiu remover
   o `HMAC` com chave em claro.
+- **`DELETE_KEY`** (`0x2B`) — apaga UM slot, **sem dual control**. A
+  assimetria com o `ZEROIZE` é o ponto: apagar um é reversível (o key block
+  daquela chave existe fora), apagar tudo não é. Slot vazio devolve
+  `BAD_PARAM` — o `KEY_INFO` já permite mapear o store, então esconder a
+  distinção não fecharia nada e custaria ao operador saber se apagou algo.
+- **Chave de trabalho por componentes** (`0x2C KEY_FROM_COMPONENTS`) — o
+  split knowledge da cerimônia de LMK, um nível abaixo. **Único comando de
+  `ST_OPER` com dual control**, porque é cerimônia e não operação.
+
+⚠ **O KCV que o `0x2C` devolve é o do COMPONENTE, nunca o do acumulado** —
+é o que permite ao custodiante conferir o dele. E a resposta tem
+comprimento fixo, com `handle = 0` enquanto incompleta: resposta curta e
+longa distinguíveis de fora são um canal.
+
+⚠ **`n == 0` reinicia a montagem** — é como se abandona uma cerimônia
+começada errado, sem opcode de cancelar. `total` inconsistente num `n > 0`
+é recusado **sem tocar no acumulado**.
+
+⚠ **`g_comp` (o acumulador) é material de chave**, e entra no
+`keystore_init()` *e* na `keystore_prova_zeroizacao()`. Uma montagem
+interrompida deixaria partes de uma chave vivas na BRAM depois de um
+zeroize, e a varredura não veria.
 
 ⚠ **Os modos de uso da X9.143 estavam INCOMPLETOS, e isso era a lacuna de
 verdade.** O keystore só aceitava `'E'`/`'D'`/`'B'`/`'N'` — todos do grupo
@@ -298,19 +324,11 @@ que a chave pode fazer é o `modo`. E ⚠ **`'S'` é aceito e se comporta como
 `'E'`**: a regra mais estrita que o nome promete não existe
 (`doc/fase3-notas.md` §6a).
 
-⚠ **Faltam duas funções que são PADRÃO da categoria**, e nenhuma das duas
-estava no plano: **apagar uma chave individual** e **formar chave de
-trabalho a partir de componentes**. A segunda é o split knowledge da
-cerimônia de LMK aplicado um nível abaixo — custodiantes entram com as
-partes, e o equipamento devolve a chave embrulhada sob a LMK, que é um key
-block X9.143. Ambas em `doc/fase3-notas.md`.
-
-⚠ **`DELETE_KEY` não estava previsto no plano.**
-`keystore_apaga()` existe no firmware, é exercitado pelo POST, e não tem
-opcode. O key store é gravável 16 vezes e depois só o `ZEROIZE` libera
-espaço — que exige os dois botões, absurdo para uso normal. É o que impede
-o critério "100 blocos aleatórios" de fechar na direção Python → C. O
-checklist dele está em `doc/fase3-notas.md`.
+⚠ **Duas funções PADRÃO da categoria não estavam no plano, e as duas
+apareceram USANDO o dispositivo, não planejando-o**: apagar uma chave
+individual (`0x2B`) e formar chave de trabalho por componentes (`0x2C`).
+As duas estão implementadas. Vale como método: a lista de comandos de um
+plano é uma hipótese, e usar o equipamento em laço é o que a corrige.
 
 ⚠ **A LMK não aparece em handler nenhum.** `lmk_deriva_kb()` devolve KBEK e
 KBAK derivadas por CMAC; a chave mestra não sai de `keystore.c`. Se um

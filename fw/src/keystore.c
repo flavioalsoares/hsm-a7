@@ -30,6 +30,13 @@ static uint8_t g_lmk[KS_KEY_MAX];
 static uint8_t g_lmk_comps;      /* quantos componentes entraram */
 static uint8_t g_lmk_kcv[KS_KCV_LEN];
 
+/* Montagem de chave de TRABALHO por componentes. Separado da LMK de
+ * propósito: são chaves com destinos diferentes, e misturar os dois
+ * acumuladores seria um caminho para montar uma na região da outra. */
+static uint8_t g_comp[KS_KEY_MAX];
+static uint8_t g_comp_n;         /* quantos entraram  */
+static uint8_t g_comp_total;     /* quantos foram anunciados */
+
 /* Uma so fonte de verdade: o host e a tabela de comandos precisam do mesmo
  * numero, e um `3` repetido em dois arquivos e um `4` pela metade esperando
  * acontecer. */
@@ -137,6 +144,13 @@ void keystore_init(void)
     wipe_padrao(g_lmk_kcv, sizeof g_lmk_kcv);
     g_lmk_comps = 0u;
 
+    /* O acumulador de componentes também é material de chave: uma
+     * montagem interrompida deixaria partes de uma chave de trabalho
+     * vivas na BRAM depois de um zeroize. */
+    wipe_padrao(g_comp, sizeof g_comp);
+    g_comp_n     = 0u;
+    g_comp_total = 0u;
+
     /* A chave expandida do coprocessador tambem e material de chave, e
      * fica fora da DMEM. Zeroizar so a DMEM deixaria a ultima chave usada
      * viva no aes_key_mem do fabric. */
@@ -172,7 +186,16 @@ int keystore_prova_zeroizacao(void)
     for (i = 0u; i < (uint32_t)sizeof g_lmk_kcv; i++) {
         acc |= p[i];
     }
+    /* O acumulador de componentes entra na prova pelo mesmo motivo que
+     * entra na zeroização: é material de chave. Uma montagem interrompida
+     * deixaria partes de uma chave viva, e a varredura não veria. */
+    p = (const volatile uint8_t *)(const void *)g_comp;
+    for (i = 0u; i < (uint32_t)sizeof g_comp; i++) {
+        acc |= p[i];
+    }
     acc |= g_lmk_comps;
+    acc |= g_comp_n;
+    acc |= g_comp_total;
 
     return (acc == 0u) ? 1 : 0;
 }
@@ -371,6 +394,78 @@ int keystore_cmac_verifica(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
     g_slots[i].contador_uso++;
     (void)hsm_cfs_wipe();
     return r;
+}
+
+int comp_componente(uint8_t n, uint8_t total, const uint8_t comp[KS_KEY_MAX],
+                    uint8_t kcv[KS_KCV_LEN])
+{
+    uint8_t i;
+
+    if ((comp == 0) || (kcv == 0)) {
+        return -1;
+    }
+    if ((total < KS_COMP_MIN) || (total > KS_COMP_MAX)) {
+        return -1;
+    }
+
+    if (n == 0u) {
+        /* Reinicia. E a unica forma de abandonar uma montagem comecada
+         * errado sem precisar de um comando de cancelar -- que seria mais
+         * um opcode para a mesma coisa. */
+        wipe_padrao(g_comp, sizeof g_comp);
+        g_comp_n     = 0u;
+        g_comp_total = total;
+    } else {
+        /* Fora de ordem, ou anunciando um total diferente do que comecou:
+         * recusa SEM tocar no acumulado. Um host que erre a sequencia nao
+         * pode destruir a cerimonia de quem esta na frente da placa. */
+        if ((n != g_comp_n) || (total != g_comp_total)) {
+            return -1;
+        }
+    }
+
+    /* O KCV do COMPONENTE, calculado antes de acumular -- e o que o
+     * custodiante confere. */
+    if (keystore_kcv(comp, KS_KEY_MAX, kcv) != 0) {
+        return -1;
+    }
+
+    for (i = 0u; i < KS_KEY_MAX; i++) {
+        g_comp[i] ^= comp[i];
+    }
+    g_comp_n++;
+    return 0;
+}
+
+uint8_t comp_carregados(void)
+{
+    return g_comp_n;
+}
+
+uint8_t comp_total(void)
+{
+    return g_comp_total;
+}
+
+ks_handle_t comp_instala(const uint8_t uso[2], uint8_t algoritmo,
+                         uint8_t modo, uint8_t exportabilidade)
+{
+    ks_handle_t h = KS_HANDLE_INVALIDO;
+
+    if ((g_comp_total >= KS_COMP_MIN) && (g_comp_n == g_comp_total)) {
+        h = keystore_instala(uso, algoritmo, modo, exportabilidade,
+                             g_comp, KS_KEY_MAX);
+    }
+
+    /* Limpa em QUALQUER desfecho, inclusive na falha. Uma chave montada
+     * pendurada seria material de chave esperando por um comando que
+     * talvez nao venha -- e o operador que errou o cabecalho refaz a
+     * cerimonia, que e o comportamento certo para uma chave que ele nao
+     * conseguiu instalar. */
+    wipe_padrao(g_comp, sizeof g_comp);
+    g_comp_n     = 0u;
+    g_comp_total = 0u;
+    return h;
 }
 
 uint8_t keystore_exporta(ks_handle_t h, uint8_t out[KS_KEY_MAX])

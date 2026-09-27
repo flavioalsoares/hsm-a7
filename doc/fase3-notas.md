@@ -12,8 +12,14 @@ X9.143, o zeroize, os comandos de chave `0x22`–`0x25`, o uso por handle
 da fase 2 que aceitavam foram removidos, cada um depois de o substituto
 existir.
 
-Faltam um `DELETE_KEY` que não estava previsto, a formação de chave por
-componentes, e o log de auditoria.
+Prontos também o `DELETE_KEY` (`0x2B`) e a formação de chave de trabalho
+por componentes (`0x2C`) — nenhum dos dois estava no plano; os dois
+apareceram **usando** o dispositivo.
+
+⚠ **Falta o log de auditoria, e ele não cabe mais na IMEM** (1 548 bytes
+livres). Passa a ser item de Fase 4, junto com a persistência — que é onde
+ele sempre pertenceu: um log que não sobrevive ao desligamento não é log de
+auditoria.
 
 ---
 
@@ -940,34 +946,171 @@ auditoria.
 Fabric: zero. 7 427 LUTs, 7 495 FF, BRAM 7, WNS +0,247 ns — iguais desde a
 cerimônia de LMK.
 
+### `DELETE_KEY` (`0x2B`) e chave por componentes (`0x2C`)
+
+Os dois últimos comandos da fase, e os dois apareceram **usando** o
+dispositivo, não planejando-o.
+
+#### `DELETE_KEY` — e uma discordância com o meu próprio checklist
+
+`keystore_apaga()` existia desde a fase 3 e era exercitado pelo POST;
+faltava só o opcode. Sem ele o key store era gravável dezesseis vezes e
+depois só o `ZEROIZE` liberava espaço — e ele pede os dois botões, o que
+num uso normal é absurdo.
+
+⚠ **Sem dual control, ao contrário do `ZEROIZE`, e a assimetria é o
+ponto:** apagar **um** slot é reversível — o key block daquela chave
+continua existindo fora, e reimportar devolve tudo. Apagar **tudo** não é.
+
+⚠ **Desvio do checklist que eu mesmo tinha registrado.** Ele dizia que
+apagar um handle inexistente e um existente deviam devolver o **mesmo**
+código, *"senão é um mapa do key store"*.
+
+Esse mapa **já existe**: o `KEY_INFO` responde para todo handle de 1 a 16,
+e quem está em `OPERATIONAL` enumera o store inteiro em dezesseis
+comandos. Esconder a distinção no `DELETE` não fecha nada — e custa ao
+operador saber se apagou algo ou digitou o handle errado, num comando
+**destrutivo**. Slot vazio devolve `BAD_PARAM`.
+
+A regra que continua valendo é a outra: não inventar código novo para cada
+causa. "Handle fora da faixa" e "slot vazio" são o mesmo `BAD_PARAM`,
+porque a diferença entre os dois não ajuda ninguém.
+
+**E é ele que destrava o critério dos 100 blocos**: o `keycycle` passou a
+devolver o slot a cada iteração, então a direção Python → C deixa de parar
+em ~12.
+
+#### Chave de trabalho por componentes — a cerimônia um nível abaixo
+
+```
+0x2C  n(1) || total(1) || uso(2) || alg(1) || modo(1) || exp(1) || comp(32)
+      -> kcv_do_componente(3) || carregados(1) || total(1) || handle(1)
+```
+
+O mesmo split knowledge da LMK, aplicado a uma chave de trabalho: cada
+custodiante entra com a sua parte, ninguém vê a chave inteira, e o
+dispositivo monta por XOR **dentro da fronteira**.
+
+**É o único comando de `ST_OPER` com dual control.** Os outros são
+operação; este é cerimônia, e a regra vale: aperto novo a cada componente,
+e a recusa **não gasta o rearme** — um host hostil não consegue consumir as
+autorizações de quem está na frente da placa.
+
+⚠ **O KCV que sai é o do COMPONENTE, nunca o do acumulado.** É o que
+permite ao custodiante conferir que digitou o dele; o do acumulado seria um
+oráculo sobre a chave em construção.
+
+⚠ **A resposta tem comprimento fixo**, com `handle = 0` enquanto a
+montagem não termina. Resposta curta e resposta longa distinguíveis de fora
+são um canal, ainda que estreito.
+
+⚠ **`n == 0` reinicia a montagem.** É como se abandona uma cerimônia
+começada errado, sem precisar de um opcode de cancelar. E um `total`
+inconsistente num `n > 0` é recusado **sem tocar no acumulado**.
+
+#### Dois erros de ORDEM, no mesmo handler
+
+Nenhum dos dois era de lógica — a montagem funcionava e a chave era
+instalada certo nos dois casos. Ficam registrados porque a armadilha é a
+mesma e ela é convidativa.
+
+**O primeiro, pego pelo testbench.** `comp_instala()` limpa o acumulador —
+de propósito, para não deixar chave montada pendurada —, e eu lia
+`comp_carregados()`/`comp_total()` **depois** dela. O componente que
+completava a montagem respondia *"0 de 0"* em vez de *"2 de 2"*. O handle
+vinha certo, então um teste que só perguntasse "instalou?" teria passado; o
+que pegou foi conferir **todos** os campos da resposta, inclusive os que
+parecem decorativos.
+
+**O segundo, pego relendo contra o comando irmão.** O `dualctl_autoriza()`
+vinha **antes** da validação de sequência. Um `n` fora de ordem gastava o
+**aperto do custodiante** numa requisição que ia ser recusada de qualquer
+jeito. O `LMK_LOAD_COMPONENT` sempre fez na ordem certa — forma, sequência,
+**depois** autorização — e eu tinha deixado a checagem de sequência dentro
+do `comp_componente()`, que roda tarde demais.
+
+> Autorização se consome no que vai **acontecer**, não no que vai ser
+> rejeitado.
+
+O teste que prende isso é mais fino que o normal: um aperto novo, um
+componente com `total` inconsistente que tem de ser recusado, e **sem
+soltar os botões** o componente legítimo em seguida. Se a recusa tivesse
+consumido o rearme, o segundo reprovaria com `NOT_AUTHORIZED`.
+
+⚠ **Desvio de forma em relação ao modelo comercial, e está declarado:** lá
+o comando devolve a chave **embrulhada sob a LMK**. Aqui ele instala num
+slot e devolve **handle + KCV**, como o `GEN_KEY` e o `IMPORT_KEY` — quem
+quiser o key block chama `EXPORT_KEY`. A propriedade que importa é
+idêntica; o que muda é o formato de saída, e ele segue o modelo deste
+dispositivo, que é baseado em slots.
+
+#### O acumulador é material de chave, e o resto do firmware sabe disso
+
+`g_comp` entra no `keystore_init()` (zeroização) **e** na
+`keystore_prova_zeroizacao()` (varredura byte a byte). Uma montagem
+interrompida deixaria partes de uma chave de trabalho vivas na BRAM depois
+de um zeroize, e a prova não veria.
+
+E `comp_instala()` limpa o acumulador **em qualquer desfecho, inclusive na
+falha**: uma chave montada pendurada seria material de chave esperando por
+um comando que talvez não venha.
+
+#### Provado em
+
+```
+[tb_keystore] DELETE_KEY: apaga, o handle morre, e o slot volta
+[tb_keystore] chave montada por componentes: handle N,
+[tb_keystore]   KCV 46F2FB -- vetor do CAVP, nao auto-referencia
+```
+
+⚠ **O KCV esperado da chave montada é vetor oficial do NIST.** As duas
+partes do teste são escolhidas para que o XOR dê exatamente a chave do
+`ECBKeySbox256` — então se o XOR dentro do firmware errar um byte, o KCV
+não bate. Mesmo truque da cerimônia de LMK: o valor esperado não é "o que o
+firmware devolveu da outra vez".
+
+#### Gravados na placa, 2026-09-27
+
+15/15 testbenches, bitstream com 0 erros e 0 critical warnings, e a flash
+gravada. O que dá para provar **sozinho**, sem ninguém na bancada:
+
+```
+post                     OK, oito testes
+0x2B DELETE_KEY          WRONG_STATE
+0x2C KEY_FROM_COMPONENTS WRONG_STATE
+0x29 MAC_GENERATE        WRONG_STATE
+0x10 AES_ENC (removido)  UNKNOWN_CMD
+```
+
+⚠ **Os três primeiros são recusas, e é só isso que dá para verificar sem
+os botões.** Os comandos vivem em `ST_OPER`, chegar lá exige a cerimônia,
+e a cerimônia exige dois dedos na placa. A distinção entre `WRONG_STATE` e
+`UNKNOWN_CMD` na última linha é o que separa "existe mas não agora" de
+"não existe mais" — as duas propriedades que esta noite produziu.
+
+**Falta validar em hardware**, com a cerimônia: `comp-load` montando uma
+chave a várias mãos, `delete-key` devolvendo o slot, e o `keycycle`
+chegando aos 100 nas duas direções. Roteiro em `doc/bancada.md`.
+
+#### Custo, e a resposta para a fila da IMEM
+
+**IMEM: 14 192 → 14 276 (`DELETE_KEY`) → 14 856 (componentes)**, ou
+**90,7%**. Sobram **1 528 bytes**.
+
+⚠ **Isso praticamente decide o log de auditoria.** Ele é transversal, toca
+a flash SPI (que exige o driver que ainda não existe) e precisa de
+contador anti-rollback. Em 1 548 bytes não cabe — e essa era a conta que
+eu vinha dizendo que teria de ser feita antes, não descoberta no fim.
+
+O log passa a ser item de **Fase 4**, junto com a persistência, que é onde
+ele sempre pertenceu tecnicamente: um log que não sobrevive ao
+desligamento não é log de auditoria.
+
 ---
 
 ## O que falta, na ordem
 
-### 1. `DELETE_KEY` — o opcode que falta, e que só apareceu ao testar
-
-Todos os comandos previstos para a fase estão prontos:
-`0x20 LMK_LOAD_COMPONENT` · `0x21 LMK_STATUS` · `0x22 GEN_KEY`
-· `0x23 EXPORT_KEY` · `0x24 IMPORT_KEY` · `0x25 KEY_INFO`
-· `0x26 SET_STATE` · `0x2F ZEROIZE`.
-
-Mas **falta um que não estava previsto**: apagar um slot. `keystore_apaga()`
-existe no firmware, é exercitado pelo POST, e não tem opcode. O key store é
-gravável 16 vezes e depois só o `ZEROIZE` libera espaço — e ele exige os
-dois botões, o que num uso normal é absurdo.
-
-Isso bloqueia o critério "100 blocos aleatórios" na direção Python → C.
-Checklist, para quando for escrito:
-
-- estados: `ST_OPER`
-- dual control: **não** — é operação, não cerimônia. Apagar UM slot é
-  reversível pela reimportação do key block; apagar TUDO não é, e é por
-  isso que o `ZEROIZE` pede dois dedos e este não pediria
-- vazamento: apagar um handle que não existe e um que existe têm de
-  devolver o mesmo código, senão é um mapa do key store
-- log de auditoria: obrigatório, quando o log existir
-
-### 2. Questão em aberto — a LMK montada não é verificada
+### 1. Questão em aberto — a LMK montada não é verificada
 
 *Levantada em 2026-08-31, a partir de uma pergunta sobre o valor `dc95c0`.
 **Não decidida.***
@@ -993,62 +1136,7 @@ definição óbvia além do caso todo-zero. Recusar só o zero é pouco e dá fa
 sensação de cobertura; recusar mais exige decidir o quê, e critérios de
 chave fraca mal escolhidos já reprovaram chaves boas em sistemas reais.
 
-### 3. Formar chave de trabalho a partir de componentes
-
-*Lacuna de aderência levantada em 2026-08-31. **Vai existir**; a fase ainda
-não está decidida.*
-
-Hoje uma chave de trabalho só pode nascer de dois jeitos:
-
-| | |
-|---|---|
-| `GEN_KEY` | gerada internamente pelo DRBG |
-| `IMPORT_KEY` | vinda de um key block que alguém já tinha |
-
-Falta o terceiro, e é o que mais aparece na prática: **montada por
-custodiantes**, cada um entrando com a sua parte. É assim que uma chave
-combinada entre duas instituições entra no equipamento sem que nenhuma das
-duas veja a chave inteira — o mesmo split knowledge da LMK, aplicado um
-nível abaixo.
-
-A cerimônia de LMK já faz exatamente isso para a chave mestra
-(`lmk-load` + `activate`). O que falta é a versão para chave de trabalho, e
-a diferença de destino é toda:
-
-```
-componentes -> XOR -> chave mestra          fica DENTRO, sem handle
-componentes -> XOR -> chave de trabalho     sai EMBRULHADA, como key block
-```
-
-**A peça difícil já existe.** O que esse comando devolve é a chave embrulhada
-sob a LMK — ou seja, um **key block X9.143**, que a fase 3 construiu e
-validou. O comando seria: recebe índice de componente, o componente, e os
-campos de cabeçalho; acumula por XOR sob dual control; e no último devolve
-o key block mais o KCV.
-
-Checklist, para quando for escrito:
-
-- estados: `ST_OPER` (precisa da LMK para embrulhar)
-- dual control: **sim** — é cerimônia, não operação. Mesma regra do
-  `LMK_LOAD_COMPONENT`, incluindo o aperto novo a cada componente
-- vazamento: o KCV **de cada componente**, como na cerimônia de LMK — é o
-  que permite ao custodiante conferir o dele. Nunca o do acumulado
-- o componente atravessa o link em claro, como na cerimônia de LMK — mesma
-  ressalva, mesma razão: só existe uma interface
-
-⚠ **Isto é território de console.** No modelo comercial, formar chave a
-partir de componentes acontece na interface **local**, com os custodiantes
-presentes — nunca pela interface de transações. Aqui só há uma interface, e
-isso é o desvio estrutural registrado no `PLANO.md`, "Aderência antes de
-variação".
-
-⚠ **Variantes do padrão que ficam de fora por ora**, e vale saber que
-existem: componentes cifrados em vez de em claro; componentes em cartão;
-número de componentes escolhido na hora. O equivalente ao "tipo de chave"
-nós já temos — são os campos `uso`/`modo`/`exportabilidade` do cabeçalho
-X9.143.
-
-### 4. Lacunas do controle de exportabilidade
+### 2. Lacunas do controle de exportabilidade
 
 *Levantadas em 2026-08-31, respondendo "isso existe aqui?". **Ambas
 padrão da categoria; ambas faltam.***
@@ -1101,10 +1189,30 @@ dia isto deixa de ser lacuna e passa a ser bloqueio.
 ser usada pelos comandos `ENCRYPT`/`DECRYPT` — não poder sair é diferente de
 não poder trabalhar, e é o caso mais comum de uma chave bem configurada.
 
-### 5. Log de auditoria
+### 3. Log de auditoria — **movido para a Fase 4**, e por dois motivos
 
 `fw/src/audit_log.c` e `host/audit.py` continuam placeholders de uma linha.
-O `ZEROIZE` é o comando que mais o pede, e o comentário do handler diz isso.
+
+**Motivo 1, o que força:** não cabe. A IMEM está em 14 836 de 16 384
+(90,6%), com **1 548 bytes livres**. O log precisa de estrutura de registro,
+serialização, contador monotônico e o driver de flash SPI que ainda não
+existe. Não entra nesse espaço.
+
+**Motivo 2, o que torna isso certo em vez de apenas inevitável:** um log
+que não sobrevive ao desligamento **não é log de auditoria**. Ele registra
+exatamente os eventos que alguém teria interesse em apagar — zeroize,
+carga de chave mestra, mudança de estado — e um registro volátil some junto
+com a energia, que é a primeira coisa que se corta.
+
+Então o lugar dele sempre foi ao lado da persistência, e a persistência é
+a Fase 4. Os dois compartilham tudo: o driver de flash, o MAC de
+integridade sobre o blob, e o contador anti-rollback.
+
+⚠ **Enquanto ele não existe, os handlers carregam `TODO` no checklist, e
+isso é deliberado.** `ZEROIZE`, `DELETE_KEY`, `KEY_FROM_COMPONENTS` e os
+dois de MAC são os que mais o pedem — apagar chave e montar chave sem
+deixar registro de quem pediu e quando é exatamente o evento que um log
+existe para cobrir.
 
 ---
 
@@ -1127,12 +1235,11 @@ produto, e nada vem de manual proprietário. Ver `THIRD-PARTY.md`.
       idêntico. Os dois handles cifram o mesmo bloco com o mesmo IV e os
       criptogramas batem — 128 bits de evidência, contra os 24 do KCV.
       Provado em `tb_keystore` e **confirmado em hardware em 2026-09-25**
-- [~] Parser Python e firmware C concordam em 100 blocos aleatórios —
-      `hsmtool keycycle`, rodado em hardware em 2026-08-30 e 2026-09-25.
-      Fecha na direção **C → Python** (um slot, N exportações, e o
-      enchimento aleatório dá N blocos distintos); na direção
-      **Python → C** para quando os slots acabam, por falta de
-      `DELETE_KEY`
+- [x] Parser Python e firmware C concordam em 100 blocos aleatórios —
+      `hsmtool keycycle`. A direção **C → Python** já fechava; a
+      **Python → C** parava quando os slots acabavam, e o `DELETE_KEY`
+      (`0x2B`) destravou: o ciclo devolve o slot a cada iteração.
+      **Falta reconfirmar em hardware**, o que exige a cerimônia
 - [x] Alterar 1 bit do header ou do corpo → MAC inválido — provado nas
       112 posições do bloco (`host/test_tr31.py`) e no POST do firmware.
       Falta o "import recusado", que depende do comando

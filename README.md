@@ -9,7 +9,7 @@ producao entra aqui.
 
 ## Para aprender o assunto
 
-**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 69 paginas.
+**[`doc/hsm-a7-manual.pdf`](doc/hsm-a7-manual.pdf)** — 71 paginas.
 
   I-II   como um HSM funciona: fronteira, hierarquia de chaves, cerimonia
          de LMK, key blocks, maquina de estados, aleatoriedade, self-test
@@ -80,9 +80,19 @@ o material nunca atravessa a linha. Compare com os comandos da fase 2, que
 recebiam a chave dentro do pedido. AES-CBC com IV explicito -- ECB para
 dados e o erro que a Parte III do manual usa como exemplo.
 
-Faltam um `DELETE_KEY` que nao estava previsto (o key store e gravavel 16
-vezes e so o `ZEROIZE` libera), as versoes por handle dos comandos da fase
-2, e o log de auditoria. Ver `doc/fase3-notas.md`.
+`MAC_GENERATE`/`MAC_VERIFY` fecham o outro servico, com CMAC-AES e a chave
+por handle -- e foi o que permitiu remover o ultimo comando que aceitava
+chave em claro. **Nenhum comando deste dispositivo aceita mais chave em
+claro.**
+
+E dois que nao estavam no plano, e apareceram USANDO o equipamento:
+`DELETE_KEY` (devolve um slot, sem dual control) e `KEY_FROM_COMPONENTS`
+(a cerimonia da chave mestra aplicada a uma chave de trabalho -- o unico
+comando de operacao que pede os dois botoes).
+
+Falta o log de auditoria, movido para a fase 4: nao cabe na IMEM (90,6%
+ocupada) e, mais importante, um log que nao sobrevive ao desligamento nao e
+log de auditoria. Ver `doc/fase3-notas.md`.
 
 ⚠ **Grave na flash, nao na SRAM** -- `./scripts/program.sh flash`. Nesta
 bancada a configuracao por JTAG **nao aplica a inicializacao das Block

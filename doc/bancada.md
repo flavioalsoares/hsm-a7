@@ -160,9 +160,33 @@ python3 host/hsmtool.py export-key 3   # -> NOT_EXPORTABLE
 #    LMK = XOR dos três componentes anotados no passo 1
 python3 host/hsmtool.py keycycle --lmk <64 hex> -n 100
 
-# 5. apagar -- com os dois botões
+# 5. MAC por handle -- grupo de modo DIFERENTE do encrypt
+python3 host/hsmtool.py gen-key --uso M0 --modo C --exp E
+python3 host/hsmtool.py mac 5 00112233445566778899AABBCCDDEEFF
+python3 host/hsmtool.py mac-verify 5 <tag> 00112233445566778899AABBCCDDEEFF
+python3 host/hsmtool.py mac 1          # -> BAD_KEY_USE (chave de cifra)
+
+# 6. devolver um slot -- sem botão nenhum
+python3 host/hsmtool.py delete-key 5
+
+# 7. chave montada a várias mãos -- dual control A CADA componente
+python3 host/hsmtool.py comp-load 0 2 --random --uso K0 --modo B --exp E
+python3 host/hsmtool.py comp-load 1 2 --random --uso K0 --modo B --exp E
+#    o KCV que volta é o DO COMPONENTE; o handle só aparece no último
+
+# 8. apagar tudo -- com os dois botões
 python3 host/hsmtool.py zeroize        # volta a UNINITIALIZED, display Uni
 ```
+
+⚠ **O `comp-load` é o único comando de operação que pede os dois botões.**
+Os demais da fase 3 não pedem — dual control é para cerimônia, e montar uma
+chave a partir de partes é cerimônia.
+
+⚠ **Começar pelo componente 0 reinicia a montagem**, o que é como se
+abandona uma cerimônia começada errado. Um `total` diferente do anunciado
+num componente que não seja o 0 é recusado **sem destruir o acumulado** —
+um host que erre a sequência não pode estragar a cerimônia de quem está na
+frente da placa.
 
 ⚠ **`hsmtool post` é DESTRUTIVO** num dispositivo carregado: o autoteste
 exercita o key store de verdade e termina com ele vazio. Rodar o

@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 69 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 71 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
@@ -127,8 +127,13 @@ O **`ZEROIZE`** apaga tudo e prova que apagou por duas vias independentes —
 varredura byte a byte no firmware, e o KCV no testbench. Os quatro comandos
 de chave (`0x22`–`0x25`) fecham o ida-e-volta.
 
-Faltam um `DELETE_KEY` que não estava previsto, as versões por handle dos
-comandos da Fase 2, e o log de auditoria. Ver
+Os comandos por handle substituíram os da Fase 2 que aceitavam chave em
+claro, e os três antigos foram removidos — **nenhum comando deste
+dispositivo aceita mais chave em claro**. Entraram também o `DELETE_KEY` e
+a formação de chave de trabalho por componentes, nenhum dos dois previsto
+no plano: os dois apareceram **usando** o equipamento.
+
+Falta o log de auditoria, movido para a Fase 4. Ver
 [`fase3-notas.md`](fase3-notas.md).
 
 Nenhum `[TBD]` de pinagem. Cores dos LEDs, polaridade do display, ordem
