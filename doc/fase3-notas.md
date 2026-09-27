@@ -915,8 +915,24 @@ certo. O valor está em o atacante não conseguir mais que esse bit.
 [tb_uart_frame]   deste dispositivo aceita chave em claro
 ```
 
-⚠ **Não validado em hardware ainda** — exige a cerimônia, que exige os dois
-botões.
+✅ **Validado em hardware 2026-09-27**, com a LMK da sessão de bancada
+ainda carregada. `GEN_KEY` não exige dual control, então esta parte rodou
+sem ninguém nos botões:
+
+```
+mac 'C'                  3ACBDA58D0EDCF240E61E24D1C840683
+CMAC independente        3ACBDA58D0EDCF240E61E24D1C840683
+verify 'C'               confere
+verify, tag com 1 bit    INVALIDO
+verify, msg com 1 byte   INVALIDO
+mac com 'B'              BAD_KEY_USE
+encrypt com 'C'          BAD_KEY_USE
+verify com 'G'           BAD_KEY_USE   (e mac com 'G' gera)
+```
+
+O valor independente saiu de exportar o slot, abrir o key block com o
+`host/tr31.py` e a LMK conhecida, e calcular o CMAC no Python. As três
+chaves foram apagadas no fim; o key store ficou vazio.
 
 #### As duas dívidas que os próprios testes cobraram
 
@@ -1082,15 +1098,43 @@ post                     OK, oito testes
 0x10 AES_ENC (removido)  UNKNOWN_CMD
 ```
 
-⚠ **Os três primeiros são recusas, e é só isso que dá para verificar sem
-os botões.** Os comandos vivem em `ST_OPER`, chegar lá exige a cerimônia,
-e a cerimônia exige dois dedos na placa. A distinção entre `WRONG_STATE` e
-`UNKNOWN_CMD` na última linha é o que separa "existe mas não agora" de
-"não existe mais" — as duas propriedades que esta noite produziu.
+#### ✅ Validado em hardware, 2026-09-27
 
-**Falta validar em hardware**, com a cerimônia: `comp-load` montando uma
-chave a várias mãos, `delete-key` devolvendo o slot, e o `keycycle`
-chegando aos 100 nas duas direções. Roteiro em `doc/bancada.md`.
+Sessão de bancada, com os componentes **pré-calculados no host** — assim os
+valores esperados existiam antes de a placa responder qualquer coisa.
+
+```
+KCVs de componente    F18D1B · C52DCA · 873CE4 (LMK) · 1E6FA9 · 2FD974
+                      todos conferidos contra um AES independente
+KCV da LMK            B2B716   <- previsto antes de começar
+
+comp-load 0 de 2      1 de 2, handle --
+comp-load 1 de 2      2 de 2, handle 1      <- a correção validada
+key-info 1            K0 · B · KCV 46F2FB   <- vetor do NIST
+
+encrypt 1             C6860EF89EC0C8A27A4F71AFA169037A
+AES independente      C6860EF89EC0C8A27A4F71AFA169037A
+delete-key 1          apagado, 16 livres
+key-info 1            BAD_PARAM
+delete-key 1 de novo  BAD_PARAM
+
+keycycle -n 100       C -> Python: 100 blocos, 100 distintos
+                      Python -> C: 100 blocos importados
+```
+
+⚠ **A linha `2 de 2, handle 1` é a correção do erro de ordem validada no
+silício.** A primeira versão do firmware responderia `0 de 0` ali, porque
+lia a contagem depois de a função que limpa o acumulador rodar.
+
+⚠ **A chave montada é bit a bit a do `ECBKeySbox256`.** As duas partes
+foram escolhidas para que o XOR desse exatamente aquela chave, então o KCV
+esperado é vetor oficial do NIST — e além do KCV, ela **cifrou idêntico** a
+um AES independente. Isso prova o XOR dentro do firmware **e** que a chave
+instalada é utilizável, não só registrada.
+
+⚠ **E `100 de 100` na direção Python → C pela primeira vez.** Até
+2026-09-25 ela parava em 11 ou 12, por falta de slot. O `DELETE_KEY`
+destravou: o ciclo devolve cada slot, e terminou com o key store vazio.
 
 #### Custo, e a resposta para a fila da IMEM
 
@@ -1236,10 +1280,9 @@ produto, e nada vem de manual proprietário. Ver `THIRD-PARTY.md`.
       criptogramas batem — 128 bits de evidência, contra os 24 do KCV.
       Provado em `tb_keystore` e **confirmado em hardware em 2026-09-25**
 - [x] Parser Python e firmware C concordam em 100 blocos aleatórios —
-      `hsmtool keycycle`. A direção **C → Python** já fechava; a
-      **Python → C** parava quando os slots acabavam, e o `DELETE_KEY`
-      (`0x2B`) destravou: o ciclo devolve o slot a cada iteração.
-      **Falta reconfirmar em hardware**, o que exige a cerimônia
+      `hsmtool keycycle`, **100 de 100 nas duas direções, em hardware,
+      2026-09-27**. A direção Python → C parava em ~12 por falta de slot;
+      o `DELETE_KEY` (`0x2B`) destravou
 - [x] Alterar 1 bit do header ou do corpo → MAC inválido — provado nas
       112 posições do bloco (`host/test_tr31.py`) e no POST do firmware.
       Falta o "import recusado", que depende do comando

@@ -275,6 +275,12 @@ Fase 4. O que restar de espaço é margem para a Fase 4, não folga.
   split knowledge da cerimônia de LMK, um nível abaixo. **Único comando de
   `ST_OPER` com dual control**, porque é cerimônia e não operação.
 
+✅ **`DELETE_KEY` e componentes validados em hardware 2026-09-27.** A chave
+montada a partir de duas partes deu KCV `46F2FB` (vetor do NIST) e cifrou
+idêntico a um AES independente; o `keycycle` fechou **100 de 100 nas duas
+direções** pela primeira vez. O MAC por handle (`0x29`/`0x2A`) também:
+tag igual a um CMAC independente, e os dois grupos de modo não se cruzam.
+
 ⚠ **O KCV que o `0x2C` devolve é o do COMPONENTE, nunca o do acumulado** —
 é o que permite ao custodiante conferir o dele. E a resposta tem
 comprimento fixo, com `handle = 0` enquanto incompleta: resposta curta e
