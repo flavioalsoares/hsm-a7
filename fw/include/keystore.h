@@ -344,4 +344,22 @@ void lmk_zeroiza(void);
  * ------------------------------------------------------------------- */
 int keystore_kcv(const uint8_t *chave, uint8_t key_len, uint8_t out[KS_KCV_LEN]);
 
+/* ---------------------------------------------------------------------
+ * REGISTRO PERSISTENTE -- fase 4
+ *
+ * O conteudo que fw/src/persist.c grava na flash: a LMK em claro (a
+ * regiao e tratada como memoria segura, decisao de 2026-10-15) e os slots
+ * embrulhados sob ela como key blocks X9.143. Ver keystore.c.
+ * ------------------------------------------------------------------- */
+#define KS_REGISTRO_MAX  (KS_KEY_MAX + KS_KCV_LEN + 1u + \
+                          KS_N_SLOTS * (1u + 144u))
+
+/* Monta o corpo do registro em `buf`. Exige LMK completa. Devolve 0 em
+ * sucesso; o chamador grava e ZERA o buffer -- ele contem a LMK. */
+int keystore_registro_monta(uint8_t *buf, uint32_t max, uint32_t *n);
+
+/* Restaura LMK e slots de um corpo de registro. Tudo ou nada: em falha
+ * o key store fica zerado. Devolve 0 em sucesso. */
+int keystore_registro_carrega(const uint8_t *buf, uint32_t n);
+
 #endif /* KEYSTORE_H */

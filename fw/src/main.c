@@ -9,7 +9,10 @@
  */
 #include <neorv32.h>
 
+#include "audit_log.h"
 #include "cmd.h"
+#include "flash.h"
+#include "persist.h"
 #include "dualctl.h"
 #include "hsm_cfs.h"
 #include "kat.h"
@@ -165,7 +168,17 @@ int main(void)
      * apagado e ambiguo -- e o mesmo sintoma de CPU parada. */
     painel_atualiza();
 
-    if (kat_post() != KAT_OK) {
+    /* Fase 4: a flash e o log antes do POST, para que o registro de boot
+     * diga tambem quando o POST reprovou. Sem flash o dispositivo sobe,
+     * mas todo comando que entra no log e recusado (STATUS_LOG_FAIL) --
+     * e isso inclui a cerimonia. */
+    (void)flash_init();
+    log_init();
+
+    unsigned post   = kat_post();
+    uint8_t  achou  = 0u;
+
+    if (post != KAT_OK) {
 #ifdef HSM_DIAG
         neorv32_uart0_puts("[diag] POST REPROVOU\r\n");
 #endif
@@ -174,6 +187,28 @@ int main(void)
     } else {
         MARCO(LED_CMD, "post ok");
         neorv32_gpio_pin_set(LED_ALIVE, 1);
+
+        /* Fase 4: LMK, estado e slots voltam da flash. E o papel da
+         * memoria com bateria de um HSM comercial: desligar nao apaga.
+         * Sem registro valido, sobe em UNINITIALIZED como sempre. */
+        state_set(persist_restaura(&achou));
+    }
+
+    /* Registro de boot: comando 0x00. O argumento resume o que aconteceu
+     *   bits 0..1  registro persistente: 0 nenhum, 1 restaurado,
+     *              2 havia e nenhum era valido
+     *   bit 6      flash ausente
+     *   bit 7      POST reprovou
+     * Desligar e religar passa a aparecer na trilha -- que e onde se
+     * esconderia quem quisesse apagar a memoria de trabalho. */
+    {
+        uint32_t seq;
+        uint8_t  arg = (uint8_t)(achou & 0x3u);
+        if (!flash_presente()) { arg |= 0x40u; }
+        if (post != KAT_OK)    { arg |= 0x80u; }
+        if (log_registra(LOG_CMD_BOOT, (uint8_t)state_get(), arg, &seq) == 0) {
+            (void)log_resultado(seq, (post == KAT_OK) ? 0x00u : 0x30u);
+        }
     }
 
 #ifdef HSM_DIAG

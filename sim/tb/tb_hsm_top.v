@@ -50,6 +50,7 @@ module tb_hsm_top;
 
     // 50 MHz
     always #10 sys_clk = ~sys_clk;
+    wire flash_csn, flash_mosi, flash_miso;
 
     hsm_top #(
         .CLK_HZ (TB_CLK_HZ)
@@ -62,7 +63,21 @@ module tb_hsm_top;
         .btn_b_i    (btn_b),
         .led_o      (led),
         .seg_o      (seg),
-        .seg_an_o   (seg_an)
+        .seg_an_o   (seg_an),
+        .flash_csn_o    (flash_csn),
+        .flash_mosi_o   (flash_mosi),
+        .flash_miso_i   (flash_miso),
+        .flash_wp_n_o   (),
+        .flash_hold_n_o ()
+    );
+
+    // Flash SPI (fase 4). O CCLK nao e porta do toplevel -- sai pela
+    // STARTUPE2 --, entao o modelo o le por hierarquia.
+    spi_flash_model flash (
+        .sck  (dut.flash_sck),
+        .csn  (flash_csn),
+        .mosi (flash_mosi),
+        .miso (flash_miso)
     );
 
     initial begin

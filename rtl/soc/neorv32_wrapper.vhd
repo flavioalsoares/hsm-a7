@@ -31,7 +31,13 @@ entity neorv32_wrapper is
     uart0_txd_o : out std_logic;
     uart0_rxd_i : in  std_logic;
     gpio_o      : out std_logic_vector(7 downto 0);
-    gpio_i      : in  std_logic_vector(7 downto 0)
+    gpio_i      : in  std_logic_vector(7 downto 0);
+    -- SPI -- flash de configuracao (fase 4). O clock sai pela STARTUPE2
+    -- no toplevel; aqui e so o sinal.
+    spi_clk_o   : out std_logic;
+    spi_dat_o   : out std_logic;
+    spi_dat_i   : in  std_logic;
+    spi_csn_o   : out std_logic
   );
 end entity;
 
@@ -39,12 +45,20 @@ architecture rtl of neorv32_wrapper is
 
   signal gpio_out_v : std_ulogic_vector(31 downto 0);
   signal gpio_in_v  : std_ulogic_vector(31 downto 0);
+  signal spi_csn_v  : std_ulogic_vector(7 downto 0);
+  signal spi_clk_u  : std_ulogic;
+  signal spi_dat_u  : std_ulogic;
 
 begin
 
   gpio_in_v(7 downto 0)  <= std_ulogic_vector(gpio_i);
   gpio_in_v(31 downto 8) <= (others => '0');
   gpio_o <= std_logic_vector(gpio_out_v(7 downto 0));
+
+  -- So o CS0 tem dono: a flash. Os outros sete ficam sem pino.
+  spi_csn_o <= std_logic(spi_csn_v(0));
+  spi_clk_o <= std_logic(spi_clk_u);
+  spi_dat_o <= std_logic(spi_dat_u);
 
   u_neorv32: neorv32_top
   generic map (
@@ -117,9 +131,13 @@ begin
     -- Memoria interna -- as chaves vivem aqui, e SO aqui
     -- ---------------------------------------------------------------
     IMEM_EN          => true,
-    IMEM_SIZE        => 16*1024,
+    -- Fase 4: 16 -> 32 KB de IMEM e 8 -> 16 KB de DMEM. A IMEM estava em
+    -- 90,7% ao fim da fase 3, e a persistencia e o log de auditoria nao
+    -- cabiam; a DMEM ganha o buffer do registro persistente (~2,4 KB).
+    -- Custa 6 BRAM36 a mais, de 50.
+    IMEM_SIZE        => 32*1024,
     DMEM_EN          => true,
-    DMEM_SIZE        => 8*1024,
+    DMEM_SIZE        => 16*1024,
 
     -- ---------------------------------------------------------------
     -- Caches -- DESLIGADAS
@@ -168,11 +186,14 @@ begin
     -- IO_TRNG_EN : fase 2. neoTRNG. Ao ligar, manter IO_TRNG_NUM_RO
     --              pequeno (meia duzia) -- ver PLANO secao 3, cuidado
     --              termico com o array de osciladores em anel.
-    -- IO_SPI_EN  : fase 4. Log de auditoria na flash MT25QL128.
     -- PMP_*      : fase 3+. Separacao de privilegio para a fronteira
     --              criptografica.
     IO_TRNG_EN       => false,
-    IO_SPI_EN        => false,
+    -- SPI: fase 4. A flash MT25QL128 -- a MESMA que guarda o bitstream --
+    -- guarda a LMK, os slots embrulhados e o log de auditoria, a partir
+    -- de 4 MB. O firmware recusa gravar abaixo disso (fw/src/flash.c).
+    IO_SPI_EN        => true,
+    IO_SPI_FIFO      => 1,
     PMP_NUM_REGIONS  => 0,
 
     -- Tracer: buffer de execucao. Desligado -- e observabilidade que
@@ -185,7 +206,11 @@ begin
     uart0_txd_o => uart0_txd_o,
     uart0_rxd_i => uart0_rxd_i,
     gpio_o      => gpio_out_v,
-    gpio_i      => gpio_in_v
+    gpio_i      => gpio_in_v,
+    spi_clk_o   => spi_clk_u,
+    spi_dat_o   => spi_dat_u,
+    spi_dat_i   => std_ulogic(spi_dat_i),
+    spi_csn_o   => spi_csn_v
   );
 
 end architecture;

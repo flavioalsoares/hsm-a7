@@ -5,6 +5,7 @@
  */
 #include "keystore.h"
 #include "cmac.h"
+#include "drbg.h"
 #include "hsm_cfs.h"
 #include "tr31.h"
 #include "wipe.h"
@@ -206,37 +207,28 @@ int keystore_zeroiza_tudo(void)
     return keystore_prova_zeroizacao() ? 0 : -1;
 }
 
-ks_handle_t keystore_instala(const uint8_t uso[2], uint8_t algoritmo,
-                             uint8_t modo, uint8_t exportabilidade,
-                             const uint8_t *chave, uint8_t key_len)
+/* Instala no indice `i` (0..15), que o chamador garante livre. E o miolo
+ * de keystore_instala() e da restauracao do registro persistente -- a
+ * restauracao precisa devolver cada chave ao MESMO slot, porque o host
+ * guarda handles. */
+static ks_handle_t instala_em(uint32_t i, const uint8_t uso[2],
+                              uint8_t algoritmo, uint8_t modo,
+                              uint8_t exportabilidade,
+                              const uint8_t *chave, uint8_t key_len)
 {
-    uint32_t i;
     uint8_t  kcv[KS_KCV_LEN];
     slot_t  *s;
 
-    if ((chave == 0) || (key_len != KS_KEY_MAX)) {
+    if ((i >= KS_N_SLOTS) || g_slots[i].em_uso ||
+        (chave == 0) || (key_len != KS_KEY_MAX)) {
         return KS_HANDLE_INVALIDO;
     }
     if (!header_valido(uso, algoritmo, modo, exportabilidade)) {
         return KS_HANDLE_INVALIDO;
     }
-
-    /* KCV antes de ocupar o slot: se o hardware falhar, nada foi alterado.
-     * Instalar e depois descobrir que o KCV não sai deixaria um slot com
-     * chave e sem meio de conferir. */
     if (keystore_kcv(chave, key_len, kcv) != 0) {
         wipe(kcv, sizeof kcv);
         return KS_HANDLE_INVALIDO;
-    }
-
-    for (i = 0u; i < KS_N_SLOTS; i++) {
-        if (!g_slots[i].em_uso) {
-            break;
-        }
-    }
-    if (i == KS_N_SLOTS) {
-        wipe(kcv, sizeof kcv);
-        return KS_HANDLE_INVALIDO;       /* cheio */
     }
 
     s = &g_slots[i];
@@ -257,6 +249,24 @@ ks_handle_t keystore_instala(const uint8_t uso[2], uint8_t algoritmo,
 
     wipe(kcv, sizeof kcv);
     return (ks_handle_t)(i + 1u);
+}
+
+ks_handle_t keystore_instala(const uint8_t uso[2], uint8_t algoritmo,
+                             uint8_t modo, uint8_t exportabilidade,
+                             const uint8_t *chave, uint8_t key_len)
+{
+    uint32_t i;
+
+    for (i = 0u; i < KS_N_SLOTS; i++) {
+        if (!g_slots[i].em_uso) {
+            break;
+        }
+    }
+    if (i == KS_N_SLOTS) {
+        return KS_HANDLE_INVALIDO;       /* cheio */
+    }
+    return instala_em(i, uso, algoritmo, modo, exportabilidade,
+                      chave, key_len);
 }
 
 int keystore_apaga(ks_handle_t h)
@@ -573,4 +583,160 @@ int lmk_deriva_kb(uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX])
         return -1;
     }
     return tr31_deriva(g_lmk, kbek, kbak);
+}
+
+/* ------------------------------------------------------------------
+ * Registro persistente -- fase 4
+ *
+ * O corpo do registro que fw/src/persist.c grava na flash:
+ *
+ *   lmk(32) || kcv_lmk(3) || n(1) || n x [ indice(1) || key block(144) ]
+ *
+ * A LMK vai EM CLARO: a regiao da flash e tratada como memoria segura
+ * (decisao de 2026-10-15, CLAUDE.md regra 2). Os slots vao EMBRULHADOS
+ * sob ela, como key blocks X9.143 -- e o modelo da categoria: a chave
+ * mestra vive na memoria segura, e as chaves de trabalho so existem fora
+ * do uso embrulhadas pela chave mestra.
+ *
+ * Vive aqui porque e o unico arquivo que tem os bytes. persist.c recebe
+ * um buffer e o grava, sem saber o que tem dentro.
+ *
+ * ⚠ `exportabilidade = 'N'` NAO impede a chave de ir para o registro.
+ * Ela nao sai da fronteira: a flash, nesta decisao, e dentro. Por isso
+ * este caminho NAO passa por keystore_exporta().
+ * ------------------------------------------------------------------ */
+
+#define REG_ENTRADA  (1u + TR31_ASCII_MAX)
+
+int keystore_registro_monta(uint8_t *buf, uint32_t max, uint32_t *n)
+{
+    uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    uint8_t    enchimento[TR31_BLOCO];
+    tr31_cab_t cab;
+    uint32_t   i, pos, kb_n = 0u;
+    uint8_t    cont = 0u;
+    int        r = -1;
+
+    if ((buf == 0) || (n == 0) || !lmk_completa() ||
+        (max < KS_REGISTRO_MAX)) {
+        return -1;
+    }
+    for (i = 0u; i < KS_KEY_MAX; i++) {
+        buf[i] = g_lmk[i];
+    }
+    for (i = 0u; i < KS_KCV_LEN; i++) {
+        buf[KS_KEY_MAX + i] = g_lmk_kcv[i];
+    }
+    pos = KS_KEY_MAX + KS_KCV_LEN + 1u;
+
+    if (lmk_deriva_kb(kbek, kbak) != 0) {
+        goto fim;
+    }
+    for (i = 0u; i < KS_N_SLOTS; i++) {
+        if (!g_slots[i].em_uso) {
+            continue;
+        }
+        if (drbg_dispositivo_bytes(enchimento, sizeof enchimento) != 0) {
+            goto fim;
+        }
+        cab.uso[0]          = g_slots[i].uso[0];
+        cab.uso[1]          = g_slots[i].uso[1];
+        cab.algoritmo       = g_slots[i].algoritmo;
+        cab.modo            = g_slots[i].modo;
+        cab.versao_chave[0] = (uint8_t)'0';
+        cab.versao_chave[1] = (uint8_t)'0';
+        cab.exportabilidade = g_slots[i].exportabilidade;
+
+        buf[pos] = (uint8_t)i;
+        if ((tr31_embrulha(kbek, kbak, &cab, g_slots[i].chave,
+                           g_slots[i].key_len, enchimento,
+                           (uint8_t)sizeof enchimento,
+                           (char *)&buf[pos + 1u], &kb_n) != 0) ||
+            (kb_n != TR31_ASCII_MAX)) {
+            goto fim;
+        }
+        pos += REG_ENTRADA;
+        cont++;
+    }
+    buf[KS_KEY_MAX + KS_KCV_LEN] = cont;
+    *n = pos;
+    r = 0;
+
+fim:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(enchimento, sizeof enchimento);
+    if (r != 0) {
+        wipe(buf, max);
+    }
+    return r;
+}
+
+int keystore_registro_carrega(const uint8_t *buf, uint32_t n)
+{
+    uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    uint8_t    chave[TR31_CHAVE_MAX];
+    uint8_t    kcv[KS_KCV_LEN];
+    uint8_t    klen = 0u;
+    tr31_cab_t cab;
+    uint32_t   i, pos, cont;
+    int        r = -1;
+
+    keystore_init();
+
+    if ((buf == 0) || (n < KS_KEY_MAX + KS_KCV_LEN + 1u)) {
+        return -1;
+    }
+    cont = buf[KS_KEY_MAX + KS_KCV_LEN];
+    if ((cont > KS_N_SLOTS) ||
+        (n != KS_KEY_MAX + KS_KCV_LEN + 1u + cont * REG_ENTRADA)) {
+        return -1;
+    }
+
+    /* A LMK so e aceita se o KCV recalculado bater com o gravado. Nao e
+     * defesa contra ataque -- a flash e tratada como segura -- e
+     * conferencia de integridade: um bit trocado na LMK mudaria TODAS as
+     * chaves que ela protege, e o operador descobriria pelo pior caminho. */
+    if (keystore_kcv(buf, KS_KEY_MAX, kcv) != 0) {
+        goto fim;
+    }
+    if ((kcv[0] != buf[KS_KEY_MAX]) || (kcv[1] != buf[KS_KEY_MAX + 1u]) ||
+        (kcv[2] != buf[KS_KEY_MAX + 2u])) {
+        goto fim;
+    }
+    for (i = 0u; i < KS_KEY_MAX; i++) {
+        g_lmk[i] = buf[i];
+    }
+    for (i = 0u; i < KS_KCV_LEN; i++) {
+        g_lmk_kcv[i] = kcv[i];
+    }
+    g_lmk_comps = LMK_N_COMPONENTES;
+
+    if (lmk_deriva_kb(kbek, kbak) != 0) {
+        goto fim;
+    }
+    pos = KS_KEY_MAX + KS_KCV_LEN + 1u;
+    for (i = 0u; i < cont; i++, pos += REG_ENTRADA) {
+        if (tr31_desembrulha(kbek, kbak, (const char *)&buf[pos + 1u],
+                             TR31_ASCII_MAX, &cab, chave, &klen) != 0) {
+            goto fim;
+        }
+        if (instala_em(buf[pos], cab.uso, cab.algoritmo, cab.modo,
+                       cab.exportabilidade, chave, klen)
+            == KS_HANDLE_INVALIDO) {
+            goto fim;
+        }
+        wipe(chave, sizeof chave);
+    }
+    r = 0;
+
+fim:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(chave, sizeof chave);
+    wipe(kcv, sizeof kcv);
+    if (r != 0) {
+        keystore_init();     /* tudo ou nada */
+    }
+    return r;
 }

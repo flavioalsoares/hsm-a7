@@ -35,8 +35,17 @@ Estas não são preferências. Se uma tarefa pedir qualquer coisa desta lista,
 1. **Nada de eFUSE.** Não gerar, sugerir ou executar `program_efuse`,
    `CFG_AES_ONLY`, `W_DIS`/`R_DIS`, ou qualquer flag `-efuse`. É OTP: brick
    permanente. Chave de bitstream só em BBRAM.
-2. **Chaves só em BRAM.** LMK e chaves em claro nunca vão para DDR3, nunca para
-   SPI flash sem wrap, nunca para um registrador exposto no toplevel.
+2. **Chaves só em BRAM — e na região segura da flash.** LMK e chaves em
+   claro nunca vão para DDR3 nem para um registrador exposto no toplevel.
+   *Mudada em 2026-10-15 por decisão explícita do usuário:* a região da SPI
+   flash a partir de `0x400000` é tratada como **memória segura** do
+   dispositivo — faz o papel da memória com bateria de um HSM comercial — e
+   a LMK persiste nela em claro. As chaves de trabalho vão para lá
+   **embrulhadas sob a LMK** (key block X9.143). Abaixo de `0x400000` está o
+   bitstream, e o firmware recusa escrever ali. As limitações (a flash é um
+   chip comum na placa, legível por quem tiver um gravador) estão em
+   `doc/fase4-notas.md` e são aceitas, não mitigadas — o projeto é
+   didático.
 3. **Nada atravessa a fronteira criptográfica em claro.** Saem apenas: key
    blocks wrapped, KCVs, criptogramas, handles, log. Ver `PLANO.md` §1.
 4. **Simulação antes de hardware.** Nenhum módulo vai para a placa sem
@@ -238,6 +247,9 @@ sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste que
 reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
 disso.
 
+⚠ **Fase 4: a IMEM passou a 32 KB, e o firmware ocupa ~18,8 KB (57%).**
+O que segue é o registro da fase 3, quando o teto era 16 KB.
+
 ⚠ **IMEM em 14 856 de 16 384 bytes (90,7%), com 1 528 livres.** A conta
 que faltava está feita: **o log de auditoria não cabe**, e foi movido para
 a Fase 4 — onde ele sempre pertenceu tecnicamente, porque um log que não
@@ -359,7 +371,9 @@ reprovado) **não exige nada**. A assimetria é o ponto: pessoas precisam de
 duas pessoas, um dispositivo que se descobre comprometido não precisa de
 ninguém.
 
-⚠ **`SELFTEST` é DESTRUTIVO.** O teste de função crítica do key store
+⚠ **`SELFTEST` zera a BRAM — e desde a fase 4 restaura da flash em
+seguida**, voltando ao estado em que estava. O texto abaixo é o histórico
+da fase 3, quando ele era destrutivo de fato. O teste de função crítica do key store
 instala e apaga chaves de verdade e termina com o store vazio, LMK
 inclusive — então `hsmtool post` num dispositivo carregado **apaga a chave
 mestra** e o dispositivo volta a `UNINITIALIZED`. Isso sempre foi verdade;
@@ -409,10 +423,9 @@ falta é **console e host em portas separadas**: aqui os componentes passam
 pela máquina do host. Dual control impede *carregar*, não impede
 *observar*. Ver `PLANO.md`, "Aderência antes de variação".
 
-⚠ **A LMK não sobrevive a um desligamento** (BRAM é volátil, e é o que a
-regra nº 2 pede). Toda sessão de bancada que precise de LMK refaz a
-cerimônia. A persistência é a fase 4, e a ordem é essa de propósito: guardar
-chave antes de saber embrulhá-la seria guardar chave em claro.
+⚠ **Desde a fase 4 a LMK sobrevive a um desligamento** — fica na flash,
+tratada como memória segura (regra nº 2, decisão de 2026-10-15). A cerimônia
+só é necessária na primeira vez e depois de um `ZEROIZE`.
 
 ⚠ **Os vetores de CMAC do CAVS 11.0 só têm tags truncadas** (Tlen 5 e 10).
 O KAT compara os primeiros Tlen bytes, o que é normatizado — mas **não
@@ -457,6 +470,57 @@ dna      06CA58966E4285C   (57 bits)
 O `GET_DNA` fecha a ultima sobra da Fase 1 **em hardware**. E o firmware de
 producao se recusa a subir se o CFS nao responder com o ID certo: ele subiu,
 entao o coprocessador esta integro ponta a ponta.
+
+## Fase 4 — armazenamento persistente e log (em andamento, 2026-10-15)
+
+Tudo em `doc/fase4-notas.md`, que **abre com a justificativa de a LMK ficar
+em claro na flash**: decisão didática do usuário, diante de uma placa sem
+lugar seguro para ela (sem eFUSE, BBRAM sem bateria, sem invólucro com
+detecção de violação). Documentar, **não mitigar** — pedido explícito: "não
+crie soluções além do normal".
+
+```
+0x000000  bitstream                intocável -- fw/src/flash.c recusa
+0x400000  registro persistente, A  LMK + estado + slots embrulhados
+0x401000  registro persistente, B  (cópia; o contador escolhe)
+0x410000  log de auditoria         64 KB, 4096 registros em anel
+```
+
+- **Hardware:** SPI do NEORV32 ligado, CCLK pela `STARTUPE2`, pinos
+  L12/J13/J14/K15/K16. IMEM 32 KB, DMEM 16 KB. Timing **+0,258 ns**, 0
+  critical warnings; 7510 LUTs, 7574 FF, **BRAM 13**. Arquivado em
+  `doc/timing_fase4.txt` e `doc/utilization_fase4.txt`.
+- **Firmware:** `flash.c` (driver + guarda), `persist.c` (registro A/B),
+  `audit_log.c` (log), `keystore_registro_monta/_carrega()` em `keystore.c`
+  — os bytes de chave continuam sem sair de `keystore.c`.
+- **Boot:** POST → restaura da flash → registro de boot no log. O dispositivo
+  volta no estado em que estava.
+- **Persistência:** 3º componente da LMK, `SET_STATE`, `GEN_KEY`,
+  `IMPORT_KEY`, componentes e `DELETE_KEY` gravam; falha → `STORE_FAIL` e
+  a operação é desfeita quando dá. `ZEROIZE` apaga as duas cópias, o log fica.
+- **Log:** gravado ANTES de executar, resultado programado depois por cima
+  do `0xFF`. Sem log, sem execução (`LOG_FAIL`), exceto `ZEROIZE`. Entram os
+  comandos recusados também. Comando novo `0x2D AUDIT_READ`; `hsmtool audit`.
+- **Testes:** todos os testbenches que instanciam o `hsm_top` têm o modelo
+  `sim/models/spi_flash_model.v`, que conta escritas abaixo de 4 MB.
+  `tb_persist` prova religar sem cerimônia, mesmos handles e KCVs, LMK na
+  flash e chave de trabalho só embrulhada, log contínuo, fallback para a
+  cópia anterior, ZEROIZE apagando a flash e mantendo o log.
+
+✅ **Flash validada em hardware 2026-10-16, sem botões**: log gravado e lido,
+recusa registrada, e o FPGA se reconfigurou da flash depois das gravações (a
+guarda do bitstream segurou). **Falta, com os botões:** cerimônia → desligar
+→ religar em `OPERATIONAL` com o mesmo KCV. Roteiro em `doc/fase4-notas.md`.
+Suíte: 17 testbenches passam.
+
+⚠ **O modelo da flash é próprio, escrito do datasheet.** Se o datasheet foi
+lido errado, modelo e driver concordam no erro. A placa é a prova.
+
+⚠ **Mexer na flash é mexer na mesma peça do bitstream.** A guarda de 4 MB
+mora em `flash.c`, num lugar só. Não criar outro caminho de escrita.
+
+Documentação do código para leitura humana: `doc/codigo-host.md` (Python) e
+`doc/codigo-firmware.md` (C).
 
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 

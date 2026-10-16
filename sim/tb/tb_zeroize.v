@@ -104,6 +104,7 @@ module tb_zeroize;
     reg [7:0] lmk   [0:31];
 
     always #10 sys_clk = ~sys_clk;
+    wire flash_csn, flash_mosi, flash_miso;
 
     hsm_top #(
         .CLK_HZ (TB_CLK_HZ)
@@ -116,7 +117,21 @@ module tb_zeroize;
         .btn_b_i    (btn_b),
         .led_o      (led),
         .seg_o      (seg),
-        .seg_an_o   (seg_an)
+        .seg_an_o   (seg_an),
+        .flash_csn_o    (flash_csn),
+        .flash_mosi_o   (flash_mosi),
+        .flash_miso_i   (flash_miso),
+        .flash_wp_n_o   (),
+        .flash_hold_n_o ()
+    );
+
+    // Flash SPI (fase 4). O CCLK nao e porta do toplevel -- sai pela
+    // STARTUPE2 --, entao o modelo o le por hierarquia.
+    spi_flash_model flash (
+        .sck  (dut.flash_sck),
+        .csn  (flash_csn),
+        .mosi (flash_mosi),
+        .miso (flash_miso)
     );
 
     // ------------------------------------------------------------------
@@ -364,6 +379,14 @@ module tb_zeroize;
         $display("[tb_zeroize] POST verde em %.2f ms", $realtime / 1000000.0);
 
         // ---- 1. cerimonia, e o dispositivo em servico ------------------
+        //
+        // Primeiro um GET_VERSION: o LED do POST acende ANTES de o boot
+        // terminar -- desde a fase 4 ele ainda restaura da flash e grava o
+        // registro de boot. Comecar a cerimonia no LED fazia o primeiro
+        // aperto acontecer enquanto o firmware nao estava no laco que ve
+        // os botoes SOLTOS, e o dual control recusava -- corretamente. A
+        // resposta ao GET_VERSION e a prova de que o laco principal roda.
+        confere_estado(8'd0);
         erros_antes = errors;
         cerimonia();
         confere_lmk(3, 1'b1, 1'b1);
@@ -448,14 +471,16 @@ module tb_zeroize;
             $display("[tb_zeroize]   ^ e A PROVA: sobrou material da LMK anterior");
         end
 
-        // ---- 5. o autoteste sob demanda e DESTRUTIVO -------------------
+        // ---- 5. o autoteste sob demanda NAO perde mais a LMK --------------
         //
-        // Nao e efeito colateral escondido: o teste de funcao critica do
-        // key store instala e apaga chaves de verdade, e termina com o
-        // store vazio. O que este teste prende e que o ESTADO acompanha.
-        // Ate 2026-08-29 o dispositivo continuava dizendo AUTHORIZED com o
-        // key store vazio, e estado que mente sobre a realidade e a pior
-        // coisa que uma maquina de estados pode fazer.
+        // Ate a fase 3 ele era destrutivo: o teste de funcao critica do key
+        // store termina zerando a BRAM, LMK inclusive, e o estado descia
+        // para UNINITIALIZED. Continua zerando a BRAM -- o teste precisa
+        // exercitar o caminho de verdade --, mas desde a fase 4 a flash
+        // tem a copia e o SELFTEST restaura dela, pelo mesmo caminho do
+        // boot. O que este teste prende: o estado e a LMK VOLTAM, com o
+        // KCV do vetor do CAVP -- restauracao que trocasse um bit nao
+        // passaria.
         confere_estado(8'd1);                 // AUTHORIZED apos a cerimonia
         req_plen = 0;
         send_cmd_pl(CMD_SELFTEST);
@@ -469,26 +494,21 @@ module tb_zeroize;
         end
 
         erros_antes = errors;
-        confere_estado(8'd0);
-        confere_lmk(0, 1'b0, 1'b0);
+        confere_estado(8'd1);
+        confere_lmk(3, 1'b1, 1'b1);
         if (errors == erros_antes)
-            $display("[tb_zeroize] SELFTEST apagou a LMK -- e o estado voltou a UNINITIALIZED");
+            $display("[tb_zeroize] SELFTEST zerou a BRAM e restaurou da flash: AUTHORIZED, KCV 46F2FB");
 
         // ---- 6. ZEROIZE em TAMPERED ------------------------------------
         //
         // O unico comando permitido em todo estado. Em TAMPERED e onde ele
-        // MAIS precisa existir: e exatamente quando se quer apagar.
+        // MAIS precisa existir: e exatamente quando se quer apagar. A LMK
+        // ja esta carregada -- restaurada pelo passo 5.
         //
         // Injecao pelo veredito do RCT, como em tb_post_tamper -- o xsim
         // nao suporta `force` sobre a amostra bruta atravessando a
         // fronteira VHDL/Verilog. O elo "fonte travada -> RCT reprovado"
         // e provado por tb_trng_health, na amostra exata.
-        erros_antes = errors;
-        cerimonia();
-        confere_lmk(3, 1'b1, 1'b1);
-        if (errors != erros_antes)
-            $display("[tb_zeroize]   (cerimonia antes do TAMPERED ja falhou)");
-
         force `RCT_FAIL = 1'b1;
         req_plen = 0;
         send_cmd_pl(CMD_SELFTEST);

@@ -159,7 +159,7 @@ run_one() {
                "${cripto[@]}" \
                "$ROOT"/rtl/crypto/*.v \
                "$ROOT"/rtl/soc/*.v "$ROOT"/rtl/top/*.v \
-               "$ROOT"/rtl/diag/*.v "$src" \
+               "$ROOT"/rtl/diag/*.v "$ROOT"/sim/models/*.v "$src" \
                "$XILINX_VIVADO/data/verilog/src/glbl.v" \
                > "${tb}_compile.log" 2>&1; then
         echo "--- falha de compilacao:"; tail -20 "${tb}_compile.log"; return 1

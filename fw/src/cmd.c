@@ -17,6 +17,9 @@
 #include "aes_modos.h"
 #include "cmac.h"
 #include "cmd.h"
+#include "audit_log.h"
+#include "persist.h"
+#include "flash.h"
 #include "drbg.h"
 #include "dualctl.h"
 #include "hsm_cfs.h"
@@ -298,6 +301,15 @@ static hsm_status_t h_selftest(const uint8_t *in, uint16_t in_len,
         state_set(HSM_TAMPERED);
         return STATUS_SELFTEST_FAIL;
     }
+
+    /* Fase 4: o autoteste continua destruindo a BRAM, mas a flash tem a
+     * copia. Restaurar daqui e o mesmo caminho do boot -- e o
+     * dispositivo volta ao estado em que estava, agora com o key store
+     * exercitado e a LMK conferida pelo KCV na volta. */
+    {
+        uint8_t achou;
+        state_set(persist_restaura(&achou));
+    }
     return STATUS_OK;
 }
 
@@ -372,6 +384,14 @@ static hsm_status_t h_zeroize(const uint8_t *in, uint16_t in_len,
 
     out[0]   = (uint8_t)state_get();
     *out_len = 1u;
+
+    /* Fase 4: a copia da flash vai junto -- senao a LMK voltaria no
+     * proximo boot. O log de auditoria FICA: e o registro de quem
+     * zeroizou. Se a flash falhar, a BRAM ja esta limpa mas o
+     * dispositivo nao pode dizer que apagou tudo. */
+    if (persist_apaga() != 0) {
+        return STATUS_STORE_FAIL;
+    }
     return STATUS_OK;
 }
 
@@ -470,6 +490,15 @@ static hsm_status_t h_lmk_load_component(const uint8_t *in, uint16_t in_len,
      * comando separado -- "tenho LMK" e "estou em AUTHORIZED" tem de ser a
      * mesma afirmacao, ou o estado passa a ser uma opiniao. */
     if (lmk_completa()) {
+        /* Fase 4: a LMK vai para a flash ANTES de o estado mudar. Uma LMK
+         * que o dispositivo diz ter e nao guardou sumiria no proximo
+         * desligamento; melhor recusar agora, com a cerimonia ainda na
+         * frente de quem a fez. */
+        if (persist_salva(HSM_AUTHORIZED) != 0) {
+            lmk_zeroiza();
+            wipe(kcv, sizeof kcv);
+            return STATUS_STORE_FAIL;
+        }
         state_set(HSM_AUTHORIZED);
     }
 
@@ -584,6 +613,11 @@ static hsm_status_t h_set_state(const uint8_t *in, uint16_t in_len,
         return STATUS_NOT_AUTHORIZED;
     }
 
+    /* Fase 4: o estado ativado tambem persiste -- o dispositivo religa
+     * em OPERATIONAL, como um HSM comercial volta online. */
+    if (persist_salva(HSM_OPERATIONAL) != 0) {
+        return STATUS_STORE_FAIL;
+    }
     state_set(HSM_OPERATIONAL);
 
     out[0]   = (uint8_t)state_get();
@@ -665,6 +699,14 @@ static hsm_status_t h_gen_key(const uint8_t *in, uint16_t in_len,
          * duas e segredo -- o KEY_INFO ja permite contar slots ocupados
          * --, entao separar ajuda o operador sem dar nada a ninguem. */
         r = (keystore_livres() == 0u) ? STATUS_NO_SLOT : STATUS_BAD_PARAM;
+        goto fim;
+    }
+
+    /* Fase 4: chave que o dispositivo anuncia tem de estar guardada.
+     * Sem a flash, desfaz -- nao ha meia instalacao. */
+    if (persist_salva(state_get()) != 0) {
+        (void)keystore_apaga(h);
+        r = STATUS_STORE_FAIL;
         goto fim;
     }
 
@@ -830,6 +872,11 @@ static hsm_status_t h_import_key(const uint8_t *in, uint16_t in_len,
                          cab.exportabilidade, chave, klen);
     if (h == KS_HANDLE_INVALIDO) {
         r = (keystore_livres() == 0u) ? STATUS_NO_SLOT : STATUS_BAD_PARAM;
+        goto fim;
+    }
+    if (persist_salva(state_get()) != 0) {     /* fase 4, ver GEN_KEY */
+        (void)keystore_apaga(h);
+        r = STATUS_STORE_FAIL;
         goto fim;
     }
     if (keystore_info(h, &info) != 0) {
@@ -1163,6 +1210,11 @@ static hsm_status_t h_key_from_components(const uint8_t *in, uint16_t in_len,
             return (keystore_livres() == 0u) ? STATUS_NO_SLOT
                                              : STATUS_BAD_PARAM;
         }
+        if (persist_salva(state_get()) != 0) {  /* fase 4, ver GEN_KEY */
+            (void)keystore_apaga(h);
+            wipe(kcv, sizeof kcv);
+            return STATUS_STORE_FAIL;
+        }
     }
 
     for (k = 0u; k < KS_KCV_LEN; k++) {
@@ -1198,11 +1250,53 @@ static hsm_status_t h_delete_key(const uint8_t *in, uint16_t in_len,
         return STATUS_BAD_PARAM;
     }
 
+    /* Fase 4. Aqui nao ha como desfazer -- os bytes ja foram
+     * sobrescritos --, entao a falha so pode ser anunciada: a BRAM esqueceu
+     * a chave, a flash ainda a tem, e ela VOLTA no proximo boot. */
+    if (persist_salva(state_get()) != 0) {
+        return STATUS_STORE_FAIL;
+    }
+
     /* Quantos sobraram. Nao e segredo -- o KEY_INFO ja permite contar --
      * e poupa o operador de enumerar dezesseis handles para saber se
      * ainda cabe alguma coisa. */
     out[0]   = keystore_livres();
     *out_len = 1u;
+    return STATUS_OK;
+}
+
+/* AUDIT_READ -- ver o checklist em cmd.h. */
+static hsm_status_t h_audit_read(const uint8_t *in, uint16_t in_len,
+                                 uint8_t *out, uint16_t *out_len)
+{
+    uint32_t seq, prox, n = 0u;
+
+    *out_len = 0u;
+    if (in_len != 4u) {
+        return STATUS_BAD_PARAM;
+    }
+    seq  = ((uint32_t)in[0] << 24) | ((uint32_t)in[1] << 16) |
+           ((uint32_t)in[2] << 8)  | (uint32_t)in[3];
+    prox = log_proximo();
+    if (!flash_presente()) {
+        return STATUS_LOG_FAIL;
+    }
+
+    /* Mais velho que o anel guarda: comeca no mais velho possivel. */
+    if ((prox > LOG_N_REG) && (seq < prox - LOG_N_REG)) {
+        seq = prox - LOG_N_REG;
+    }
+    while ((seq < prox) && (n < CMD_AUDIT_MAX_REG)) {
+        if (log_le(seq, &out[8u + n * LOG_REG_LEN]) == 0) {
+            n++;
+        }
+        seq++;
+    }
+    out[0] = (uint8_t)(prox >> 24); out[1] = (uint8_t)(prox >> 16);
+    out[2] = (uint8_t)(prox >> 8);  out[3] = (uint8_t)prox;
+    out[4] = (uint8_t)(seq >> 24);  out[5] = (uint8_t)(seq >> 16);
+    out[6] = (uint8_t)(seq >> 8);   out[7] = (uint8_t)seq;
+    *out_len = (uint16_t)(8u + n * LOG_REG_LEN);
     return STATUS_OK;
 }
 
@@ -1214,7 +1308,17 @@ typedef struct {
     uint8_t       opcode;
     uint32_t      states;      /* mascara de estados permitidos */
     cmd_handler_t handler;
+    uint8_t       loga;        /* fase 4: entra no log ANTES de executar */
 } cmd_entry_t;
+
+/* Coluna `loga`: L entra no log, I e informativo e nao entra.
+ *
+ * Informativo e o que nao muda nada e nao usa chave: PING, VERSION, DNA,
+ * SHA-256, RANDOM, LMK_STATUS, KEY_INFO e o proprio AUDIT_READ. Todo o
+ * resto -- cerimonia, chave, uso de chave, autoteste e zeroize -- entra,
+ * inclusive quando e RECUSADO: a tentativa e o que a trilha quer ver. */
+#define L 1u
+#define I 0u
 
 /* Checklist do CLAUDE.md para cada linha nova:
  *   - em quais estados e permitido?
@@ -1227,18 +1331,18 @@ typedef struct {
  * key store: nao vazam nada em laco alem da propria existencia do
  * dispositivo. Nenhum exige dual control. */
 static const cmd_entry_t g_cmds[] = {
-    { CMD_PING,        ST_NORMAL,               h_ping        },
-    { CMD_GET_VERSION, ST_NORMAL,               h_get_version },
-    { CMD_GET_DNA,     ST_NORMAL,               h_get_dna     },
+    { CMD_PING,        ST_NORMAL,               h_ping, I },
+    { CMD_GET_VERSION, ST_NORMAL,               h_get_version, I },
+    { CMD_GET_DNA,     ST_NORMAL,               h_get_dna, I },
 
     /* Fase 2. Sobraram os dois que NAO recebem chave: SHA-256 e funcao
      * publica, RANDOM devolve saida do DRBG. AES_ENC, AES_DEC e HMAC
      * foram REMOVIDOS -- ver o bloco de comentario acima. */
-    { CMD_SHA256,      ST_NORMAL,               h_sha256      },
-    { CMD_RANDOM,      ST_NORMAL,               h_random      },
+    { CMD_SHA256,      ST_NORMAL,               h_sha256, I },
+    { CMD_RANDOM,      ST_NORMAL,               h_random, I },
 
     /* SELFTEST responde ate em TAMPERED, de proposito. Ver o handler. */
-    { CMD_SELFTEST,    ST_NORMAL | ST_TAMPERED, h_selftest    },
+    { CMD_SELFTEST,    ST_NORMAL | ST_TAMPERED, h_selftest, L },
 
     /* Fase 3 -- cerimonia de LMK.
      *
@@ -1253,41 +1357,47 @@ static const cmd_entry_t g_cmds[] = {
      * coisas numa coluna so faria a leitura da tabela depender de saber
      * qual bit significa o que. O dual control fica dentro do handler,
      * onde ele pode recusar sem gastar o rearme. */
-    { CMD_LMK_LOAD_COMPONENT, ST_UNINIT, h_lmk_load_component },
-    { CMD_LMK_STATUS,         ST_NORMAL, h_lmk_status         },
-    { CMD_SET_STATE,          ST_AUTH,   h_set_state          },
+    { CMD_LMK_LOAD_COMPONENT, ST_UNINIT, h_lmk_load_component, L },
+    { CMD_LMK_STATUS,         ST_NORMAL, h_lmk_status, I },
+    { CMD_SET_STATE,          ST_AUTH,   h_set_state, L },
 
     /* Comandos de chave: mesma mascara, nenhum com dual control. O que
      * os protege e o embrulho e a `exportabilidade`, nao uma pessoa. */
-    { CMD_GEN_KEY,            ST_OPER,   h_gen_key            },
-    { CMD_EXPORT_KEY,         ST_OPER,   h_export_key         },
-    { CMD_IMPORT_KEY,         ST_OPER,   h_import_key         },
-    { CMD_KEY_INFO,           ST_OPER,   h_key_info           },
+    { CMD_GEN_KEY,            ST_OPER,   h_gen_key, L },
+    { CMD_EXPORT_KEY,         ST_OPER,   h_export_key, L },
+    { CMD_IMPORT_KEY,         ST_OPER,   h_import_key, L },
+    { CMD_KEY_INFO,           ST_OPER,   h_key_info, I },
 
     /* Usar a chave guardada. O `modo` do slot decide o que cada uma pode
      * fazer -- e a checagem vive dentro do keystore, num lugar so. */
-    { CMD_ENCRYPT,            ST_OPER,   h_encrypt            },
-    { CMD_DECRYPT,            ST_OPER,   h_decrypt            },
+    { CMD_ENCRYPT,            ST_OPER,   h_encrypt, L },
+    { CMD_DECRYPT,            ST_OPER,   h_decrypt, L },
 
     /* MAC pela chave guardada. Grupo de modo de uso DIFERENTE do
      * ENCRYPT/DECRYPT: uma chave de cifra nao autentica, e vice-versa. */
-    { CMD_MAC_GENERATE,       ST_OPER,   h_mac_generate       },
-    { CMD_MAC_VERIFY,         ST_OPER,   h_mac_verify         },
+    { CMD_MAC_GENERATE,       ST_OPER,   h_mac_generate, L },
+    { CMD_MAC_VERIFY,         ST_OPER,   h_mac_verify, L },
 
     /* Apagar UM slot. Sem dual control, ao contrario do ZEROIZE: apagar
      * um e reversivel pela reimportacao do key block, apagar tudo nao. */
-    { CMD_DELETE_KEY,         ST_OPER,   h_delete_key         },
+    { CMD_DELETE_KEY,         ST_OPER,   h_delete_key, L },
 
     /* Montar chave de trabalho por componentes. Unico comando de ST_OPER
      * com dual control: e cerimonia, nao operacao. O dual control fica
      * DENTRO do handler, como nos demais -- a mascara diz "em que
      * estado", nao "quem autoriza". */
-    { CMD_KEY_FROM_COMPONENTS, ST_OPER,  h_key_from_components },
+    { CMD_KEY_FROM_COMPONENTS, ST_OPER,  h_key_from_components, L },
 
     /* ZEROIZE e o UNICO comando permitido em todo estado -- ver o handler.
      * Nao ha estado do qual apagar a chave seja a resposta errada. */
-    { CMD_ZEROIZE, ST_NORMAL | ST_TAMPERED, h_zeroize            },
+    { CMD_ZEROIZE, ST_NORMAL | ST_TAMPERED, h_zeroize, L },
+
+    /* Fase 4. Ler o log nao entra nele -- ver cmd.h. */
+    { CMD_AUDIT_READ,         ST_NORMAL, h_audit_read, I },
 };
+
+#undef L
+#undef I
 
 #define N_CMDS (sizeof(g_cmds) / sizeof(g_cmds[0]))
 
@@ -1384,10 +1494,6 @@ static void dispatch(void)
         return;
     }
 
-    /* TODO fase 3: o log de auditoria e gravado AQUI, antes de executar.
-     * Depois da execucao registraria so o que deu certo, o que e inutil
-     * como trilha forense (PLANO.md secao 5). */
-
     const cmd_entry_t *e = NULL;
     for (uint32_t i = 0u; i < N_CMDS; i++) {
         if (g_cmds[i].opcode == opcode) {
@@ -1401,19 +1507,45 @@ static void dispatch(void)
         return;
     }
 
-    if ((e->states & state_mask()) == 0u) {
-        fail(STATUS_WRONG_STATE);
-        return;
+    /* Log de auditoria -- AQUI, antes da checagem de estado e antes do
+     * handler. Antes do estado porque a tentativa fora de hora tambem e
+     * evento; antes do handler porque um registro gravado depois so conta
+     * o que deu certo (PLANO.md secao 5, audit_log.h).
+     *
+     * Sem registro, sem execucao. A excecao e o ZEROIZE: um dispositivo
+     * que nao apaga a chave porque o log falhou e pior que um que apaga
+     * sem registrar. */
+    uint32_t seq    = 0u;
+    int      logado = 0;
+    if (e->loga) {
+        if (log_registra(opcode, (uint8_t)state_get(),
+                         (plen > 0u) ? payload[0] : 0u, &seq) == 0) {
+            logado = 1;
+        } else if (opcode != CMD_ZEROIZE) {
+            fail(STATUS_LOG_FAIL);
+            return;
+        }
     }
 
-    uint16_t out_len = 0u;
+    uint16_t     out_len = 0u;
+    hsm_status_t st;
 
-    hsm_status_t st = e->handler(payload, plen, g_out, &out_len);
+    if ((e->states & state_mask()) == 0u) {
+        st = STATUS_WRONG_STATE;
+    } else {
+        st = e->handler(payload, plen, g_out, &out_len);
+    }
 
     if (out_len > CMD_MAX_PAYLOAD) {
         /* Handler com bug: melhor recusar do que transmitir DMEM adjacente. */
         out_len = 0u;
         st = STATUS_INTERNAL_ERROR;
+    }
+
+    /* O resultado entra no registro ANTES da resposta sair: quem le o
+     * log depois de receber a resposta acha o desfecho la. */
+    if (logado) {
+        (void)log_resultado(seq, (uint8_t)st);
     }
 
     send_frame((uint8_t)st, g_out, out_len);

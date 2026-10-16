@@ -69,6 +69,14 @@ override CORE_SRC = \
 # entrada arbitraria do host, warning ignorado costuma ser bug de limite.
 USER_FLAGS += -Wall -Wextra -Werror
 
+# Tamanhos de memoria -- PRECISAM bater com IMEM_SIZE e DMEM_SIZE em
+# rtl/soc/neorv32_wrapper.vhd. O linker do NEORV32 assume 16 KB / 8 KB se
+# nada for dito, e um binario maior que isso nao linka; um MENOR que a
+# memoria real so desperdica -- mas a DMEM menor faria a pilha nascer no
+# meio da RAM, longe do fim. Fase 4: 32 KB / 16 KB.
+USER_FLAGS += -Wl,--defsym,__neorv32_rom_size=32k
+USER_FLAGS += -Wl,--defsym,__neorv32_ram_size=16k
+
 # O gcc do Debian nao acha a picolibc sozinho: ela vive fora do sysroot do
 # compilador e so entra pelo arquivo de specs. Sem isto, neorv32.h falha em
 # <inttypes.h>. Com o toolchain xPack (que ja embute newlib) isto e

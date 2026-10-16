@@ -95,3 +95,16 @@ set_property CFGBVS VCCO [current_design]
 ## Fase 6, quando chegar a hora:
 #set_property BITSTREAM.ENCRYPTION.ENCRYPT YES [current_design]
 #set_property BITSTREAM.ENCRYPTION.ENCRYPTKEYSELECT BBRAM [current_design]
+
+# ---------------------------------------------------------------------
+# Flash SPI de configuracao -- fase 4 (MT25QL128, a mesma do bitstream)
+#
+# O CCLK (E8) e dedicado e nao entra aqui: sai pela STARTUPE2 em
+# rtl/top/hsm_top.v. D02/D03 sao W# e HOLD#, mantidos em alto.
+# Procedencia dos pinos: get_package_pins do Vivado, ver doc/pinout.md.
+# ---------------------------------------------------------------------
+set_property -dict {PACKAGE_PIN L12 IOSTANDARD LVCMOS33 PULLUP TRUE} [get_ports flash_csn_o]
+set_property -dict {PACKAGE_PIN J13 IOSTANDARD LVCMOS33} [get_ports flash_mosi_o]
+set_property -dict {PACKAGE_PIN J14 IOSTANDARD LVCMOS33} [get_ports flash_miso_i]
+set_property -dict {PACKAGE_PIN K15 IOSTANDARD LVCMOS33} [get_ports flash_wp_n_o]
+set_property -dict {PACKAGE_PIN K16 IOSTANDARD LVCMOS33} [get_ports flash_hold_n_o]

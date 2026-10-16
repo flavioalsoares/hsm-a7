@@ -32,6 +32,8 @@ typedef enum {
     STATUS_NO_SLOT         = 0x23,  /* key store cheio */
     STATUS_BAD_KEY_USE     = 0x24,  /* o `modo` do slot proibe a operacao */
     STATUS_MAC_INVALID     = 0x25,  /* MAC nao confere */
+    STATUS_STORE_FAIL      = 0x26,  /* fase 4: a flash nao gravou -- desfeito */
+    STATUS_LOG_FAIL        = 0x27,  /* fase 4: sem registro, sem execucao */
 
     /* Falhas do dispositivo */
     STATUS_SELFTEST_FAIL   = 0x30,

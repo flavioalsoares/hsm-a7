@@ -32,6 +32,7 @@ Cerimonia de LMK (fase 3) -- exige os dois botoes da placa:
     hsmtool.py import-key D0144...
     hsmtool.py key-info 1
     hsmtool.py delete-key 1          # apaga UM slot, sem botao
+    hsmtool.py audit                 # log de auditoria (fase 4)
     hsmtool.py comp-load 0 2 --random   # chave por componentes (dual control)
     hsmtool.py encrypt 1 <iv hex> <dados hex>
     hsmtool.py decrypt 1 <iv hex> <dados hex>
@@ -40,14 +41,16 @@ Cerimonia de LMK (fase 3) -- exige os dois botoes da placa:
     hsmtool.py keycycle --lmk <hex>  # o Python confere o firmware
     hsmtool.py zeroize               # APAGA tudo, irreversivel
 
-⚠ `hsmtool.py post` e DESTRUTIVO num dispositivo carregado: o autoteste
-exercita o key store de verdade e termina com ele vazio, entao rodar o
-diagnostico apaga a LMK e o dispositivo volta a UNINITIALIZED.
+Desde a fase 4 a LMK, o estado e as chaves PERSISTEM na flash: desligar e
+religar devolve o dispositivo como estava, sem cerimonia. O `post` zera a
+BRAM (o autoteste exercita o key store de verdade) e restaura da flash em
+seguida. So o `zeroize` apaga de vez.
 """
 
 import argparse
 import glob
 import os
+import struct
 import sys
 import time
 import zlib
@@ -112,6 +115,7 @@ CMD_MAC_VERIFY = 0x2A
 CMD_DELETE_KEY = 0x2B
 CMD_KEY_FROM_COMPONENTS = 0x2C
 CMD_ZEROIZE = 0x2F
+CMD_AUDIT_READ = 0x2D
 
 LMK_N_COMPONENTES = 3
 LMK_KEY_LEN = 32
@@ -143,6 +147,8 @@ STATUS_NAMES = {
     0x23: "NO_SLOT",
     0x24: "BAD_KEY_USE",
     0x25: "MAC_INVALID",
+    0x26: "STORE_FAIL",
+    0x27: "LOG_FAIL",
     0x30: "SELFTEST_FAIL",
     0x31: "TAMPERED",
     0xFF: "INTERNAL_ERROR",
@@ -509,14 +515,11 @@ def cmd_selftest_dev(client, args):
     comando responde ate em TAMPERED: sem ele, um dispositivo que reprovou
     fica mudo sobre O QUE reprovou.
 
-    ⚠ E DESTRUTIVO. O teste de funcao critica do key store instala e apaga
-    chaves de verdade, e termina com o store vazio -- LMK inclusive. Rodar
-    isto num dispositivo carregado APAGA a chave mestra, e o dispositivo
-    volta a UNINITIALIZED.
-
-    Nao e efeito colateral a esconder: um autoteste que poupasse a LMK
-    estaria testando um caminho diferente do que roda no boot. O que se
-    exige e que o ESTADO acompanhe -- e acompanha.
+    O teste de funcao critica do key store instala e apaga chaves de
+    verdade e termina com a BRAM vazia, LMK inclusive -- um autoteste que
+    poupasse a LMK testaria outro caminho. Desde a fase 4 o dispositivo
+    restaura LMK, estado e chaves da flash logo em seguida, pelo mesmo
+    caminho do boot.
     """
     status, data = client.transact(CMD_SELFTEST)
 
@@ -531,8 +534,7 @@ def cmd_selftest_dev(client, args):
 
     if r == 0:
         print("\nPOST: OK")
-        print("  (o autoteste zera o key store: se havia LMK, ela foi embora")
-        print("   e o dispositivo voltou a UNINITIALIZED)")
+        print("  (o autoteste zerou a BRAM e restaurou LMK e chaves da flash)")
         return 0
 
     print("\nPOST REPROVOU (mascara 0x%02X). O dispositivo esta em TAMPERED"
@@ -880,6 +882,54 @@ def cmd_delete_key(client, args):
     return 0
 
 
+# Nomes dos opcodes, para o log. 0x00 nao e opcode: e o registro de boot.
+OPCODE_NAMES = {
+    0x00: "BOOT", 0x15: "SELFTEST", 0x20: "LMK_LOAD_COMPONENT",
+    0x22: "GEN_KEY", 0x23: "EXPORT_KEY", 0x24: "IMPORT_KEY",
+    0x26: "SET_STATE", 0x27: "ENCRYPT", 0x28: "DECRYPT",
+    0x29: "MAC_GENERATE", 0x2A: "MAC_VERIFY", 0x2B: "DELETE_KEY",
+    0x2C: "KEY_FROM_COMPONENTS", 0x2F: "ZEROIZE",
+}
+ESTADO_NOMES = {0: "Uni", 1: "Aut", 2: "OPE", 3: "tPr"}
+
+
+def cmd_audit(client, args):
+    """Le o log de auditoria inteiro (ou a partir de --desde).
+
+    Cada linha e um comando, gravado ANTES de executar. Resultado
+    'PENDENTE' e um comando que comecou e nao terminou -- a energia caiu
+    no meio, por exemplo. Ver fw/include/audit_log.h."""
+    seq = args.desde
+    proximo = None
+    linhas = 0
+    while proximo is None or seq < proximo:
+        p = client.command(CMD_AUDIT_READ, struct.pack(">I", seq))
+        proximo, continuar = struct.unpack(">II", p[:8])
+        for i in range(8, len(p), 16):
+            r = p[i:i + 16]
+            s_, op, est, arg, res = struct.unpack(">IBBBB", r[:8])
+            if op == 0x00:
+                extra = []
+                if arg & 0x80: extra.append("POST REPROVOU")
+                if arg & 0x40: extra.append("SEM FLASH")
+                extra.append({0: "sem registro persistente", 1: "restaurado",
+                              2: "registro INVALIDO"}.get(arg & 3, "?"))
+                detalhe = ", ".join(extra)
+            else:
+                detalhe = "arg=0x%02X" % arg
+            resultado = ("PENDENTE" if res == 0xFF
+                         else STATUS_NAMES.get(res, "0x%02X" % res))
+            print("%6d  %-20s %-3s  %-28s %s"
+                  % (s_, OPCODE_NAMES.get(op, "0x%02X" % op),
+                     ESTADO_NOMES.get(est, "?"), detalhe, resultado))
+            linhas += 1
+        if continuar <= seq:
+            break
+        seq = continuar
+    print("(%d registros mostrados; proximo seq = %d)" % (linhas, proximo))
+    return 0
+
+
 def cmd_keycycle(client, args):
     """Gerar -> exportar -> reimportar, com o Python conferindo o C.
 
@@ -902,10 +952,9 @@ def cmd_keycycle(client, args):
          mesmo jeito nas duas direcoes.
       4. um bit trocado no bloco tem de ser recusado
 
-    ⚠ LIMITE CONHECIDO: a etapa 3 gasta um slot por iteracao e NAO HA
-    COMANDO PARA APAGAR UM SLOT (o key store tem 16). Entao ela roda
-    ate encher e para. Descer disso exige `ZEROIZE`, que pede os dois
-    botoes. Ver doc/fase3-notas.md.
+    A etapa 3 gastava um slot por iteracao e parava em ~12 quando o key
+    store enchia. Desde o DELETE_KEY ela devolve o slot a cada volta e
+    chega aos 100.
     """
     try:
         import tr31
@@ -1030,11 +1079,11 @@ def _kcv_local(chave):
 def cmd_zeroize(client, args):
     """Apaga TODA chave do dispositivo. Exige dual control.
 
-    Destrutivo e irreversivel: a LMK vive em BRAM e nao ha copia em lugar
-    nenhum (a persistencia e a fase 4). Depois disto, a cerimonia inteira
-    tem de ser refeita.
+    Destrutivo e irreversivel: apaga a LMK e os slots da BRAM E da flash
+    (fase 4). O log de auditoria fica -- e o registro de quem zeroizou.
+    Depois disto, a cerimonia inteira tem de ser refeita.
     """
-    print("ZEROIZE apaga a LMK e os 16 slots. Nao ha copia, nao ha volta.")
+    print("ZEROIZE apaga a LMK e os 16 slots, na BRAM e na flash. Nao ha volta.")
     if not args.sim:
         resp = input('Digite "apagar" para confirmar: ').strip()
         if resp != "apagar":
@@ -1230,6 +1279,10 @@ def main(argv=None):
     p_kc.add_argument("-n", "--count", type=int, default=100)
     p_kc.add_argument("-v", "--verbose", action="store_true")
 
+    p_aud = sub.add_parser("audit", help="le o log de auditoria (fase 4)")
+    p_aud.add_argument("--desde", type=int, default=0,
+                       help="seq inicial (padrao: o mais antigo guardado)")
+
     p_zer = sub.add_parser("zeroize",
                            help="APAGA toda chave (dual control, irreversivel)")
     p_zer.add_argument("--sim", action="store_true",
@@ -1278,6 +1331,7 @@ def main(argv=None):
         "decrypt": cmd_decrypt,
         "keycycle": cmd_keycycle,
         "zeroize": cmd_zeroize,
+        "audit": cmd_audit,
     }
 
     try:

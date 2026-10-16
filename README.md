@@ -51,9 +51,9 @@ diferente -- nao ha "resposta conhecida" para instalar uma chave, ha
 propriedades que se falharem tornam o dispositivo perigoso sem parecer
 quebrado.
 
-⚠ **`post` e DESTRUTIVO** num dispositivo carregado: o teste do key store
-instala e apaga chaves de verdade e termina com o store vazio, LMK
-inclusive.
+O `post` zera a BRAM (o teste do key store instala e apaga chaves de
+verdade) e, desde a fase 4, restaura LMK, estado e chaves da flash em
+seguida.
 
 **Fase 3 em andamento**: CMAC, o key store em BRAM, a **cerimonia de LMK**, o
 **display de estado** e o **key block ANSI X9.143** estao prontos. Tres
@@ -90,9 +90,16 @@ E dois que nao estavam no plano, e apareceram USANDO o equipamento:
 (a cerimonia da chave mestra aplicada a uma chave de trabalho -- o unico
 comando de operacao que pede os dois botoes).
 
-Falta o log de auditoria, movido para a fase 4: nao cabe na IMEM (90,6%
-ocupada) e, mais importante, um log que nao sobrevive ao desligamento nao e
-log de auditoria. Ver `doc/fase3-notas.md`.
+**Fase 4 em andamento** (`doc/fase4-notas.md`): a LMK, o estado e as chaves
+persistem na flash SPI, e cada comando que mexe em chave deixa um registro no
+**log de auditoria** (`hsmtool audit`), gravado antes de executar. A LMK fica
+em claro na flash, que o projeto *trata* como memoria segura: e uma decisao
+didatica, porque esta placa nao tem onde guarda-la protegida (sem eFUSE, BBRAM
+sem bateria, sem involucro com deteccao de violacao). A justificativa esta no
+topo das notas da fase.
+
+Documentacao do codigo: `doc/codigo-host.md` (Python) e
+`doc/codigo-firmware.md` (C).
 
 ⚠ **Grave na flash, nao na SRAM** -- `./scripts/program.sh flash`. Nesta
 bancada a configuracao por JTAG **nao aplica a inicializacao das Block
@@ -176,8 +183,9 @@ no instante em que o comando chega, e um aperto **novo** a cada componente
 gesto e espera o Enter; se vier `STATUS_NOT_AUTHORIZED`, e porque os botoes
 nao estavam apertados, e essa recusa e a prova de que o mecanismo existe.
 
-⚠ A LMK vive em BRAM e **nao sobrevive ao desligamento**. E o que a regra
-n° 2 pede; persistencia e a fase 4.
+Desde a fase 4 a LMK **sobrevive ao desligamento**: fica na flash, tratada
+como memoria segura por decisao didatica (`doc/fase4-notas.md`). Ligou, o
+dispositivo volta ao estado em que estava.
 
 O dispositivo e mudo ate ser perguntado: terminal aberto nao mostra nada, e
 isso e o comportamento correto.

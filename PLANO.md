@@ -181,15 +181,21 @@ exatamente o comportamento do HSM comercial cuja bateria descarregou.
   caminho, e o **CFS** (Custom Functions Subsystem) é um slot de periférico feito
   para encaixar coprocessadores. Em projeto de segurança, "nada de mágica
   escondida" vale mais que conveniência.
-- **Chaves só em BRAM.** A DDR3 é externa e sondável; o barramento fica exposto
-  nos conectores. A LMK nunca sai da BRAM, em nenhuma circunstância. Esta é a
-  fronteira criptográfica do projeto e tudo mais é derivado dela.
+- **Chaves só em BRAM — e na região segura da flash.** A DDR3 é externa e
+  sondável; o barramento fica exposto nos conectores. Até a fase 3 a LMK não
+  saía da BRAM em circunstância nenhuma. *Em 2026-10-15, por decisão do
+  usuário, a região da SPI flash a partir de 4 MB passou a ser tratada como
+  memória segura* — o papel da memória com bateria de um HSM comercial — e a
+  LMK persiste nela. É uma premissa de projeto didático, não uma propriedade
+  da placa: a flash é um chip comum, e quem tiver um gravador a lê. Ver
+  `doc/fase4-notas.md`.
 - **UART antes de Ethernet.** Canal simples, observável com analisador lógico —
   o que permite *provar* que material de chave em claro nunca cruza a fronteira.
 
 ### Fronteira criptográfica
 
-Dentro: LMK, chaves de trabalho em claro, estado do DRBG.
+Dentro: LMK, chaves de trabalho em claro, estado do DRBG — e, desde a
+fase 4, a região da SPI flash a partir de 4 MB, tratada como memória segura.
 Fora: key blocks wrapped, KCVs, criptogramas, handles, log de auditoria.
 Nada da primeira lista atravessa para a segunda. Todo comando novo é avaliado
 contra essa regra antes de ser implementado.
@@ -430,7 +436,8 @@ sequer que são de duas pessoas. É a mais fraca das quatro.
 ⚠ **O bloqueio real não é o cartão.** É que a LMK **não sobrevive ao
 desligamento** (BRAM, como manda a regra 2), então toda sessão de bancada
 refaz a cerimônia digitando 3×64 caracteres em hexadecimal. A **Fase 4**
-elimina quase toda essa dor sem hardware nenhum. Ordem sugerida quando o
+elimina essa dor sem hardware nenhum — *feito em 2026-10-15: a LMK persiste
+na flash, tratada como memória segura.* Ordem sugerida quando o
 assunto voltar: Fase 4 → Shamir → microSD → cartão com PIN pelos botões
 livres.
 
@@ -491,6 +498,9 @@ trilha forense.
 
 **Fase 4 — NV storage.** Blobs wrapped na SPI flash, MAC de integridade,
 contador anti-rollback, recuperação de estado no boot. Modelo real de HSM.
+*Em andamento desde 2026-10-15 — o desenho que entrou, e o que dele ficou de
+fora por ser além do necessário num HSM didático, está em
+`doc/fase4-notas.md`.*
 
 **Fase 5 — API de host: command set ASCII de HSM de pagamento.** *Decisão de rumo
 tomada em 2026-08-08 — ver "Alvo declarado" na seção 0.* Em vez de um subconjunto

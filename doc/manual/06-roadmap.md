@@ -460,20 +460,66 @@ com resultado idêntico; parser Python e firmware C concordando em 100 blocos
 aleatórios; alterar um bit do cabeçalho ou do corpo invalidando o MAC; e
 chave marcada como não exportável não saindo **por caminho nenhum**.
 
-## 29. Fase 4 — armazenamento não-volátil
+## 29. Fase 4 — armazenamento não-volátil *(em andamento)*
 
-Blobs embrulhados na flash SPI, MAC de integridade, contador anti-rollback,
-recuperação de estado no boot.
+Até a Fase 3, desligar a placa apagava tudo: a LMK, as chaves e o estado.
+Cada sessão de bancada começava digitando três componentes de 64 caracteres.
+Um HSM comercial não se comporta assim. Ele desliga e volta *online* com a
+chave mestra e as chaves de trabalho, e é esse comportamento que a Fase 4
+reproduz.
 
-O problema novo aqui é o **rollback**: um atacante que restaure um estado
-antigo da flash pode reviver uma chave revogada ou desfazer um incremento de
-contador. Por isso o contador monotônico precisa de proteção específica, e é
-um dos pontos onde HSMs reais gastam esforço desproporcional.
+### A decisão que a fase tomou, e por que ela é fraca de propósito
 
-Detalhe de arquitetura já mapeado: a flash é a **mesma** que guarda o
-bitstream. Log e blobs precisam morar num offset acima da imagem de
-configuração, e o acesso a partir da lógica do usuário exige a primitiva
-`STARTUPE2` para dirigir o clock de configuração.
+Num HSM comercial, a LMK sobrevive ao desligamento numa **memória mantida
+por bateria, dentro de um invólucro com detecção de violação** (§18.2). Abrir
+a caixa corta a bateria, e a chave some.
+
+Esta placa não tem nada equivalente. O eFUSE é proibido pela regra nº 1, a
+BBRAM está sem bateria, o DNA do chip é público e não há invólucro.
+Embrulhar a LMK antes de gravá-la só mudaria o problema de lugar: a chave que
+a embrulha teria de ficar guardada em algum lugar, e esse lugar seria a mesma
+flash.
+
+Então, por ser um projeto **educacional** e diante dessa **limitação de
+hardware**, a decisão (do autor, em 2026-10-15) foi:
+
+> A região da flash SPI a partir de 4 MB é **tratada como memória segura**.
+> A LMK é guardada nela em claro; as chaves de trabalho, embrulhadas sob a
+> LMK como key blocks X9.143.
+
+O comportamento operacional fica igual ao de um equipamento comercial. A
+proteção física não fica: quem tiver um gravador SPI lê a LMK. A diferença
+está escrita em `doc/fase4-notas.md`, em vez de disfarçada por um esquema que
+pareceria proteger e não protegeria.
+
+### O que entrou
+
+- **Hardware.** O SPI do NEORV32 fala com a mesma flash que guarda o
+  bitstream. O clock passa pela primitiva `STARTUPE2`, a única forma de a
+  lógica do usuário alcançar o pino de clock de configuração. As memórias do
+  processador dobraram (32 KB de código, 16 KB de dados). Custo: +83 LUTs,
+  +6 Block RAMs, e a folga de timing ficou praticamente igual (+0,258 ns).
+- **A guarda do bitstream.** O driver recusa apagar ou gravar abaixo de
+  4 MB, num lugar só, por onde toda escrita passa.
+- **O registro persistente**, com a LMK, o estado e os slots, em **duas
+  cópias**. Cada gravação vai para a mais velha, e uma queda de energia no
+  meio deixa a outra intacta. No boot vale a mais nova cujo CRC confere.
+- **Chave anunciada é chave guardada.** Se a flash falhar, `GEN_KEY` e
+  parentes desfazem o slot e devolvem `STORE_FAIL`.
+- **O log de auditoria**, finalmente (§5 do plano). Cada comando é
+  registrado **antes** de executar, com o resultado "pendente"; depois só o
+  byte de resultado é programado por cima. Um registro que ficou pendente é
+  um comando que começou e não terminou. E se o log não puder ser gravado, o
+  comando não executa. A exceção é o `ZEROIZE`.
+
+### O que ficou de fora, de propósito
+
+O plano previa um **contador anti-rollback**. O problema é real: quem
+restaurar uma imagem antiga da flash ressuscita uma chave apagada. Mas a
+defesa exige um contador monotônico **fora** da flash, que a placa não tem, e
+um contador dentro dela seria restaurado junto com o resto. A limitação está
+documentada, não mitigada. É um dos pontos onde HSMs reais gastam esforço
+desproporcional, e aqui fica como lição, não como código.
 
 ## 30. Fase 5 — API de host
 

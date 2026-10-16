@@ -117,10 +117,10 @@ teste de eco não é afetado.
 
 ## Sessão de bancada da Fase 3 — a cerimônia e os comandos de chave
 
-⚠ **A LMK não sobrevive a um desligamento** (BRAM, como manda a regra 2).
-Toda sessão que precise dela começa refazendo a cerimônia. Não é defeito —
-a persistência é a Fase 4, e guardar chave antes de saber embrulhá-la seria
-guardar chave em claro.
+⚠ **Desde a Fase 4 a LMK sobrevive ao desligamento**: ela fica na flash, que
+o projeto trata como memória segura (`doc/fase4-notas.md`). A cerimônia só é
+necessária na primeira vez e depois de um `zeroize`. Para recomeçar do zero
+numa sessão, é `zeroize` com os dois botões.
 
 **Os botões: SW2 e SW5**, o 2º e o 5º da fileira (o 1º é o reset). O ponto
 decimal do display acende enquanto os dois estão pressionados — é a
@@ -188,9 +188,9 @@ num componente que não seja o 0 é recusado **sem destruir o acumulado** —
 um host que erre a sequência não pode estragar a cerimônia de quem está na
 frente da placa.
 
-⚠ **`hsmtool post` é DESTRUTIVO** num dispositivo carregado: o autoteste
-exercita o key store de verdade e termina com ele vazio. Rodar o
-diagnóstico no meio da sessão apaga a LMK e volta a `UNINITIALIZED`.
+`hsmtool post` zera a BRAM (o autoteste exercita o key store de verdade) e,
+desde a Fase 4, restaura LMK, estado e chaves da flash em seguida. Até a Fase
+3 ele apagava a LMK.
 
 ⚠ **`keycycle` precisa da LMK em claro no host**, o que um HSM de verdade
 nunca permitiria. É a maior distância entre este projeto e o modelo, e está

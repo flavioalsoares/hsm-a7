@@ -57,7 +57,15 @@ module hsm_top #(
 
     // display de estado (fase 3): Uni / Aut / OPE / tPr
     output wire [7:0] seg_o,        // segmentos a..g, dp
-    output wire [2:0] seg_an_o      // varredura dos 3 digitos
+    output wire [2:0] seg_an_o,     // varredura dos 3 digitos
+
+    // flash SPI de configuracao (fase 4) -- MT25QL128, a mesma do
+    // bitstream. O CCLK (E8) e dedicado e NAO e porta: sai pela STARTUPE2.
+    output wire       flash_csn_o,  // L12  FCS_B
+    output wire       flash_mosi_o, // J13  D00 / DQ0
+    input  wire       flash_miso_i, // J14  D01 / DQ1
+    output wire       flash_wp_n_o, // K15  D02 / DQ2 = W#
+    output wire       flash_hold_n_o// K16  D03 / DQ3 = HOLD#/RESET#
 );
 
     // ------------------------------------------------------------------
@@ -155,6 +163,7 @@ module hsm_top #(
     // ------------------------------------------------------------------
     wire [7:0] gpio_out;
     wire [7:0] gpio_in;
+    wire       flash_sck;
 
     assign gpio_in[0]   = btn_a_db;     // SW2 -- dual control A
     assign gpio_in[1]   = btn_b_db;     // SW5 -- dual control B
@@ -172,8 +181,50 @@ module hsm_top #(
         .uart0_txd_o (uart_txd_o),
         .uart0_rxd_i (uart_rxd_i),
         .gpio_o      (gpio_out),
-        .gpio_i      (gpio_in)
+        .gpio_i      (gpio_in),
+        .spi_clk_o   (flash_sck),
+        .spi_dat_o   (flash_mosi_o),
+        .spi_dat_i   (flash_miso_i),
+        .spi_csn_o   (flash_csn_o)
     );
+
+    // ------------------------------------------------------------------
+    // Flash SPI -- fase 4
+    //
+    // Depois da configuracao, o CCLK so e alcancavel pela STARTUPE2: o
+    // pino E8 e dedicado e nao aceita PACKAGE_PIN. A UG470 avisa que os
+    // TRES primeiros ciclos em USRCCLKO sao engolidos na troca da fonte de
+    // clock -- o firmware faz uma transferencia descartavel, com CS em
+    // alto, antes do primeiro comando (fw/src/flash.c).
+    //
+    // `flash_sck` e um fio com nome de proposito: os testbenches o leem
+    // por hierarquia para alimentar o modelo da flash, ja que o CCLK nao
+    // e porta do toplevel.
+    //
+    // W# e HOLD# ficam em ALTO. Em modo x1 sao so controle, e HOLD# solto
+    // pausaria a flash no meio de uma transferencia.
+    // ------------------------------------------------------------------
+    STARTUPE2 #(
+        .PROG_USR      ("FALSE"),
+        .SIM_CCLK_FREQ (0.0)
+    ) u_startup (
+        .CFGCLK    (),
+        .CFGMCLK   (),
+        .EOS       (),
+        .PREQ      (),
+        .CLK       (1'b0),
+        .GSR       (1'b0),
+        .GTS       (1'b0),
+        .KEYCLEARB (1'b1),
+        .PACK      (1'b0),
+        .USRCCLKO  (flash_sck),
+        .USRCCLKTS (1'b0),
+        .USRDONEO  (1'b1),
+        .USRDONETS (1'b1)
+    );
+
+    assign flash_wp_n_o   = 1'b1;
+    assign flash_hold_n_o = 1'b1;
 
     // ------------------------------------------------------------------
     // LEDs

@@ -299,6 +299,16 @@ O KCV que o `0x20` devolve é o do **componente**, não o da LMK acumulada. O
 os três bytes vêm zerados, e a resposta mantém o comprimento fixo para que o
 tamanho do frame não anuncie nada.
 
+### Comando da Fase 4 — log de auditoria
+
+| Opcode | Nome | Pedido | Resposta | Estados |
+|---|---|---|---|---|
+| `0x2D` | `AUDIT_READ` | seq inicial (4) | próximo (4) ‖ continuar (4) ‖ até 16 registros de 16 bytes | todos menos `TAMPERED` |
+
+Cada registro: `seq(4) | comando(1) | estado(1) | argumento(1) | resultado(1)
+| reservado(4) | crc32(4)`. Comando `0x00` é o boot; resultado `0xFF` é
+"pendente", um comando que começou e não terminou.
+
 ### Códigos de status
 
 | Código | Nome | Significado |
@@ -316,6 +326,8 @@ tamanho do frame não anuncie nada.
 | `0x23` | `NO_SLOT` | key store cheio |
 | `0x24` | `BAD_KEY_USE` | o `modo` do slot proíbe a operação |
 | `0x25` | `MAC_INVALID` | o MAC não confere |
+| `0x26` | `STORE_FAIL` | fase 4: a flash não gravou; a operação foi desfeita |
+| `0x27` | `LOG_FAIL` | fase 4: sem registro no log, o comando não executa |
 | `0x30` | `SELFTEST_FAIL` | |
 | `0x31` | `TAMPERED` | |
 | `0xFF` | `INTERNAL_ERROR` | |
@@ -520,11 +532,12 @@ traz o exemplo é paga. O que se usa é um valor conhecido de terceiros,
 fixado por commit e por hash. Está registrado em `vectors/MANIFEST.txt` em
 vez de dissimulado entre os demais.
 
-⚠ **E o autoteste é DESTRUTIVO.** O teste do key store instala e apaga
-chaves de verdade, e termina com o store vazio — chave mestra inclusive.
-Rodá-lo num dispositivo carregado apaga a LMK, e o dispositivo volta a
-`UNINITIALIZED`. Não dá para consertar poupando a chave: um autoteste que
-poupasse exercitaria um caminho que não é o do boot.
+⚠ **O autoteste zera a memória de trabalho.** O teste do key store instala e
+apaga chaves de verdade e termina com o store vazio, chave mestra inclusive.
+Um autoteste que poupasse a chave exercitaria um caminho que não é o do boot.
+Até a Fase 3, rodá-lo num dispositivo carregado apagava a LMK; desde a Fase 4
+o dispositivo restaura tudo da flash em seguida e volta ao estado em que
+estava.
 
 **Se alguma reprovar**, o dispositivo vai para `TAMPERED` e passa a atender
 **só** ao `SELFTEST`. Isso é o comportamento correto, e a exceção é
@@ -906,32 +919,53 @@ apagou. Funciona em qualquer estado — inclusive em `TAMPERED`, e ali ele
 apaga a chave sem tirar o dispositivo de `TAMPERED`: um HSM que se cura de
 tamper não detectou tamper nenhum.
 
-### E.8 O que ainda não existe
+### E.8 Desligar, religar e ler o log *(fase 4)*
+
+```bash
+# depois da cerimônia e de gerar chaves: desligue e ligue a placa
+python3 host/hsmtool.py version
+#   estado   : OPERATIONAL (2)      <- sem cerimônia
+python3 host/hsmtool.py lmk-status
+#   KCV da LMK  : (o mesmo de antes)
+python3 host/hsmtool.py key-info 1  # mesmo handle, mesmo KCV
+
+python3 host/hsmtool.py audit
+#      0  BOOT                 Uni  sem registro persistente   OK
+#      1  LMK_LOAD_COMPONENT   Uni  arg=0x00                   OK
+#    ...
+#     14  BOOT                 OPE  restaurado                 OK
+```
+
+Cada linha do `audit` é um comando, gravado **antes** de executar. A coluna
+de estado é o estado em que o dispositivo estava quando o comando chegou. Um
+`GEN_KEY` tentado em `Uni` aparece com o resultado `WRONG_STATE`: tentativas
+recusadas também entram.
+
+O `post` continua zerando a memória de trabalho, mas agora restaura tudo da
+flash em seguida, e o dispositivo volta ao estado em que estava. Só o
+`zeroize` apaga de vez: ele limpa a LMK e as chaves da flash e mantém o log,
+que é o registro de quem zeroizou.
+
+### E.9 O que ainda não existe
 
 Honestidade sobre o estado do projeto, para que ninguém procure um comando
 que não foi escrito:
 
-- **A LMK não sobrevive ao desligamento.** Ela vive em Block RAM, que é
-  volátil — e é exatamente o que a regra de projeto pede. Toda sessão que
-  precise de LMK refaz a cerimônia. Persistência é a Fase 4, e a ordem é
-  essa de propósito: guardar chave antes de saber embrulhá-la seria guardar
-  chave em claro.
-- **Não há log de auditoria**, e ele foi adiado para a fase seguinte por
-  dois motivos. O primeiro é espaço: a memória de código está em 90% e ele
-  não cabe. O segundo é melhor — **um log que não sobrevive ao desligamento
-  não é log de auditoria**. Ele registra exatamente os eventos que alguém
-  teria interesse em apagar, e um registro volátil some junto com a
-  energia, que é a primeira coisa que se corta. O lugar dele é ao lado da
-  persistência.
+- **A LMK sobrevive ao desligamento, mas não está protegida.** Desde a
+  Fase 4 ela fica na flash, que o projeto *trata* como memória segura. Quem
+  tiver um gravador SPI a lê. É uma decisão didática diante do hardware
+  disponível, explicada no §29.
+- **Não há anti-rollback.** Regravar a flash com uma imagem antiga faz uma
+  chave apagada voltar, e o dispositivo não percebe.
 - **`exportabilidade='S'` é aceito e se comporta como `'E'`.** A "regra mais
   estrita" que o nome promete não existe. Um campo que o dispositivo não sabe
   honrar é uma promessa no código.
 - **A exportação não é qualificada.** Aqui o campo é praticamente booleano e
   a chave que embrulha é sempre a mestra. No modelo comercial se diz sob
   *qual* chave a exportação pode acontecer, e para qual zona.
-- **Não há log de auditoria.** É transversal, e o `ZEROIZE` é quem mais o
-  pede: apagar tudo sem deixar registro de quem pediu e quando é
-  exatamente o evento que um log existe para cobrir.
+- **O log de auditoria detecta corrupção, não adulteração.** O CRC de cada
+  registro pega um bit trocado por acidente; quem editar a flash de
+  propósito recalcula o CRC.
 - **`hsmtool keycycle` precisa da LMK em claro**, o que um HSM de verdade
   nunca permitiria. Serve para as duas implementações do formato de key
   block se conferirem; é bancada, não operação.

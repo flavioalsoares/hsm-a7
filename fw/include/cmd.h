@@ -314,6 +314,30 @@
  * que um que falha, porque o operador acredita nele. */
 #define CMD_ZEROIZE             0x2Fu
 
+/* AUDIT_READ -- le o log de auditoria (fase 4).
+ *   pedido    seq_inicial(4)
+ *   resposta  proximo(4) || continuar(4) || ate 16 registros de 16 bytes
+ *
+ * `proximo` e o numero do proximo registro a ser gravado -- ou seja,
+ * quantos ja houve. `continuar` e o seq a pedir na chamada seguinte;
+ * quando ele chega em `proximo`, acabou. Registros sobrescritos pelo anel
+ * sao pulados. Formato do registro em fw/include/audit_log.h.
+ *
+ * Checklist:
+ *   estados      ST_NORMAL. O log e uma das coisas que podem sair
+ *                (CLAUDE.md, regra 3). Em TAMPERED, nao: o dispositivo
+ *                comprometido responde o minimo, e o log continua na
+ *                flash para quem religar.
+ *   dual control nao. Ler nao muda nada.
+ *   vazamento    o historico de operacoes: comando, estado, primeiro byte
+ *                do payload (um handle, um indice) e resultado. Nunca
+ *                chave, nunca payload inteiro.
+ *   exportability nao se aplica.
+ *   log          nao -- ler o log nao entra nele, ou cada leitura
+ *                empurraria o que se quer ler para fora do anel. */
+#define CMD_AUDIT_READ          0x2Du
+#define CMD_AUDIT_MAX_REG       16u
+
 
 void         cmd_init(void);
 void         cmd_poll(void);
