@@ -338,9 +338,13 @@ entrega é a chave. O controle real é o `modo` do slot e o log de auditoria,
 que ainda não existe.
 
 ⚠ **`exportabilidade='N'` NÃO impede usar** — impede sair. Quem restringe o
-que a chave pode fazer é o `modo`. E ⚠ **`'S'` é aceito e se comporta como
-`'E'`**: a regra mais estrita que o nome promete não existe
-(`doc/fase3-notas.md` §6a).
+que a chave pode fazer é o `modo`.
+
+⚠ **`'S'` é o valor MAIS PERMISSIVO, não o mais estrito** (corrigido
+2026-10-18): libera exportação também em formatos legados, além de key
+block. Como aqui só existe exportação em key block, `'S'` se comportar como
+`'E'` está **certo**. Não recusar `'S'`. Até 2026-10-18 a documentação
+dizia o contrário (`doc/fase3-notas.md` §6a).
 
 ⚠ **Duas funções PADRÃO da categoria não estavam no plano, e as duas
 apareceram USANDO o dispositivo, não planejando-o**: apagar uma chave

@@ -87,13 +87,16 @@ typedef uint8_t ks_handle_t;
 #define KS_MODO_MAC      'C'   /* gerar e verificar MAC     */
 #define KS_MODO_NENHUM   'N'   /* nenhuma operação          */
 
-#define KS_EXP_SIM      'E'    /* exportável sob KEK        */
+#define KS_EXP_SIM      'E'    /* exportável, só em key block (TR-31/TR-34) */
 #define KS_EXP_NAO      'N'    /* nunca sai, em hipótese nenhuma */
-/* ⚠ `'S'` é ACEITO e hoje se comporta exatamente como `'E'`. A "regra mais
- * estrita" que o nome promete NÃO existe: `keystore_exporta()` recusa
- * apenas `'N'`. Está registrado como lacuna em `doc/fase3-notas.md` §6a —
- * um campo que o dispositivo não sabe honrar é uma promessa no código. */
-#define KS_EXP_SENSIVEL 'S'    /* sensível -- ver o aviso acima */
+/* `'S'` ("sensível") é o MAIS PERMISSIVO dos três, e não o mais estrito:
+ * além de key block, autoriza formatos legados de exportação (criptograma
+ * simétrico, embrulho RSA). Este dispositivo só exporta em key block
+ * X9.143, então para ele `'S'` e `'E'` liberam o mesmo caminho, e
+ * `keystore_exporta()` recusa apenas `'N'` -- correto. Se um dia existir
+ * exportação em formato legado, ela tem de aceitar SÓ `'S'`. Ver
+ * `doc/fase3-notas.md` §6a. */
+#define KS_EXP_SENSIVEL 'S'    /* exportável também fora de key block */
 
 /* Metadados de um slot -- tudo menos a chave.
  *

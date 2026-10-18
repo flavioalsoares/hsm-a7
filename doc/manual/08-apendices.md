@@ -963,9 +963,11 @@ que não foi escrito:
   disponível, explicada no §29.
 - **Não há anti-rollback.** Regravar a flash com uma imagem antiga faz uma
   chave apagada voltar, e o dispositivo não percebe.
-- **`exportabilidade='S'` é aceito e se comporta como `'E'`.** A "regra mais
-  estrita" que o nome promete não existe. Um campo que o dispositivo não sabe
-  honrar é uma promessa no código.
+- **Não há exportação em formato legado.** Só em key block X9.143. Por
+  isso `exportabilidade='S'` se comporta como `'E'` — e está certo: na
+  norma, `'S'` é o valor *mais permissivo*, que libera também formatos
+  legados (criptograma simétrico, embrulho RSA). Como eles não existem
+  aqui, `'S'` e `'E'` liberam o mesmo caminho.
 - **A exportação não é qualificada.** Aqui o campo é praticamente booleano e
   a chave que embrulha é sempre a mestra. No modelo comercial se diz sob
   *qual* chave a exportação pode acontecer, e para qual zona.

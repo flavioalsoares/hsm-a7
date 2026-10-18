@@ -1182,8 +1182,9 @@ chave fraca mal escolhidos já reprovaram chaves boas em sistemas reais.
 
 ### 2. Lacunas do controle de exportabilidade
 
-*Levantadas em 2026-08-31, respondendo "isso existe aqui?". **Ambas
-padrão da categoria; ambas faltam.***
+*Levantadas em 2026-08-31, respondendo "isso existe aqui?". A 6b é
+lacuna de verdade; a 6a era erro de leitura da norma — ver a correção
+de 2026-10-18 abaixo.*
 
 O que **existe e funciona**: os três valores da norma (`'E'`, `'N'`, `'S'`)
 no cabeçalho X9.143, um **único** ponto de saída para os bytes
@@ -1192,29 +1193,41 @@ MAC** — trocar o caractere da posição 11 mata o bloco. Validado no POST, no
 `tb_keystore` e em hardware (`gen-key --exp N` → `export-key` →
 `NOT_EXPORTABLE`).
 
-#### 6a. `'S'` é aceito e não significa nada
+#### 6a. `'S'` — a lacuna era um erro de leitura, corrigido em 2026-10-18
 
-`KS_EXP_SENSIVEL` aparece **só** nas listas de validação de cabeçalho
-(`header_valido()` em keystore.c, `cab_valido()` em tr31.c). Nenhum código
-trata "sensível" diferente de "exportável": `keystore_exporta()` recusa
-apenas `KS_EXP_NAO`.
+**O que se dizia aqui até 2026-10-18 estava invertido.** O texto anterior
+partia de que `'S'` ("sensível") seria *mais estrito* que `'E'` — "sai só
+sob regra mais estrita" — e concluía que o dispositivo prometia uma regra
+que não cumpria. As saídas propostas eram implementar essa regra ou recusar
+`'S'`.
 
-Ou seja, o comentário no header — *"sai só sob regra mais estrita"* —
-descreve uma regra que **não existe**. É pior que uma lacuna: é uma
-promessa no código.
+Na norma é o contrário. Em ordem crescente de liberdade:
 
-Duas saídas honestas, e nenhuma é deixar como está:
+| Valor | Quem recebe a chave pode exportá-la… |
+|---|---|
+| `'N'` | não pode |
+| `'E'` | só em **key block** (TR-31 / TR-34) |
+| `'S'` | em key block **e** em formatos legados — criptograma simétrico, embrulho RSA |
 
-1. **Implementar a semântica**, e aí decidir qual é. O que a categoria faz
-   é qualificar a exportação — ver 6b —, então essa decisão não é
-   independente da outra.
-2. **Recusar `'S'` na instalação** enquanto não houver semântica, e dizer
-   por quê. Um campo que o dispositivo não sabe honrar não deve ser
-   aceito: aceitar e ignorar é como uma restrição de uso desaparece.
+"Sensível" quer dizer *exposta* a formatos mais fracos, não mais protegida.
+O `'S'` existe para conversar com sistemas que não entendem key block.
+(Fonte: a documentação pública de um serviço de criptografia de pagamento
+em nuvem, que descreve os três valores citando a X9.143-2022. A norma em si
+é paga.)
 
-⚠ A opção 2 tem um custo de interoperabilidade que precisa ser pesado: um
-key block legítimo de outro sistema, com `'S'`, passaria a ser recusado na
-importação.
+**Consequência: o comportamento sempre esteve certo.** Este dispositivo só
+exporta em key block X9.143, e esse caminho é liberado por `'E'` e por
+`'S'`. Tratar os dois igual, recusando só `'N'` em `keystore_exporta()`, é
+a semântica correta para o único caminho de saída que existe. Recusar `'S'`
+seria pior: um key block legítimo de outro sistema deixaria de entrar.
+
+O que fica como regra para o futuro: **se um dia existir exportação em
+formato legado, ela aceita só `'S'`** — é ali que o campo passa a
+distinguir alguma coisa. O comentário em `keystore.h` diz isso.
+
+A lição vale mais que a correção: a lacuna foi levantada com convicção,
+registrada, e quase virou código (a recusa do `'S'`). Bastou perguntar se o
+caso existe no mercado para ela se desfazer.
 
 #### 6b. A exportação não é qualificada
 
