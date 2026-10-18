@@ -433,6 +433,17 @@ sequer que são de duas pessoas. É a mais fraca das quatro.
    São dezenas de linhas de C e **nenhum hardware novo** — dá para fazer
    antes de qualquer cartão, e independente deles.
 
+5. **Quantidade de componentes da LMK configurável** — *ideia registrada
+   em 2026-10-18, a pedido do usuário; divergência do padrão, não
+   implementada.* Hoje a LMK tem sempre 3 componentes
+   (`KS_LMK_N_COMPONENTES`, constante). Um HSM comercial deixa o operador
+   escolher quantos na hora de formar a LMK. Continuaria XOR, então seria
+   n-de-n: todos os componentes obrigatórios — o que muda é só quantos.
+   Distinto do item 4, que muda o *esquema* (k-de-n, quórum). A chave de
+   trabalho por componentes (`0x2C`) já faz isso, com o total de 2 a 9
+   informado no primeiro componente; o caminho seria o mesmo para o
+   `0x20`, inclusive o total gravado no registro persistente.
+
 ⚠ **O bloqueio real não é o cartão.** É que a LMK **não sobrevive ao
 desligamento** (BRAM, como manda a regra 2), então toda sessão de bancada
 refaz a cerimônia digitando 3×64 caracteres em hexadecimal. A **Fase 4**
