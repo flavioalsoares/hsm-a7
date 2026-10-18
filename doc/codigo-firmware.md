@@ -142,6 +142,10 @@ Outros pontos do key store:
   esquecido em zero não caia num slot por acidente.
 - **A LMK fica fora do vetor de slots**: sem handle, e zeroizá-la apaga todos
   os slots junto.
+- **LMK zerada é recusada** no terceiro componente (`lmk_componente()`
+  devolve -2, o handler responde `BAD_PARAM`) e a cerimônia recomeça em 0
+  de 3. Acontece quando o último componente é o XOR dos anteriores. LMK
+  *fraca* não é checada: a qualidade do componente é do custodiante.
 - **O KCV** (3 bytes de `AES(chave, bloco de zeros)`) é o único dado derivado
   de uma chave que sai da fronteira. É curto de propósito: basta para pegar
   um erro de digitação e não serve para atacar.

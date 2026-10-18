@@ -290,7 +290,9 @@ ks_handle_t comp_instala(const uint8_t uso[2], uint8_t algoritmo,
  * o seu e não vê os demais, e nenhum componente isolado revela nada.
  *
  * `n` é o índice do componente (0, 1, 2), só para o firmware saber quantos
- * já entraram. Devolve 0 em sucesso. */
+ * já entraram. Devolve 0 em sucesso, -1 em erro, e -2 se o último
+ * componente deixou a LMK inteira em zeros — nesse caso a cerimônia
+ * recomeça do componente 0 (o acumulado é zerado). */
 int lmk_componente(uint8_t n, const uint8_t comp[KS_KEY_MAX]);
 
 /* Quantos componentes já entraram. */

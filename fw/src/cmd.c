@@ -481,7 +481,16 @@ static hsm_status_t h_lmk_load_component(const uint8_t *in, uint16_t in_len,
         return STATUS_INTERNAL_ERROR;
     }
 
-    if (lmk_componente(n, &in[1]) != 0) {
+    switch (lmk_componente(n, &in[1])) {
+    case 0:
+        break;
+    case -2:
+        /* LMK zerada: a cerimonia recomeca em 0 de 3 (keystore.c). O
+         * operador ve isso no LMK_STATUS; o KCV do componente nao sai,
+         * porque o componente nao entrou. */
+        wipe(kcv, sizeof kcv);
+        return STATUS_BAD_PARAM;
+    default:
         wipe(kcv, sizeof kcv);
         return STATUS_INTERNAL_ERROR;
     }

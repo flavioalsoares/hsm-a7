@@ -520,7 +520,7 @@ void lmk_zeroiza(void)
 
 int lmk_componente(uint8_t n, const uint8_t comp[KS_KEY_MAX])
 {
-    uint8_t i;
+    uint8_t i, acc;
 
     if ((comp == 0) || (n != g_lmk_comps) || (n >= LMK_N_COMPONENTES)) {
         return -1;                       /* fora de ordem, ou já completa */
@@ -535,6 +535,23 @@ int lmk_componente(uint8_t n, const uint8_t comp[KS_KEY_MAX])
     g_lmk_comps++;
 
     if (g_lmk_comps == LMK_N_COMPONENTES) {
+        /* LMK zerada: recusada, e a cerimonia recomeca. Acontece quando o
+         * ultimo componente e o XOR dos anteriores -- cada um parece
+         * aleatorio, e a soma e zero. Nao ha como saber qual componente
+         * estava errado, entao nao ha o que aproveitar do acumulado.
+         *
+         * Varredura sem saida antecipada: o tempo nao diz onde parou.
+         * LMK "fraca" (de baixa entropia) NAO e checada -- decisao de
+         * 2026-10-18: a qualidade do componente e responsabilidade do
+         * custodiante, como num HSM comercial. */
+        acc = 0u;
+        for (i = 0u; i < KS_KEY_MAX; i++) {
+            acc |= g_lmk[i];
+        }
+        if (acc == 0u) {
+            lmk_zeroiza();
+            return -2;
+        }
         if (keystore_kcv(g_lmk, KS_KEY_MAX, g_lmk_kcv) != 0) {
             lmk_zeroiza();
             return -1;

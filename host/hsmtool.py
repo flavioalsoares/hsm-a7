@@ -641,7 +641,17 @@ def cmd_lmk_load(client, args):
 
     _pede_dual_control("Carregar o componente %d da LMK." % n)
 
-    p = client.command(CMD_LMK_LOAD_COMPONENT, bytes([n]) + comp)
+    try:
+        p = client.command(CMD_LMK_LOAD_COMPONENT, bytes([n]) + comp)
+    except HsmError as e:
+        # No ultimo componente, BAD_PARAM e a LMK que daria 32 bytes de
+        # zeros. O firmware recomeca a cerimonia: nao ha como saber qual
+        # componente estava errado.
+        if e.status == 0x11 and n == LMK_N_COMPONENTES - 1:
+            print("  Se o indice estava certo, a LMK resultante seria ZERADA e")
+            print("  foi recusada. A cerimonia recomeca do componente 0")
+            print("  (confira com lmk-status).")
+        raise
     if len(p) != KCV_LEN + 2:
         print("payload inesperado: %r" % p)
         return 1

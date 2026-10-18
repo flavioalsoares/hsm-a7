@@ -69,6 +69,7 @@ module tb_zeroize;
     localparam [7:0] CMD_ZEROIZE     = 8'h2F;
 
     localparam [7:0] ST_OK            = 8'h00;
+    localparam [7:0] ST_BAD_PARAM     = 8'h11;
     localparam [7:0] ST_NOT_AUTH      = 8'h21;
     localparam [7:0] ST_SELFTEST_FAIL = 8'h30;
 
@@ -447,6 +448,41 @@ module tb_zeroize;
         confere_lmk(0, 1'b0, 1'b0);
         if (errors == erros_antes)
             $display("[tb_zeroize] LMK zerada: 0 de 3, KCV em zeros");
+
+        // ---- 3b. LMK zerada e recusada ---------------------------------
+        //
+        // Terceiro componente = XOR dos dois primeiros: cada um parece
+        // aleatorio, e a LMK resultante e 32 bytes de zeros. O firmware
+        // recusa no terceiro (BAD_PARAM) e a cerimonia RECOMECA -- 0 de 3,
+        // UNINITIALIZED. Nao ha como saber qual componente estava errado,
+        // entao nao ha o que aproveitar.
+        //
+        // O componente 2 volta ao valor certo antes do passo 4, e o passo
+        // 4 exigindo 46F2FB prova de novo que nada ficou no acumulador.
+        for (i = 0; i < 32; i = i + 1)
+            comp2[i] = comp0[i] ^ comp1[i];
+        erros_antes = errors;
+        for (i = 0; i < 3; i = i + 1) begin
+            aperto_novo();
+            prepara_componente(i);
+            send_cmd_pl(CMD_LMK_LOAD);
+            get_response();
+            if (i < 2 && st !== ST_OK) begin
+                $display("[tb_zeroize] FAIL: componente %0d da LMK zerada -> 0x%02h", i, st);
+                errors = errors + 1;
+            end
+        end
+        soltar();
+        if (st !== ST_BAD_PARAM) begin
+            $display("[tb_zeroize] FAIL: LMK zerada -> status 0x%02h, esperado 0x11", st);
+            errors = errors + 1;
+        end
+        confere_estado(8'd0);
+        confere_lmk(0, 1'b0, 1'b0);
+        if (errors == erros_antes)
+            $display("[tb_zeroize] LMK zerada recusada no 3o componente; cerimonia recomeca em 0 de 3");
+        for (i = 0; i < 32; i = i + 1)
+            comp2[i] = lmk[i] ^ comp0[i] ^ comp1[i];
 
         // ---- 4. A PROVA ------------------------------------------------
         //

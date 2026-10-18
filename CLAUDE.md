@@ -423,6 +423,11 @@ falta é **console e host em portas separadas**: aqui os componentes passam
 pela máquina do host. Dual control impede *carregar*, não impede
 *observar*. Ver `PLANO.md`, "Aderência antes de variação".
 
+⚠ **LMK zerada é recusada** (2026-10-18): no terceiro componente,
+`BAD_PARAM`, e a cerimônia recomeça em 0 de 3. LMK *fraca* **não** é
+checada, por decisão do usuário — a qualidade do componente é do
+custodiante. `tb_zeroize` passo 3b.
+
 ⚠ **Desde a fase 4 a LMK sobrevive a um desligamento** — fica na flash,
 tratada como memória segura (regra nº 2, decisão de 2026-10-15). A cerimônia
 só é necessária na primeira vez e depois de um `ZEROIZE`.

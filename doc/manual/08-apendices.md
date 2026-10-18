@@ -299,6 +299,12 @@ O KCV que o `0x20` devolve é o do **componente**, não o da LMK acumulada. O
 os três bytes vêm zerados, e a resposta mantém o comprimento fixo para que o
 tamanho do frame não anuncie nada.
 
+Uma LMK **zerada** é recusada no terceiro componente com `BAD_PARAM`, e a
+cerimônia recomeça do componente 0 — não há como saber qual dos três estava
+errado. Acontece se o último componente for o XOR dos dois primeiros: cada
+um parece aleatório, e a soma é zero. LMK *fraca* (de pouca entropia) não é
+checada; a qualidade do componente é responsabilidade do custodiante.
+
 ### Comando da Fase 4 — log de auditoria
 
 | Opcode | Nome | Pedido | Resposta | Estados |
