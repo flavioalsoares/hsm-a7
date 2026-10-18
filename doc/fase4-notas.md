@@ -282,9 +282,9 @@ O que isso prova na placa:
 - **A recusa entra no log** com o resultado (`0x44` é o `'D'` do primeiro
   byte do payload, `"D0"`).
 
-### Falta validar em hardware, e exige os botões
+### ✅ Validado em hardware, 2026-10-18 (com os botões)
 
-A persistência da LMK e das chaves. Roteiro:
+A persistência da LMK e das chaves, de ponta a ponta. Roteiro seguido:
 
 ```bash
 python3 host/hsmtool.py lmk-load 0 --random     # x3, com os dois botões
@@ -302,6 +302,71 @@ python3 host/hsmtool.py audit                   # a sessão inteira, com 2 boots
 python3 host/hsmtool.py zeroize                 # botões; depois religar:
 python3 host/hsmtool.py version                 # UNINITIALIZED
 ```
+
+O resultado:
+
+```
+                       antes de desligar        depois de religar
+estado                 OPERATIONAL              OPERATIONAL, sem cerimônia
+KCV da LMK             374575                   374575
+handle 1 (modo B)      KCV 801B9D               801B9D
+handle 2 (modo C)      KCV 6FC550               6FC550
+ENCRYPT h1, bloco fixo 7430714700C554F2...      7430714700C554F2...
+MAC h2, mesmo bloco    8A89EEA3CA41F63F...      8A89EEA3CA41F63F...
+```
+
+- **O KCV da LMK foi previsto pelo host** antes de ser perguntado: XOR dos
+  três componentes e AES da biblioteca `cryptography`, independente do
+  firmware. Deu `374575`, o mesmo do dispositivo.
+- **A cifragem e o MAC iguais** provam mais que o KCV: os 32 bytes de cada
+  chave voltaram intactos da flash, desembrulhados sob a LMK restaurada.
+- **`post` com o dispositivo carregado** zerou a BRAM e continuou em
+  `OPERATIONAL`, com o mesmo KCV — restaurou da flash.
+- **`zeroize` e religar:** `UNINITIALIZED`, 0 de 3 componentes, e o boot
+  seguinte registra `sem registro persistente` — as duas cópias foram
+  apagadas. O log continuou lá.
+- **O log tem a sessão inteira**, recusas incluídas: duas tentativas de
+  componente sem os botões (`NOT_AUTHORIZED`), os três componentes, o
+  `SET_STATE`, as chaves, o uso delas, `BOOT … restaurado` depois do
+  desligamento, o `SELFTEST` e o `ZEROIZE`.
+
+Duas notas de bancada:
+
+- O `hsmtool` pede o Enter **com os botões já apertados**. Rodado pelo `!`
+  do Claude Code (sem terminal interativo) ele envia na hora, antes de dar
+  tempo de apertar, e o dispositivo recusa. Rode num terminal de verdade.
+- O ponto decimal acende **só no último dígito**. Fácil de não ver.
+
+### ⚠ Observação em aberto: um registro de boot que não foi gravado
+
+Depois do `zeroize`, um religamento completo (fonte, USB da placa e USB do
+adaptador JTAG desligados) **não deixou registro de boot**. O `audit` na
+mesma sessão leu a flash normalmente — a flash respondia à leitura, mas a
+gravação do registro de boot não aconteceu. Um reset por JTAG em seguida
+registrou o boot (seq 20); repetir o mesmo religamento, na mesma ordem
+(fonte, USB da placa, JTAG), também registrou (seq 21), e uma gravação
+feita depois nessa sessão entrou no log (seq 22).
+
+Contagem: **três religamentos completos, um sem registro.** Não reproduzido,
+causa desconhecida. A suspeita é energia instável na subida, com a fonte e
+o USB entrando em instantes diferentes — suspeita, não diagnóstico.
+
+O que limita o dano:
+
+- todo comando que grava a flash confere lendo de volta, e falha vira
+  `STORE_FAIL` com a operação desfeita — **uma chave não se perde em
+  silêncio**;
+- um comando que não consegue entrar no log não executa (`LOG_FAIL`).
+
+O que não está coberto: o registro de **boot** é o único que falha **sem
+aviso** — `main.c` ignora o retorno de `log_registra()` ali. O efeito é um
+buraco na trilha, sem marca. Fica registrado, **sem conserto**, por decisão
+do usuário (2026-10-18). Se voltar a acontecer, anotar a sequência exata
+de energia.
+
+Também sem explicação, e talvez nada: entre a validação de 2026-10-16 e
+esta sessão apareceu um boot (seq 4) que ninguém anotou. Pode ter sido um
+religamento esquecido — boot a mais é bem menos grave que boot a menos.
 
 ⚠ **O modelo da flash é próprio, não do fabricante** (`sim/models/`). Se o
 datasheet tiver sido lido errado, o modelo e o driver concordam no erro. A

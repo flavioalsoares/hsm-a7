@@ -509,9 +509,23 @@ crie soluções além do normal".
 
 ✅ **Flash validada em hardware 2026-10-16, sem botões**: log gravado e lido,
 recusa registrada, e o FPGA se reconfigurou da flash depois das gravações (a
-guarda do bitstream segurou). **Falta, com os botões:** cerimônia → desligar
-→ religar em `OPERATIONAL` com o mesmo KCV. Roteiro em `doc/fase4-notas.md`.
-Suíte: 17 testbenches passam.
+guarda do bitstream segurou). Suíte: 17 testbenches passam.
+
+✅ **Persistência validada em hardware 2026-10-18, com os botões.**
+Cerimônia (KCV `374575`, previsto pelo host), `activate`, duas chaves,
+desligar e religar: `OPERATIONAL` sem cerimônia, mesmos KCVs e handles, e
+a **mesma cifragem e o mesmo MAC** de antes. `post` restaurou da flash;
+`zeroize` + religar voltou em `UNINITIALIZED` com o log intacto.
+
+⚠ **Observação em aberto, sem conserto por decisão do usuário:** um de três
+religamentos completos não deixou registro de boot — não reproduzido. O
+registro de boot é o único que falha sem aviso (`main.c` ignora o retorno).
+Comandos que gravam conferem por leitura e devolvem `STORE_FAIL`/`LOG_FAIL`.
+Ver `doc/fase4-notas.md`.
+
+⚠ **Na bancada, comandos com dual control rodam num terminal de verdade.**
+Pelo `!` do Claude Code não há TTY, o `hsmtool` envia sem esperar o Enter
+e o dispositivo recusa com `NOT_AUTHORIZED`.
 
 ⚠ **O modelo da flash é próprio, escrito do datasheet.** Se o datasheet foi
 lido errado, modelo e driver concordam no erro. A placa é a prova.

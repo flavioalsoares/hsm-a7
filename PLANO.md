@@ -498,7 +498,8 @@ trilha forense.
 
 **Fase 4 — NV storage.** Blobs wrapped na SPI flash, MAC de integridade,
 contador anti-rollback, recuperação de estado no boot. Modelo real de HSM.
-*Em andamento desde 2026-10-15 — o desenho que entrou, e o que dele ficou de
+*Em andamento desde 2026-10-15; persistência validada em hardware em
+2026-10-18. O desenho que entrou, e o que dele ficou de
 fora por ser além do necessário num HSM didático, está em
 `doc/fase4-notas.md`.*
 

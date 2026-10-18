@@ -96,7 +96,8 @@ persistem na flash SPI, e cada comando que mexe em chave deixa um registro no
 em claro na flash, que o projeto *trata* como memoria segura: e uma decisao
 didatica, porque esta placa nao tem onde guarda-la protegida (sem eFUSE, BBRAM
 sem bateria, sem involucro com deteccao de violacao). A justificativa esta no
-topo das notas da fase.
+topo das notas da fase. **Validada em hardware em 2026-10-18**: cerimonia,
+desligar e religar, e a placa volta em `OPERATIONAL` com as mesmas chaves.
 
 Documentacao do codigo: `doc/codigo-host.md` (Python) e
 `doc/codigo-firmware.md` (C).
