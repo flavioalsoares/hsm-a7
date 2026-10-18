@@ -15,7 +15,11 @@
 //               que quase toda implementacao caseira esquece.
 //               Ver fw/src/kat.c e fw/include/kat_vectors.h.
 //
-//   host        python3 host/hsmtool.py hmac <chave> <mensagem>
+// Nao ha mais caminho pelo host: o comando HMAC (0x13) foi REMOVIDO,
+// porque recebia a chave em claro no payload, e o subcomando `hsmtool hmac`
+// saiu junto. O MAC por handle (0x29/0x2A) e CMAC-AES, nao HMAC. Desde
+// entao o POST e o UNICO chamador do HMAC no firmware -- ele e testado a
+// cada boot sem prestar servico a nenhum comando.
 //
 // Se um dia o HMAC virar core em RTL -- para vazao, na fase 7 -- este
 // arquivo volta a fazer sentido. Ate la, deletar seria perder o registro
