@@ -99,6 +99,13 @@ sem bateria, sem involucro com deteccao de violacao). A justificativa esta no
 topo das notas da fase. **Validada em hardware em 2026-10-18**: cerimonia,
 desligar e religar, e a placa volta em `OPERATIONAL` com as mesmas chaves.
 
+**Fase 5 em andamento** (`doc/fase5-notas.md`): a **porta host**, um command
+set ASCII como o de um HSM de pagamento, interpretado pelo firmware. O host
+guarda as chaves de trabalho como key blocks sob a LMK e as manda em cada
+comando; o dispositivo nao guarda nenhuma. O protocolo binario de antes vira
+o **console** (cerimonia, estado, log). `host/hsm_ponte.py` liga a UART a
+um socket TCP, e `host/hsmhost.py` e o cliente.
+
 Documentacao do codigo: `doc/codigo-host.md` (Python) e
 `doc/codigo-firmware.md` (C).
 

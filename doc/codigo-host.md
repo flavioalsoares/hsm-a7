@@ -1,12 +1,15 @@
 # O código do lado do host (Python)
 
 Guia de leitura de `host/`, para quem quer entender como o computador conversa
-com o HSM. Atualizado na fase 4 (2026-10-16).
+com o HSM. Atualizado na fase 5 (2026-11-02).
 
 ```
 host/
-  hsmtool.py       a ferramenta de linha de comando: protocolo, transporte e um
-                   subcomando para cada comando do dispositivo
+  hsmtool.py       o CONSOLE: protocolo binário, transporte e um subcomando
+                   para cada comando do dispositivo
+  hsmhost.py       a porta HOST (fase 5): command set ASCII, key block no
+                   comando
+  hsm_ponte.py     ponte TCP <-> UART da porta host; repassa sem entender
   tr31.py          key block ANSI X9.143 (TR-31 versão D), segunda implementação
   test_hsmtool.py  testes do transporte, sem placa (pty + dispositivo falso)
   test_tr31.py     testes do key block, sem placa
@@ -199,7 +202,41 @@ python3 host/test_tr31.py           # key block
 
 ---
 
-## 5. Como acrescentar um subcomando
+## 5. A porta host: `hsmhost.py` e `hsm_ponte.py` (fase 5)
+
+Desde a fase 5 o dispositivo tem dois papéis na mesma UART:
+
+| | Ferramenta | Protocolo | Para quê |
+|---|---|---|---|
+| **console** | `hsmtool.py` | binário com CRC | cerimônia, estado, diagnóstico, log, slots |
+| **host** | `hsmhost.py` | ASCII, sem sessão | gerar chave, cifrar, MAC — com o **key block no comando** |
+
+Na porta host o dispositivo não guarda a chave de ninguém. O `gen` devolve o
+key block sob a LMK, e é o **host** que o guarda (aqui, quem chamou o script)
+e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
+`doc/fase5-notas.md`.
+
+- **`hsm_ponte.py`** escuta em TCP (`127.0.0.1:1500`) e repassa cada mensagem
+  à UART com o mesmo `LEN` de 2 bytes. **Não interpreta nada**: quem entende o
+  ASCII é o firmware, dentro da fronteira. A única coisa que ela recusa é uma
+  mensagem cujo primeiro byte faria o dispositivo lê-la como frame binário do
+  console — a ponte é a porta host e não deixa o console passar por ela.
+- **`hsmhost.py`** fala com a ponte (`--tcp`, o padrão) ou direto com a serial
+  (`--serial`, com `--porta` opcional). As camadas são as mesmas do `hsmtool`: codec (`monta`,
+  `analisa`), transporte (`Tcp`, `Serial`) e os comandos (`Host`).
+- **`hsmhost.py confere --lmk`** é o equivalente do `keycycle` para a porta
+  host: gera blocos pelo dispositivo, abre-os com o `tr31.py` e refaz AES-CBC
+  e CMAC com a biblioteca `cryptography`, e também manda blocos feitos pelo
+  **Python** para o dispositivo usar. Precisa da LMK — o brinquedo aparecendo,
+  como no `keycycle`.
+
+⚠ **Só um processo abre a serial.** Com a ponte rodando, o `hsmtool` não
+consegue falar com o console. É a consequência prática de console e host
+dividirem a UART; para a cerimônia, pare a ponte.
+
+---
+
+## 6. Como acrescentar um subcomando
 
 1. a constante `CMD_<NOME>`, copiando o valor de `fw/include/cmd.h`;
 2. o nome do status novo em `STATUS_NAMES`, se houver;

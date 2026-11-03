@@ -528,6 +528,13 @@ tem de se defender: cada comando chega sozinho e precisa se bastar.
 Aqui se entende por que a API é o que é: é você que precisa impedi-la de vazar
 material de chave.
 
+*Iniciada em 2026-11-02 (`doc/fase5-notas.md`). Decidido: o firmware
+interpreta o ASCII e o PC só tem uma ponte TCP↔UART; console (binário) e
+host (ASCII) separados por protocolo na mesma UART; e a chave de trabalho
+viaja no comando como key block sob a LMK — o dispositivo não a guarda. A
+"sessão" acima estava dita ao contrário: o estado (as chaves embrulhadas)
+fica do lado do cliente, e o HSM é que não tem estado de sessão.*
+
 **Fase 6 — tamper e ataques.** XADC monitorando temperatura/tensão dispara
 zeroize. Depois, ataque o próprio HSM: glitch de clock via DRP do MMCM, observe a
 assinatura sair errada, implemente contramedidas (dupla execução, verificação de

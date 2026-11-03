@@ -1,7 +1,7 @@
 # O código do firmware (C)
 
 Guia de leitura de `fw/`, o programa que roda no processador NEORV32 dentro do
-FPGA. Atualizado na fase 4 (2026-10-16).
+FPGA. Atualizado na fase 5 (2026-11-02).
 
 O firmware é **C99, sem alocação dinâmica e sem libc de verdade**. Tudo é
 estático e cabe em duas memórias internas do FPGA: 32 KB de código (IMEM) e
@@ -73,6 +73,22 @@ UART -> cmd_poll() -> rx_byte() -> dispatch() -> log -> estado -> handler -> log
 quem autoriza é checado **dentro** do handler, que pode recusar sem gastar o
 aperto do botão.
 
+### Fase 5: a mesma UART, dois protocolos
+
+```
+rx_byte() -- corpo completo -- 1º byte '0'..'~' ? --> dispatch_ascii() -> ascii_despacha()
+                                     senão      --> RX_CRC -> dispatch()
+```
+
+O protocolo binário acima é o **console**. A partir da fase 5 a UART também
+recebe mensagens **ASCII da porta host** (`doc/fase5-notas.md`). As duas
+começam com o mesmo `LEN` de 2 bytes; o que as separa é o primeiro byte do
+corpo: imprimível de `'0'` a `'~'` é ASCII, e qualquer outro é opcode
+binário. O ASCII não tem CRC, e a resposta volta com `LEN` e mais nada.
+
+`cmd_ascii.c` tem a sua própria tabela e a mesma ordem: log antes, estado,
+handler, resultado no log. Nenhum comando de cerimônia está nela.
+
 ---
 
 ## 3. Mapa dos módulos
@@ -82,7 +98,8 @@ aperto do botão.
 | Arquivo | O que faz |
 |---|---|
 | `main.c` | boot: UART, CFS presente, POST, flash, log, restauração; o laço principal; o painel de 7 segmentos (2 bits de estado + 1 de dual control pelo GPIO) |
-| `cmd.c` / `cmd.h` | o protocolo de frames, a tabela de comandos e todos os handlers. `cmd.h` tem o formato de cada comando e o checklist de segurança dele |
+| `cmd.c` / `cmd.h` | o protocolo de frames do **console**, a tabela de comandos e todos os handlers. `cmd.h` tem o formato de cada comando e o checklist de segurança dele |
+| `cmd_ascii.c` / `cmd_ascii.h` | **fase 5**: a porta **host**, command set ASCII. Parser por cursor, tabela própria, e a chave de cada comando no slot efêmero |
 | `state.c` | a máquina de estados `UNINITIALIZED → AUTHORIZED → OPERATIONAL`, mais `TAMPERED`, que é **absorvente**: de lá não se sai por software |
 | `dualctl.c` | dual control pelos botões SW2 e SW5. `dualctl_autoriza()` **consome** a autorização; `dualctl_pronto()` é só consulta, para o ponto decimal |
 | `wipe.c` | zeroização que o compilador não remove (§6) |
@@ -102,7 +119,7 @@ aperto do botão.
 
 | Arquivo | O que faz |
 |---|---|
-| `keystore.c` | **o arquivo mais sensível.** Os 16 slots, a LMK, o acumulador de componentes. O tipo que contém chave (`slot_t`) nem aparece no `.h`: nada fora deste arquivo consegue declarar uma variável com chave |
+| `keystore.c` | **o arquivo mais sensível.** Os 16 slots, o slot efêmero da porta host, a LMK, o acumulador de componentes. O tipo que contém chave (`slot_t`) nem aparece no `.h`: nada fora deste arquivo consegue declarar uma variável com chave |
 | `tr31.c` | key block X9.143 versão D: derivação de KBEK/KBAK por CMAC, embrulhar e desembrulhar. A segunda implementação está em `host/tr31.py` |
 
 ### Fase 4: persistência
@@ -127,6 +144,7 @@ vale entender:
 | `lmk_deriva_kb(kbek, kbak)` | só as **subchaves derivadas**, nunca a LMK | `EXPORT_KEY`, `IMPORT_KEY` |
 | `keystore_exporta(h, out)` | **sim**, e recusa `exportabilidade = 'N'` | só `EXPORT_KEY` |
 | `keystore_registro_monta(...)` | o registro persistente, com a LMK em claro e os slots **embrulhados** | só `persist.c` (fase 4) |
+| `keystore_efemera(...)` | **não**: instala a chave de um key block no slot efêmero, e ela é usada pelas funções acima com `KS_HANDLE_EFEMERA` | só `cmd_ascii.c` (fase 5) |
 
 Um `keystore_get_key()` genérico transformaria cada checagem em convenção, e
 convenção é o que se esquece no caminho raro. **Se um código novo precisar
@@ -140,6 +158,12 @@ Outros pontos do key store:
   MAC não cifra. A checagem mora no key store, num lugar só.
 - **Handle 0 é inválido.** Os válidos vão de 1 a 16, para que um campo
   esquecido em zero não caia num slot por acidente.
+- **O slot efêmero (handle 17, fase 5)** é o último elemento de `g_slots`.
+  Os laços que listam, contam e persistem vão só até 16 e não o veem; o
+  `keystore_init()` e a prova de zeroização varrem o vetor inteiro e o
+  cobrem sem código novo. Ele só está ocupado **durante** um comando da porta
+  host: `ascii_despacha()` o apaga no fim de todo comando, em qualquer
+  desfecho, e `keystore_exporta()` o recusa.
 - **A LMK fica fora do vetor de slots**: sem handle, e zeroizá-la apaga todos
   os slots junto.
 - **LMK zerada é recusada** no terceiro componente (`lmk_componente()`

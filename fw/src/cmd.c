@@ -17,6 +17,7 @@
 #include "aes_modos.h"
 #include "cmac.h"
 #include "cmd.h"
+#include "cmd_ascii.h"
 #include "audit_log.h"
 #include "persist.h"
 #include "flash.h"
@@ -1569,6 +1570,27 @@ static void dispatch(void)
     rx_reset();
 }
 
+/* Fase 5 -- a mensagem e da porta HOST (ASCII). Sem CRC: o formato da
+ * categoria nao tem, porque viaja por TCP (doc/fase5-notas.md). A resposta
+ * volta com o mesmo LEN de 2 bytes e nada mais -- e o que a ponte TCP
+ * repassa sem entender. */
+static void dispatch_ascii(void)
+{
+    uint16_t n = 0u;
+
+    ascii_despacha(&g_rx[2], g_rx_len, g_out, (uint16_t)sizeof g_out, &n);
+
+    neorv32_uart0_putc((char)(n >> 8));
+    neorv32_uart0_putc((char)(n & 0xFFu));
+    for (uint16_t i = 0u; i < n; i++) {
+        neorv32_uart0_putc((char)g_out[i]);
+    }
+
+    wipe(g_out, sizeof(g_out));
+    wipe(g_rx, sizeof(g_rx));
+    rx_reset();
+}
+
 static void rx_byte(uint8_t b)
 {
     /* Rearma a cada byte: o timeout e entre bytes, nao do frame inteiro.
@@ -1604,6 +1626,15 @@ static void rx_byte(uint8_t b)
         g_rx[2u + g_rx_got] = b;
         g_rx_got++;
         if (g_rx_got == g_rx_len) {
+            /* O primeiro byte do corpo separa os dois protocolos: cabecalho
+             * ASCII (host) e imprimivel a partir de '0'; todo o resto e
+             * opcode binario (console), inclusive os desconhecidos acima
+             * de 0x7E. So o binario tem CRC a seguir. */
+            if ((g_rx[2] >= ASCII_PRIMEIRO_MIN) &&
+                (g_rx[2] <= ASCII_PRIMEIRO_MAX)) {
+                dispatch_ascii();
+                break;
+            }
             g_rx_got   = 0u;
             g_rx_state = RX_CRC;
         }

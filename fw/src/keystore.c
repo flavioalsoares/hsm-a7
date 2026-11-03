@@ -24,8 +24,15 @@ typedef struct {
     uint32_t contador_uso;
 } slot_t;
 
-/* Estáticos: vivem na DMEM, que é Block RAM. Regra 2 por construção. */
-static slot_t  g_slots[KS_N_SLOTS];
+/* Estáticos: vivem na DMEM, que é Block RAM. Regra 2 por construção.
+ *
+ * O ÚLTIMO elemento é o slot EFÊMERO da porta host (fase 5): a chave que
+ * chega num key block ASCII mora ali só durante o comando. Fica DENTRO do
+ * vetor de propósito -- o `keystore_init()` e a prova de zeroização varrem
+ * `sizeof g_slots`, e o cobrem sem ninguém lembrar. Os laços que listam,
+ * contam e persistem vão só até KS_N_SLOTS, e não o veem. */
+#define EFEMERA  KS_N_SLOTS
+static slot_t  g_slots[KS_N_SLOTS + 1u];
 
 static uint8_t g_lmk[KS_KEY_MAX];
 static uint8_t g_lmk_comps;      /* quantos componentes entraram */
@@ -79,10 +86,12 @@ int keystore_kcv(const uint8_t *chave, uint8_t key_len, uint8_t out[KS_KCV_LEN])
     return r;
 }
 
-/* Handle 1..KS_N_SLOTS -> índice 0..KS_N_SLOTS-1, ou -1. */
+/* Handle 1..KS_N_SLOTS -> índice 0..KS_N_SLOTS-1, ou -1. O handle do slot
+ * efêmero só resolve enquanto ele está ocupado -- isto é, durante um
+ * comando da porta host. Fora dele é um slot vazio como outro qualquer. */
 static int indice(ks_handle_t h)
 {
-    if ((h == KS_HANDLE_INVALIDO) || (h > KS_N_SLOTS)) {
+    if ((h == KS_HANDLE_INVALIDO) || (h > KS_HANDLE_EFEMERA)) {
         return -1;
     }
     if (!g_slots[h - 1u].em_uso) {
@@ -219,7 +228,7 @@ static ks_handle_t instala_em(uint32_t i, const uint8_t uso[2],
     uint8_t  kcv[KS_KCV_LEN];
     slot_t  *s;
 
-    if ((i >= KS_N_SLOTS) || g_slots[i].em_uso ||
+    if ((i > EFEMERA) || g_slots[i].em_uso ||
         (chave == 0) || (key_len != KS_KEY_MAX)) {
         return KS_HANDLE_INVALIDO;
     }
@@ -289,6 +298,23 @@ int keystore_apaga(ks_handle_t h)
     g_slots[i].key_len         = 0u;
     g_slots[i].contador_uso    = 0u;
     return 0;
+}
+
+/* Fase 5 -- a chave de UM comando da porta host. Ver keystore.h. */
+ks_handle_t keystore_efemera(const uint8_t uso[2], uint8_t algoritmo,
+                             uint8_t modo, uint8_t exportabilidade,
+                             const uint8_t *chave, uint8_t key_len)
+{
+    keystore_efemera_apaga();
+    return instala_em(EFEMERA, uso, algoritmo, modo, exportabilidade,
+                      chave, key_len);
+}
+
+void keystore_efemera_apaga(void)
+{
+    (void)keystore_apaga(KS_HANDLE_EFEMERA);
+    /* O coprocessador pode ter ficado com a chave expandida. */
+    (void)hsm_cfs_wipe();
 }
 
 uint8_t keystore_livres(void)
@@ -483,7 +509,9 @@ uint8_t keystore_exporta(ks_handle_t h, uint8_t out[KS_KEY_MAX])
     int     i = indice(h);
     uint8_t k;
 
-    if ((i < 0) || (out == 0)) {
+    /* O slot efêmero nunca exporta: a chave dele chegou num key block, e
+     * quem o mandou já tem o bloco. */
+    if ((i < 0) || (i == EFEMERA) || (out == 0)) {
         return 0u;
     }
 
@@ -734,6 +762,9 @@ int keystore_registro_carrega(const uint8_t *buf, uint32_t n)
     }
     pos = KS_KEY_MAX + KS_KCV_LEN + 1u;
     for (i = 0u; i < cont; i++, pos += REG_ENTRADA) {
+        if (buf[pos] >= KS_N_SLOTS) {
+            goto fim;                   /* nunca restaurar no slot efemero */
+        }
         if (tr31_desembrulha(kbek, kbak, (const char *)&buf[pos + 1u],
                              TR31_ASCII_MAX, &cab, chave, &klen) != 0) {
             goto fim;

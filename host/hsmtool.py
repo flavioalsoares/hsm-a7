@@ -925,13 +925,22 @@ def cmd_audit(client, args):
                 extra.append({0: "sem registro persistente", 1: "restaurado",
                               2: "registro INVALIDO"}.get(arg & 3, "?"))
                 detalhe = ", ".join(extra)
+            elif 0x30 <= op <= 0x7E:
+                # Porta host (fase 5): os dois caracteres do comando ASCII
+                # e o codigo de erro dele, em decimal.
+                nome = "HOST %c%c" % (op, arg)
+                detalhe = ""
+                resultado = ("PENDENTE" if res == 0xFF
+                             else ("OK" if res == 0 else "erro %02d" % res))
             else:
                 detalhe = "arg=0x%02X" % arg
-            resultado = ("PENDENTE" if res == 0xFF
-                         else STATUS_NAMES.get(res, "0x%02X" % res))
+            if not (0x30 <= op <= 0x7E):
+                nome = OPCODE_NAMES.get(op, "0x%02X" % op)
+                resultado = ("PENDENTE" if res == 0xFF
+                             else STATUS_NAMES.get(res, "0x%02X" % res))
             print("%6d  %-20s %-3s  %-28s %s"
-                  % (s_, OPCODE_NAMES.get(op, "0x%02X" % op),
-                     ESTADO_NOMES.get(est, "?"), detalhe, resultado))
+                  % (s_, nome, ESTADO_NOMES.get(est, "?"), detalhe,
+                     resultado))
             linhas += 1
         if continuar <= seq:
             break

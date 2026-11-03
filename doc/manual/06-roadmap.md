@@ -521,7 +521,7 @@ um contador dentro dela seria restaurado junto com o resto. A limitação está
 documentada, não mitigada. É um dos pontos onde HSMs reais gastam esforço
 desproporcional, e aqui fica como lição, não como código.
 
-## 30. Fase 5 — API de host
+## 30. Fase 5 — API de host *(em andamento)*
 
 **Decidida em favor de um command set ASCII** no estilo dos HSM de
 pagamento — código de comando de dois caracteres, código de resposta igual
@@ -538,6 +538,48 @@ verificar, e muda para pior: não há contexto acumulado em que confiar.
 de vazar material de chave**. Depois de ter lido a seção 15, escrever a API
 com a pergunta "o que isto vaza em laço?" na cabeça é uma experiência
 diferente.
+
+### As três decisões com que a fase começou
+
+**Quem interpreta o ASCII é o dispositivo.** No computador fica só uma ponte
+que liga um socket TCP à UART e repassa os bytes sem entendê-los. A outra
+opção — um programa no PC traduzindo o ASCII para o protocolo binário — seria
+mais rápida de escrever e ensinaria a coisa errada: a defesa da API ficaria
+fora da fronteira criptográfica, que é justamente o lugar onde ela não
+protege nada.
+
+**Console e host passam a ter papéis separados.** O protocolo binário das
+fases anteriores vira o *console*: cerimônia, estado, diagnóstico, log. O
+ASCII é o *host*, e não tem nenhum comando de cerimônia — quem opera não
+administra. Os dois dividem a mesma UART (o primeiro byte de cada mensagem
+diz qual é qual), então a separação é de papéis, não física; a distância em
+relação a um equipamento comercial, que tem portas separadas, continua
+registrada.
+
+**A chave de trabalho viaja no comando.** Esta é a mudança de modelo mental
+da fase. Até aqui o dispositivo guardava as chaves em 16 slots e o host as
+citava por número. Um HSM de pagamento não funciona assim: ele não guarda as
+chaves de trabalho de ninguém. O sistema do cliente as mantém no banco de
+dados dele, cada uma como um key block embrulhado sob a LMK, e manda o bloco
+junto com cada pedido. O dispositivo abre o bloco por dentro, usa a chave e a
+esquece **antes de responder**.
+
+É por isso que um equipamento com memória para poucas chaves atende milhões
+delas, e é por isso que a LMK é a única chave que ele precisa guardar. A
+frase "sem estado" do parágrafo anterior quer dizer exatamente isto: o estado
+existe, mas mora do lado do cliente, embrulhado.
+
+### O que já entrou
+
+Sete comandos, com códigos deste projeto (da categoria vem só a forma geral):
+diagnóstico, gerar chave, conferir um key block, cifrar e decifrar em
+AES-CBC, gerar e verificar CMAC. A chave de cada comando é aberta num slot
+**efêmero** do key store — o mesmo código de sempre faz a checagem de modo de
+uso — e apagada ao fim do comando, em qualquer desfecho. O apêndice B tem o
+formato.
+
+O que vem depois, na mesma fase: exportar e importar sob uma chave de troca
+que não seja a LMK, que é o que qualifica a exportação.
 
 ## 31. Fase 6 — tamper e ataques
 

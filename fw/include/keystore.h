@@ -59,6 +59,9 @@
 typedef uint8_t ks_handle_t;
 #define KS_HANDLE_INVALIDO  0u
 
+/* Fase 5: o slot efêmero da porta host. Ver keystore_efemera(). */
+#define KS_HANDLE_EFEMERA   ((ks_handle_t)(KS_N_SLOTS + 1u))
+
 /* Campos do header X9.143, em ASCII como na norma.
  *
  * Guardados como os bytes do padrão e não como enum: é o header que vai
@@ -168,6 +171,23 @@ int keystore_info(ks_handle_t h, ks_info_t *out);
  * alocados no primeiro livre, então apagar um do meio deixa buraco: o
  * último pode estar ocupado com o store longe de cheio. */
 uint8_t keystore_livres(void);
+
+/* Fase 5 -- o slot EFÊMERO da porta host.
+ *
+ * Na porta host a chave de trabalho não mora no dispositivo: o host a
+ * guarda como key block sob a LMK e a manda em cada comando. O handler
+ * abre o bloco e instala a chave aqui, num 17º slot que nada lista, conta
+ * ou persiste; usa-a pelas funções de sempre com KS_HANDLE_EFEMERA (a
+ * checagem de `modo` continua num lugar só); e o despachante chama
+ * keystore_efemera_apaga() depois de TODO comando ASCII, em qualquer
+ * desfecho. Entre dois comandos não sobra chave de trabalho na BRAM.
+ *
+ * keystore_exporta() recusa o slot efêmero. Devolve o handle, ou
+ * KS_HANDLE_INVALIDO se o cabeçalho for inválido. */
+ks_handle_t keystore_efemera(const uint8_t uso[2], uint8_t algoritmo,
+                             uint8_t modo, uint8_t exportabilidade,
+                             const uint8_t *chave, uint8_t key_len);
+void keystore_efemera_apaga(void);
 
 /* Carrega a chave do slot no coprocessador e incrementa o contador de uso.
  *

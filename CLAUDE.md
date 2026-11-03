@@ -545,6 +545,43 @@ mora em `flash.c`, num lugar só. Não criar outro caminho de escrita.
 Documentação do código para leitura humana: `doc/codigo-host.md` (Python) e
 `doc/codigo-firmware.md` (C).
 
+## Fase 5 — porta host: command set ASCII (em andamento, 2026-11-02)
+
+Tudo em `doc/fase5-notas.md`. Três decisões do usuário (2026-11-02):
+
+- **O firmware interpreta o ASCII.** No PC fica só `host/hsm_ponte.py`, uma
+  ponte TCP↔UART que repassa `LEN(2)` + mensagem sem entender. A API é a
+  superfície de ataque, e fica dentro da fronteira.
+- **Console × host separados por protocolo, na mesma UART.** O binário
+  (`hsmtool.py`) é o **console**: cerimônia, estado, diagnóstico, log. O
+  ASCII (`hsmhost.py`) é o **host** e não tem comando de cerimônia nenhum.
+  A porta física continua compartilhada — o desvio segue registrado.
+- **Key block no comando.** Na porta host o dispositivo não guarda a chave
+  de trabalho de ninguém: o host a mantém como key block sob a LMK e a manda
+  a cada comando. É o modelo da categoria.
+
+```
+D0 diagnostico   K0 gerar chave   K2 conferir bloco
+C0 cifrar        C2 decifrar      M0 gerar MAC      M2 verificar MAC
+```
+
+⚠ **Os códigos de comando e de erro são DESTE projeto.** Da categoria vem só
+a forma geral (dois caracteres, resposta = comando + 1, erro em dois
+dígitos). Nunca copiar tabela de comandos de manual de fabricante.
+
+⚠ **O primeiro byte do corpo separa os protocolos**: `'0'`..`'~'` é ASCII,
+qualquer outro valor é opcode binário. **Nenhum opcode binário novo pode
+cair em `0x30`–`0x7E`.**
+
+⚠ **A chave do comando ASCII vive no slot efêmero** (handle 17, último
+elemento de `g_slots`), usada pelas mesmas funções do console, e
+`ascii_despacha()` o apaga no fim de TODO comando. `keystore_exporta()` o
+recusa; a restauração da flash nunca escreve nele. `tb_ascii` prova pelo
+`KEY_INFO(17)` do console que ele está vazio entre comandos.
+
+⚠ **Com a ponte rodando, o `hsmtool` não abre a serial.** Para a cerimônia,
+pare a ponte.
+
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 
 **Grave na flash, não na SRAM:**

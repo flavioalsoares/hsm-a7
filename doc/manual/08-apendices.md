@@ -315,6 +315,44 @@ Cada registro: `seq(4) | comando(1) | estado(1) | argumento(1) | resultado(1)
 | reservado(4) | crc32(4)`. Comando `0x00` é o boot; resultado `0xFF` é
 "pendente", um comando que começou e não terminou.
 
+### Porta host — command set ASCII (Fase 5)
+
+Tudo acima é o **console**. A porta **host** usa a mesma UART com mensagens
+ASCII, enquadradas pelo mesmo `LEN` de 2 bytes e **sem CRC**:
+
+```
+pedido     LEN(2) | cabeçalho(4) | comando(2) | campos
+resposta   LEN(2) | cabeçalho(4) | resposta(2) | erro(2) | campos
+```
+
+O primeiro byte do corpo separa os protocolos: de `'0'` a `'~'` é ASCII, e
+qualquer outro é opcode binário. O cabeçalho é do host e volta igual; a
+resposta é o comando com o segundo caractere mais um.
+
+A chave de trabalho vai **no comando**, como key block X9.143 sob a LMK. O
+comprimento do bloco sai do próprio cabeçalho dele. Dados vão como
+comprimento em 4 dígitos decimais seguido de hex.
+
+| Pedido | Resposta | Campos do pedido | Campos da resposta | Estados |
+|---|---|---|---|---|
+| `D0` | `D1` | — | estado(1) ‖ KCV da LMK(6) ‖ versão(6) | todos menos `TAMPERED` |
+| `K0` | `K1` | uso(2) ‖ modo(1) ‖ exportabilidade(1) | key block ‖ KCV(6) | `OPERATIONAL` |
+| `K2` | `K3` | key block | uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) ‖ KCV(6) | `OPERATIONAL` |
+| `C0` | `C1` | key block ‖ IV(32) ‖ dados | dados | `OPERATIONAL` |
+| `C2` | `C3` | key block ‖ IV(32) ‖ dados | dados | `OPERATIONAL` |
+| `M0` | `M1` | key block ‖ dados | MAC(32) | `OPERATIONAL` |
+| `M2` | `M3` | key block ‖ MAC(32) ‖ dados | — (o veredito é o erro) | `OPERATIONAL` |
+
+Erros: `00` sem erro · `01` verificação falhou · `10` key block inválido ·
+`11` o modo do bloco não permite · `15` dados inválidos · `16` parâmetro
+inválido · `20` estado não permite · `21` comando desconhecido · `22`
+mensagem malformada · `27` falha no log · `90` erro interno. Os códigos de
+comando e de erro são deste projeto.
+
+No log de auditoria, um comando da porta host aparece com os dois
+caracteres dele nos campos `comando` e `argumento` (`K0` = `0x4B`, `0x30`) e
+o código de erro em decimal no `resultado`.
+
 ### Códigos de status
 
 | Código | Nome | Significado |
