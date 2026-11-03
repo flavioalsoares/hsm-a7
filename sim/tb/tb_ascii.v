@@ -19,7 +19,13 @@
 //      nao cifra (erro 11);
 //   7. bloco adulterado e recusado (erro 10), e mensagem malformada,
 //      comando desconhecido e campo sobrando tambem;
-//   8. NADA sobra no slot efemero entre comandos: o KEY_INFO do console no
+//   8. KEK: K4 exporta a chave de cifra sob uma KEK gerada pelo K0 (uso
+//      K0), e K6 a importa de volta -- mesmo KCV e o C0 com o bloco
+//      reimportado cifra IDENTICO ao do passo 4. O bloco sob a KEK nao
+//      abre sob a LMK. Recusas: chave 'N' nao sai (12), chave de dados nao
+//      serve de KEK (13), KEK so-'E' nao importa (11), bloco adulterado ou
+//      feito sob a LMK no lugar da KEK (10);
+//   9. NADA sobra no slot efemero entre comandos: o KEY_INFO do console no
 //      handle 17 encontra o slot vazio.
 //
 // O que ele NAO prova: que o C0 esta certo em termos absolutos. A chave e
@@ -77,6 +83,10 @@ module tb_ascii;
     reg [7:0] bloco_c [0:143];      // chave de cifra, modo B
     reg [7:0] bloco_m [0:143];      // chave de MAC,   modo C
     reg [7:0] kcv_c   [0:5];        // KCV em hex, como veio no K1
+    reg [7:0] bloco_k [0:143];      // KEK, uso K0 modo B
+    reg [7:0] bloco_e [0:143];      // KEK so de embrulhar, modo E
+    reg [7:0] bloco_x [0:143];      // bloco_c exportado sob a KEK
+    reg [7:0] bloco_l [0:143];      // bloco_x reimportado, sob a LMK
     reg [7:0] iv      [0:15];
     reg [7:0] texto   [0:31];
     reg [7:0] cifra   [0:31];
@@ -598,6 +608,112 @@ module tb_ascii;
         end
         if (errors == erros_antes)
             $display("[tb_ascii] recusados: corpo (10), cabecalho do bloco (10), comando (21), sobra (22), dados (15), curta (ZZ22)");
+
+        // ---- 8b. KEK: exportar e importar -------------------------------
+        //
+        // Sem AES no testbench, a prova e a volta: o que o K4 embrulhou sob
+        // a KEK, o K6 desembrulha e devolve sob a LMK com o MESMO KCV, e o
+        // C0 com o bloco de volta cifra identico ao do passo 4. A conferencia
+        // independente (o Python abrindo o bloco sob a KEK) e na bancada.
+        erros_antes = errors;
+        inicio("K", "0"); poe("K"); poe("0"); poe("B"); poe("E");
+        ascii_troca();
+        confere("K", "1", 0, "K0 KEK");
+        for (i = 0; i < 144; i = i + 1) bloco_k[i] = resp[8 + i];
+
+        inicio("K", "4");
+        for (i = 0; i < 144; i = i + 1) poe(bloco_k[i]);
+        for (i = 0; i < 144; i = i + 1) poe(bloco_c[i]);
+        ascii_troca();
+        confere("K", "5", 0, "K4");
+        if (resp_len !== 8 + 144 + 6) begin
+            $display("[tb_ascii] FAIL: K5 com %0d bytes, esperado 158", resp_len);
+            errors = errors + 1;
+        end
+        for (i = 0; i < 144; i = i + 1) bloco_x[i] = resp[8 + i];
+        for (i = 0; i < 6; i = i + 1)
+            if (resp[152 + i] !== kcv_c[i]) begin
+                if (errors == erros_antes)
+                    $display("[tb_ascii] FAIL: K5 com KCV diferente do K1");
+                errors = errors + 1;
+            end
+        for (i = 0; i < 16; i = i + 1)
+            if (bloco_x[i] !== bloco_c[i]) begin
+                if (errors == erros_antes)
+                    $display("[tb_ascii] FAIL: K4 mudou o cabecalho (posicao %0d)", i);
+                errors = errors + 1;
+            end
+
+        // sob a KEK, o bloco nao abre sob a LMK
+        inicio("K", "2");
+        for (i = 0; i < 144; i = i + 1) poe(bloco_x[i]);
+        ascii_troca();
+        confere("K", "3", 10, "K2 de bloco sob a KEK");
+
+        inicio("K", "6");
+        for (i = 0; i < 144; i = i + 1) poe(bloco_k[i]);
+        for (i = 0; i < 144; i = i + 1) poe(bloco_x[i]);
+        ascii_troca();
+        confere("K", "7", 0, "K6");
+        for (i = 0; i < 144; i = i + 1) bloco_l[i] = resp[8 + i];
+        for (i = 0; i < 6; i = i + 1)
+            if (resp[152 + i] !== kcv_c[i]) begin
+                if (errors == erros_antes)
+                    $display("[tb_ascii] FAIL: K7 com KCV diferente do K1");
+                errors = errors + 1;
+            end
+
+        inicio("C", "0");
+        for (i = 0; i < 144; i = i + 1) poe(bloco_l[i]);
+        for (i = 0; i < 16; i = i + 1)  poe_hex(iv[i]);
+        poe_dec4(32);
+        for (i = 0; i < 32; i = i + 1)  poe_hex(texto[i]);
+        ascii_troca();
+        confere("C", "1", 0, "C0 com bloco reimportado");
+        for (i = 0; i < 32; i = i + 1)
+            if (hexbyte(resp[12 + 2*i], resp[13 + 2*i]) !== cifra[i]) begin
+                if (errors == erros_antes)
+                    $display("[tb_ascii] FAIL: bloco reimportado cifra diferente (byte %0d)", i);
+                errors = errors + 1;
+            end
+
+        // recusas
+        inicio("K", "4");                                  // 'N' nao sai
+        for (i = 0; i < 144; i = i + 1) poe(bloco_k[i]);
+        for (i = 0; i < 144; i = i + 1) poe(bloco_m[i]);
+        ascii_troca();
+        confere("K", "5", 12, "K4 de chave N");
+
+        inicio("K", "4");                                  // dado nao e KEK
+        for (i = 0; i < 144; i = i + 1) poe(bloco_c[i]);
+        for (i = 0; i < 144; i = i + 1) poe(bloco_c[i]);
+        ascii_troca();
+        confere("K", "5", 13, "K4 sob chave de dados");
+
+        inicio("K", "0"); poe("K"); poe("0"); poe("E"); poe("E");
+        ascii_troca();
+        confere("K", "1", 0, "K0 KEK so E");
+        for (i = 0; i < 144; i = i + 1) bloco_e[i] = resp[8 + i];
+        inicio("K", "6");                                  // so embrulha
+        for (i = 0; i < 144; i = i + 1) poe(bloco_e[i]);
+        for (i = 0; i < 144; i = i + 1) poe(bloco_x[i]);
+        ascii_troca();
+        confere("K", "7", 11, "K6 com KEK so E");
+
+        inicio("K", "6");                                  // adulterado
+        for (i = 0; i < 144; i = i + 1) poe(bloco_k[i]);
+        for (i = 0; i < 144; i = i + 1)
+            poe((i == 60) ? ((bloco_x[i] == "0") ? "1" : "0") : bloco_x[i]);
+        ascii_troca();
+        confere("K", "7", 10, "K6 bloco adulterado");
+
+        inicio("K", "6");                                  // sob a LMK, nao a KEK
+        for (i = 0; i < 144; i = i + 1) poe(bloco_k[i]);
+        for (i = 0; i < 144; i = i + 1) poe(bloco_c[i]);
+        ascii_troca();
+        confere("K", "7", 10, "K6 bloco sob a LMK");
+        if (errors == erros_antes)
+            $display("[tb_ascii] KEK: K4 -> K6 volta com o mesmo KCV e cifra identico; recusas 12, 13, 11, 10, 10");
 
         // ---- 9. nada sobra no slot efemero ----------------------------
         //

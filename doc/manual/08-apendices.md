@@ -338,16 +338,25 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `D0` | `D1` | — | estado(1) ‖ KCV da LMK(6) ‖ versão(6) | todos menos `TAMPERED` |
 | `K0` | `K1` | uso(2) ‖ modo(1) ‖ exportabilidade(1) | key block ‖ KCV(6) | `OPERATIONAL` |
 | `K2` | `K3` | key block | uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) ‖ KCV(6) | `OPERATIONAL` |
+| `K4` | `K5` | bloco da KEK ‖ bloco da chave (os dois sob a LMK) | bloco da chave sob a KEK ‖ KCV(6) | `OPERATIONAL` |
+| `K6` | `K7` | bloco da KEK (sob a LMK) ‖ bloco da chave (sob a KEK) | bloco da chave sob a LMK ‖ KCV(6) | `OPERATIONAL` |
 | `C0` | `C1` | key block ‖ IV(32) ‖ dados | dados | `OPERATIONAL` |
 | `C2` | `C3` | key block ‖ IV(32) ‖ dados | dados | `OPERATIONAL` |
 | `M0` | `M1` | key block ‖ dados | MAC(32) | `OPERATIONAL` |
 | `M2` | `M3` | key block ‖ MAC(32) ‖ dados | — (o veredito é o erro) | `OPERATIONAL` |
 
 Erros: `00` sem erro · `01` verificação falhou · `10` key block inválido ·
-`11` o modo do bloco não permite · `15` dados inválidos · `16` parâmetro
+`11` o modo do bloco não permite · `12` chave não exportável · `13` o
+bloco de proteção não é KEK · `15` dados inválidos · `16` parâmetro
 inválido · `20` estado não permite · `21` comando desconhecido · `22`
 mensagem malformada · `27` falha no log · `90` erro interno. Os códigos de
 comando e de erro são deste projeto.
+
+`K4` e `K6` trocam chave com outra instituição sob uma **KEK** — chave de
+uso `K0` que as duas têm, formada por componentes no console
+(`comp-load --uso K0`). `K4` é exportar e recusa `'N'`; `K6` guarda o que
+chegou sob a LMK. O `modo` da KEK diz se ela embrulha (`E`), desembrulha
+(`D`) ou os dois (`B`).
 
 No log de auditoria, um comando da porta host aparece com os dois
 caracteres dele nos campos `comando` e `argumento` (`K0` = `0x4B`, `0x30`) e

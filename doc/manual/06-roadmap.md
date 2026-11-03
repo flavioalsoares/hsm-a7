@@ -571,15 +571,32 @@ existe, mas mora do lado do cliente, embrulhado.
 
 ### O que já entrou
 
-Sete comandos, com códigos deste projeto (da categoria vem só a forma geral):
-diagnóstico, gerar chave, conferir um key block, cifrar e decifrar em
-AES-CBC, gerar e verificar CMAC. A chave de cada comando é aberta num slot
+Nove comandos, com códigos deste projeto (da categoria vem só a forma geral):
+diagnóstico, gerar chave, conferir um key block, exportar e importar sob uma
+chave de troca, cifrar e decifrar em AES-CBC, gerar e verificar CMAC. A chave de cada comando é aberta num slot
 **efêmero** do key store — o mesmo código de sempre faz a checagem de modo de
 uso — e apagada ao fim do comando, em qualquer desfecho. O apêndice B tem o
 formato.
 
-O que vem depois, na mesma fase: exportar e importar sob uma chave de troca
-que não seja a LMK, que é o que qualifica a exportação.
+### Trocar chave com outra instituição
+
+Uma chave guardada sob a LMK só abre dentro deste dispositivo. Para mandá-la
+a outra instituição, as duas combinam antes uma **KEK** — uma chave cujo
+único serviço é proteger outras chaves em trânsito — formada por componentes
+em cerimônia, com um custodiante de cada lado. Cada instituição guarda a KEK
+sob a sua própria LMK.
+
+Exportar é re-embrulhar: o dispositivo abre o bloco da chave (sob a LMK), abre
+o da KEK (também sob a LMK) e devolve a chave sob a KEK. Do outro lado,
+importar é o caminho inverso. A chave nunca existe em claro fora de um
+dispositivo, e nenhuma LMK sai de casa.
+
+É aqui que o campo de exportabilidade passa a significar alguma coisa de
+verdade: antes, "exportar" queria dizer sempre "sob a LMK", e o campo era
+quase um sim-ou-não. Agora a pergunta é "esta chave pode ir **para lá**?" —
+e uma chave marcada `N` recebe a resposta não, enquanto continua podendo ser
+usada aqui à vontade. E o modo de uso da KEK também conta: uma KEK que só
+embrulha serve para mandar chaves e não para recebê-las.
 
 ## 31. Fase 6 — tamper e ataques
 

@@ -145,6 +145,9 @@ vale entender:
 | `keystore_exporta(h, out)` | **sim**, e recusa `exportabilidade = 'N'` | só `EXPORT_KEY` |
 | `keystore_registro_monta(...)` | o registro persistente, com a LMK em claro e os slots **embrulhados** | só `persist.c` (fase 4) |
 | `keystore_efemera(...)` | **não**: instala a chave de um key block no slot efêmero, e ela é usada pelas funções acima com `KS_HANDLE_EFEMERA` | só `cmd_ascii.c` (fase 5) |
+| `keystore_kek_deriva(h, modo, kbek, kbak)` | só as **subchaves derivadas** da KEK do slot, e só se o uso for `K0` e o `modo` permitir | `K4`, `K6` (fase 5) |
+| `keystore_embrulha_kek(h, kbek, kbak, ...)` | **não**: devolve a chave **já embrulhada** sob a KEK, e recusa `'N'` pela mesma `exportavel()` de `keystore_exporta()` | só `K4` |
+| `keystore_embrulha_lmk(h, ...)` | **não**: embrulha sob a LMK, derivando as subchaves por dentro; não é exportar, e não checa `'N'` | só `K6` |
 
 Um `keystore_get_key()` genérico transformaria cada checagem em convenção, e
 convenção é o que se esquece no caminho raro. **Se um código novo precisar

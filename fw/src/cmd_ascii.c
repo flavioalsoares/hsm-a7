@@ -180,23 +180,21 @@ static uint8_t fim(const leitor_t *r)
 /* O key block do comando                                              */
 /* ------------------------------------------------------------------ */
 
-/* Abre o bloco sob a LMK e instala a chave no slot efemero.
+/* Abre um bloco sob KBEK/KBAK dadas e instala a chave no slot efemero.
  *
- * FRONTEIRA: dentro. `chave`, `kbek` e `kbak` existem na pilha so durante
- * esta funcao e saem zerados. Malformado, MAC errado, feito sob outra LMK
- * ou com cabecalho que o key store recusa: tudo e ASCII_BLOCO_INVAL --
+ * FRONTEIRA: dentro. `chave` existe na pilha so durante esta funcao e sai
+ * zerada. Malformado, MAC errado, feito sob outra chave de protecao ou
+ * com cabecalho que o key store recusa: tudo e ASCII_BLOCO_INVAL --
  * distinguir seria o oraculo de padding (ver IMPORT_KEY em cmd.c). */
-static uint8_t abre_bloco(const uint8_t *b, uint16_t bn, ks_info_t *info)
+static uint8_t abre_sob(const uint8_t kbek[KS_KEY_MAX],
+                        const uint8_t kbak[KS_KEY_MAX],
+                        const uint8_t *b, uint16_t bn, ks_info_t *info)
 {
-    uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
     uint8_t    chave[TR31_CHAVE_MAX];
     uint8_t    klen = 0u;
     tr31_cab_t cab;
     uint8_t    r = ASCII_INTERNO;
 
-    if (lmk_deriva_kb(kbek, kbak) != 0) {
-        goto sai;
-    }
     if (tr31_desembrulha(kbek, kbak, (const char *)b, bn,
                          &cab, chave, &klen) != 0) {
         r = ASCII_BLOCO_INVAL;
@@ -212,9 +210,45 @@ static uint8_t abre_bloco(const uint8_t *b, uint16_t bn, ks_info_t *info)
                                                       : ASCII_INTERNO;
 sai:
     wipe(chave, sizeof chave);
+    return r;
+}
+
+/* O caso comum: o bloco que o host guarda, sob a LMK. */
+static uint8_t abre_bloco(const uint8_t *b, uint16_t bn, ks_info_t *info)
+{
+    uint8_t kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    uint8_t r = ASCII_INTERNO;
+
+    if (lmk_deriva_kb(kbek, kbak) == 0) {
+        r = abre_sob(kbek, kbak, b, bn, info);
+    }
     wipe(kbek, sizeof kbek);
     wipe(kbak, sizeof kbak);
     return r;
+}
+
+/* Abre o bloco de uma KEK (sob a LMK) e devolve as subchaves dela para
+ * embrulhar (KS_MODO_CIFRA) ou desembrulhar (KS_MODO_DECIFRA). A KEK sai
+ * do slot efemero antes de a funcao voltar: o slot fica livre para a
+ * chave que ela protege, e a KEK em si nunca esta ao lado dela.
+ *
+ * FRONTEIRA: dentro. O chamador zeroiza `kbek` e `kbak`. */
+static uint8_t kek_subchaves(const uint8_t *b, uint16_t bn, uint8_t modo,
+                             uint8_t kbek[KS_KEY_MAX],
+                             uint8_t kbak[KS_KEY_MAX])
+{
+    ks_info_t info;
+    uint8_t   r;
+    int       v;
+
+    if ((r = abre_bloco(b, bn, &info)) != ASCII_OK) {
+        return r;
+    }
+    v = keystore_kek_deriva(KS_HANDLE_EFEMERA, modo, kbek, kbak);
+    keystore_efemera_apaga();
+    if (v == -2) { return ASCII_NAO_KEK; }
+    if (v == -3) { return ASCII_MODO; }
+    return (v == 0) ? ASCII_OK : ASCII_INTERNO;
 }
 
 /* ------------------------------------------------------------------ */
@@ -465,6 +499,116 @@ static uint8_t h_m2(leitor_t *in, escritor_t *out)
     return (v == 1) ? ASCII_OK : ASCII_VERIF_FALHOU;
 }
 
+/* K4 -- exportar sob KEK: bloco da KEK . bloco da chave (os dois sob a
+ *       LMK) -> bloco da chave sob a KEK . KCV(6)
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao. A KEK em si entrou por cerimonia
+ *                (componentes, no console) -- e ali que fica o controle.
+ *   vazamento    em laco, a mesma chave sai sob a KEK com enchimento
+ *                novo a cada vez; nada que o primeiro bloco ja nao desse.
+ *                Quem tem o bloco da KEK e o da chave pode mandar a chave
+ *                para quem tem a KEK -- e o servico, e e por isso que a
+ *                KEK existe.
+ *   exportability SIM, e aqui ela decide de verdade: 'N' e recusado com
+ *                12, dentro do key store, pela mesma regra do console. O
+ *                bloco de saida leva o cabecalho de entrada, 'N' nunca.
+ *   log          sim, antes.
+ *
+ * A KEK precisa de uso 'K0' (senao 13) e modo 'E' ou 'B' (senao 11). */
+static uint8_t h_k4(leitor_t *in, escritor_t *out)
+{
+    const uint8_t *kb = 0, *cb = 0;
+    uint16_t       kbn = 0u, cbn = 0u;
+    uint8_t        kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    char           bloco[TR31_ASCII_MAX];
+    uint32_t       bn = 0u, i;
+    ks_info_t      info;
+    uint8_t        r;
+    int            v;
+
+    if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK) { return r; }
+    if ((r = le_bloco(in, &cb, &cbn)) != ASCII_OK) { return r; }
+    if ((r = fim(in)) != ASCII_OK)                 { return r; }
+
+    if ((r = kek_subchaves(kb, kbn, KS_MODO_CIFRA, kbek, kbak)) != ASCII_OK) {
+        goto sai;
+    }
+    if ((r = abre_bloco(cb, cbn, &info)) != ASCII_OK) {
+        goto sai;
+    }
+    v = keystore_embrulha_kek(KS_HANDLE_EFEMERA, kbek, kbak, bloco, &bn);
+    if (v != 0) {
+        r = (v == -2) ? ASCII_NAO_EXPORTA : ASCII_INTERNO;
+        goto sai;
+    }
+    for (i = 0u; i < bn; i++) {
+        poe(out, (uint8_t)bloco[i]);
+    }
+    poe_hex(out, info.kcv, KS_KCV_LEN);
+    r = ASCII_OK;
+sai:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(bloco, sizeof bloco);
+    return r;
+}
+
+/* K6 -- importar sob KEK: bloco da KEK (sob a LMK) . bloco da chave (sob
+ *       a KEK) -> bloco da chave sob a LMK . KCV(6)
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao, como o K4.
+ *   vazamento    bloco recebido invalido -- MAC errado, outra KEK,
+ *                malformado -- e 10, um codigo so: o comando e o mais
+ *                exposto da porta, como o IMPORT_KEY do console. O KCV so
+ *                sai com sucesso.
+ *   exportability nao se aplica: o resultado fica sob a LMK, e isso nao e
+ *                exportar. Uma chave 'N' recebida precisa poder ser
+ *                guardada -- 'N' diz que ela nao segue adiante, e nao
+ *                segue: o K4 a recusa.
+ *   log          sim, antes.
+ *
+ * A KEK precisa de uso 'K0' (senao 13) e modo 'D' ou 'B' (senao 11). */
+static uint8_t h_k6(leitor_t *in, escritor_t *out)
+{
+    const uint8_t *kb = 0, *cb = 0;
+    uint16_t       kbn = 0u, cbn = 0u;
+    uint8_t        kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    char           bloco[TR31_ASCII_MAX];
+    uint32_t       bn = 0u, i;
+    ks_info_t      info;
+    uint8_t        r;
+
+    if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK) { return r; }
+    if ((r = le_bloco(in, &cb, &cbn)) != ASCII_OK) { return r; }
+    if ((r = fim(in)) != ASCII_OK)                 { return r; }
+
+    if ((r = kek_subchaves(kb, kbn, KS_MODO_DECIFRA, kbek, kbak))
+        != ASCII_OK) {
+        goto sai;
+    }
+    if ((r = abre_sob(kbek, kbak, cb, cbn, &info)) != ASCII_OK) {
+        goto sai;
+    }
+    if (keystore_embrulha_lmk(KS_HANDLE_EFEMERA, bloco, &bn) != 0) {
+        r = ASCII_INTERNO;
+        goto sai;
+    }
+    for (i = 0u; i < bn; i++) {
+        poe(out, (uint8_t)bloco[i]);
+    }
+    poe_hex(out, info.kcv, KS_KCV_LEN);
+    r = ASCII_OK;
+sai:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(bloco, sizeof bloco);
+    return r;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tabela                                                              */
 /* ------------------------------------------------------------------ */
@@ -486,6 +630,8 @@ static const ascii_entry_t g_ascii[] = {
     { 'D', '0', ST_NORMAL, h_d0, I },
     { 'K', '0', ST_OPER,   h_k0, L },
     { 'K', '2', ST_OPER,   h_k2, I },
+    { 'K', '4', ST_OPER,   h_k4, L },
+    { 'K', '6', ST_OPER,   h_k6, L },
     { 'C', '0', ST_OPER,   h_c0, L },
     { 'C', '2', ST_OPER,   h_c2, L },
     { 'M', '0', ST_OPER,   h_m0, L },

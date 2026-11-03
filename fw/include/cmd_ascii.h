@@ -36,6 +36,8 @@
 #define ASCII_VERIF_FALHOU  1u
 #define ASCII_BLOCO_INVAL   10u
 #define ASCII_MODO          11u
+#define ASCII_NAO_EXPORTA   12u   /* K4: a chave e 'N'               */
+#define ASCII_NAO_KEK       13u   /* K4/K6: o bloco de protecao nao e K0 */
 #define ASCII_DADOS         15u
 #define ASCII_PARAM         16u
 #define ASCII_ESTADO        20u

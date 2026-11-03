@@ -1229,7 +1229,11 @@ A lição vale mais que a correção: a lacuna foi levantada com convicção,
 registrada, e quase virou código (a recusa do `'S'`). Bastou perguntar se o
 caso existe no mercado para ela se desfazer.
 
-#### 6b. A exportação não é qualificada
+#### 6b. A exportação não é qualificada — **fechada em 2026-11-03**
+
+*`K4`/`K6` na porta host exportam e importam sob uma KEK de uso `K0`; ver
+`doc/fase5-notas.md`, "Troca de chaves sob KEK". O texto abaixo é o
+registro da lacuna.*
 
 Aqui o campo é praticamente booleano e a KEK é **sempre a LMK**. No modelo
 comercial a exportação é qualificada: sob **qual** KEK, para qual zona, e se

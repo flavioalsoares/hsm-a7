@@ -504,6 +504,46 @@ ks_handle_t comp_instala(const uint8_t uso[2], uint8_t algoritmo,
     return h;
 }
 
+/* O ponto único onde `exportabilidade` decide. Os dois caminhos de
+ * saída -- keystore_exporta() (bytes, para o key block do console) e
+ * keystore_embrulha_kek() (já embrulhada, porta host) -- passam por aqui.
+ * 'E' e 'S' saem; ver keystore.h sobre por que 'S' não é mais estrito. */
+static int exportavel(int i)
+{
+    return g_slots[i].exportabilidade != KS_EXP_NAO;
+}
+
+/* Embrulha o slot `i` sob KBEK/KBAK, com o cabeçalho do próprio slot.
+ *
+ * FRONTEIRA: dentro. Os bytes da chave vão do slot direto para o
+ * tr31_embrulha(); o enchimento é aleatório por norma e sai zerado. Quem
+ * decide SE pode embrulhar é o chamador -- esta função só sabe COMO. */
+static int embrulha_slot(int i, const uint8_t kbek[KS_KEY_MAX],
+                         const uint8_t kbak[KS_KEY_MAX],
+                         char *saida, uint32_t *saida_n)
+{
+    uint8_t    enchimento[TR31_BLOCO];
+    tr31_cab_t cab;
+    int        r = -1;
+
+    if (drbg_dispositivo_bytes(enchimento, sizeof enchimento) != 0) {
+        goto fim;
+    }
+    cab.uso[0]          = g_slots[i].uso[0];
+    cab.uso[1]          = g_slots[i].uso[1];
+    cab.algoritmo       = g_slots[i].algoritmo;
+    cab.modo            = g_slots[i].modo;
+    cab.versao_chave[0] = (uint8_t)'0';
+    cab.versao_chave[1] = (uint8_t)'0';
+    cab.exportabilidade = g_slots[i].exportabilidade;
+    r = tr31_embrulha(kbek, kbak, &cab, g_slots[i].chave,
+                      g_slots[i].key_len, enchimento,
+                      (uint8_t)sizeof enchimento, saida, saida_n);
+fim:
+    wipe(enchimento, sizeof enchimento);
+    return r;
+}
+
 uint8_t keystore_exporta(ks_handle_t h, uint8_t out[KS_KEY_MAX])
 {
     int     i = indice(h);
@@ -515,9 +555,7 @@ uint8_t keystore_exporta(ks_handle_t h, uint8_t out[KS_KEY_MAX])
         return 0u;
     }
 
-    /* O ponto único onde `exportabilidade` decide. Não há segundo caminho
-     * para os bytes saírem do slot. */
-    if (g_slots[i].exportabilidade == KS_EXP_NAO) {
+    if (!exportavel(i)) {
         return 0u;
     }
 
@@ -631,6 +669,75 @@ int lmk_deriva_kb(uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX])
 }
 
 /* ------------------------------------------------------------------
+ * KEK -- troca de chaves com outra instituição (fase 5)
+ * ------------------------------------------------------------------ */
+
+int keystore_kek_deriva(ks_handle_t h, uint8_t precisa_modo,
+                        uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX])
+{
+    int i = indice(h);
+
+    if ((i < 0) || (kbek == 0) || (kbak == 0)) {
+        return -1;
+    }
+    /* Só uma chave de USO 'K0' protege outra chave. Sem isso, qualquer
+     * chave de dados com modo 'B' viraria KEK, e o que foi cifrado como
+     * dado poderia ser apresentado como chave -- a confusão de tipo que o
+     * key block existe para fechar. AES-256 porque a derivação X9.143
+     * deste dispositivo é a da KBPK de 32 bytes, a mesma da LMK. */
+    if ((g_slots[i].uso[0] != (uint8_t)'K') ||
+        (g_slots[i].uso[1] != (uint8_t)'0') ||
+        (g_slots[i].key_len != KS_KEY_MAX)) {
+        return -2;
+    }
+    /* 'E' embrulha (exportar), 'D' desembrulha (importar), 'B' os dois.
+     * É a leitura que a norma dá ao `modo` de uma KEK. */
+    if ((g_slots[i].modo != KS_MODO_AMBOS) &&
+        (g_slots[i].modo != precisa_modo)) {
+        return -3;
+    }
+    g_slots[i].contador_uso++;
+    return (tr31_deriva(g_slots[i].chave, kbek, kbak) == 0) ? 0 : -1;
+}
+
+int keystore_embrulha_kek(ks_handle_t h, const uint8_t kbek[KS_KEY_MAX],
+                          const uint8_t kbak[KS_KEY_MAX],
+                          char *saida, uint32_t *saida_n)
+{
+    int i = indice(h);
+
+    if ((i < 0) || (kbek == 0) || (kbak == 0) || (saida == 0) ||
+        (saida_n == 0)) {
+        return -1;
+    }
+    if (!exportavel(i)) {
+        return -2;
+    }
+    return (embrulha_slot(i, kbek, kbak, saida, saida_n) == 0) ? 0 : -1;
+}
+
+int keystore_embrulha_lmk(ks_handle_t h, char *saida, uint32_t *saida_n)
+{
+    uint8_t kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    int     i = indice(h);
+    int     r = -1;
+
+    if ((i < 0) || (saida == 0) || (saida_n == 0)) {
+        return -1;
+    }
+    /* Sem checar `exportabilidade`: um bloco sob a LMK só abre dentro
+     * deste dispositivo, então guardá-lo no banco do host não é exportar
+     * -- é o mesmo argumento do K0. Uma chave 'N' recebida de outra
+     * instituição precisa poder ser guardada aqui. */
+    if (lmk_deriva_kb(kbek, kbak) == 0) {
+        r = (embrulha_slot(i, kbek, kbak, saida, saida_n) == 0) ? 0 : -1;
+    }
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    return r;
+}
+
+/* ------------------------------------------------------------------
  * Registro persistente -- fase 4
  *
  * O corpo do registro que fw/src/persist.c grava na flash:
@@ -656,8 +763,6 @@ int lmk_deriva_kb(uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX])
 int keystore_registro_monta(uint8_t *buf, uint32_t max, uint32_t *n)
 {
     uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
-    uint8_t    enchimento[TR31_BLOCO];
-    tr31_cab_t cab;
     uint32_t   i, pos, kb_n = 0u;
     uint8_t    cont = 0u;
     int        r = -1;
@@ -681,22 +786,9 @@ int keystore_registro_monta(uint8_t *buf, uint32_t max, uint32_t *n)
         if (!g_slots[i].em_uso) {
             continue;
         }
-        if (drbg_dispositivo_bytes(enchimento, sizeof enchimento) != 0) {
-            goto fim;
-        }
-        cab.uso[0]          = g_slots[i].uso[0];
-        cab.uso[1]          = g_slots[i].uso[1];
-        cab.algoritmo       = g_slots[i].algoritmo;
-        cab.modo            = g_slots[i].modo;
-        cab.versao_chave[0] = (uint8_t)'0';
-        cab.versao_chave[1] = (uint8_t)'0';
-        cab.exportabilidade = g_slots[i].exportabilidade;
-
         buf[pos] = (uint8_t)i;
-        if ((tr31_embrulha(kbek, kbak, &cab, g_slots[i].chave,
-                           g_slots[i].key_len, enchimento,
-                           (uint8_t)sizeof enchimento,
-                           (char *)&buf[pos + 1u], &kb_n) != 0) ||
+        if ((embrulha_slot((int)i, kbek, kbak, (char *)&buf[pos + 1u],
+                           &kb_n) != 0) ||
             (kb_n != TR31_ASCII_MAX)) {
             goto fim;
         }
@@ -710,7 +802,6 @@ int keystore_registro_monta(uint8_t *buf, uint32_t max, uint32_t *n)
 fim:
     wipe(kbek, sizeof kbek);
     wipe(kbak, sizeof kbak);
-    wipe(enchimento, sizeof enchimento);
     if (r != 0) {
         wipe(buf, max);
     }

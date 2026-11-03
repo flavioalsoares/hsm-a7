@@ -14,6 +14,8 @@ Uso:
     hsmhost.py diag                         # D0: estado, KCV da LMK, versao
     hsmhost.py gen [--uso D0 --modo B --exp E]
     hsmhost.py check BLOCO                  # K2: cabecalho e KCV
+    hsmhost.py export KEK BLOCO             # K4: sob a LMK -> sob a KEK
+    hsmhost.py import KEK BLOCO             # K6: sob a KEK -> sob a LMK
     hsmhost.py encrypt BLOCO IV DADOS       # C0, hex
     hsmhost.py decrypt BLOCO IV DADOS       # C2, hex
     hsmhost.py mac BLOCO DADOS              # M0
@@ -39,6 +41,8 @@ ERROS = {
     1: "verificacao falhou",
     10: "key block invalido",
     11: "o modo do bloco nao permite",
+    12: "a chave nao e exportavel",
+    13: "o bloco de protecao nao e uma KEK (K0)",
     15: "dados invalidos",
     16: "parametro invalido",
     20: "estado nao permite",
@@ -176,6 +180,19 @@ class Host:
                 "modo": c[3:4].decode(), "exportabilidade": c[4:5].decode(),
                 "kcv": c[5:11].decode()}
 
+    def _rebloco(self, comando, kek, bloco):
+        _, c = self.pede(comando, kek.encode() + bloco.encode())
+        n = int(c[1:5])
+        return c[:n].decode(), c[n:n + 6].decode()
+
+    def exporta(self, kek, bloco):
+        """K4: bloco sob a LMK -> o mesmo sob a KEK, para outra instituicao."""
+        return self._rebloco("K4", kek, bloco)
+
+    def importa(self, kek, bloco):
+        """K6: bloco recebido sob a KEK -> sob a LMK, para guardar aqui."""
+        return self._rebloco("K6", kek, bloco)
+
     def cripto(self, bloco, iv, d, cifrar):
         _, c = self.pede("C0" if cifrar else "C2",
                          bloco.encode() + iv.hex().upper().encode() + dados(d))
@@ -264,7 +281,48 @@ def confere(h, lmk, n):
         assert h.check(meu)["kcv"] == _kcv_local(minha).hex().upper(), "K2"
         assert h.cripto(meu, iv, texto, True) == \
             tr31._cbc(minha, iv, texto, True), "C0 com bloco do Python"
-        print("volta %d: K0/K2/C0/C2/M0/M2 conferidos" % (volta + 1))
+
+        # KEK: o Python faz o papel da OUTRA instituicao, que tem a KEK
+        # em claro (la ela veio de componentes; aqui, do bloco aberto).
+        kek_lmk, kcv_kek = h.gen("K0", "B", "E")
+        kek, _ = tr31.desembrulha(lmk, kek_lmk)
+        assert _kcv_local(kek).hex().upper() == kcv_kek, "KCV da KEK"
+        sai, kcv_sai = h.exporta(kek_lmk, bloco)
+        aberta, cab_sai = tr31.desembrulha(kek, sai)
+        assert aberta == chave and kcv_sai == kcv, "K4"
+        assert cab_sai == cab, "K4: cabecalho mudou na exportacao"
+
+        dela = os.urandom(32)
+        recebido = tr31.embrulha(kek, dela, modo="E", exportabilidade="N")
+        aqui, kcv_aqui = h.importa(kek_lmk, recebido)
+        guardada, cab_aqui = tr31.desembrulha(lmk, aqui)
+        assert guardada == dela, "K6"
+        assert kcv_aqui == _kcv_local(dela).hex().upper(), "K6: KCV"
+        assert cab_aqui["modo"] == "E" and \
+            cab_aqui["exportabilidade"] == "N", "K6: cabecalho"
+        assert h.cripto(aqui, iv, texto, True) == \
+            tr31._cbc(dela, iv, texto, True), "C0 com a chave importada"
+
+        def recusa(codigo, comando, *args):
+            try:
+                getattr(h, comando)(*args)
+            except HostErro as e:
+                assert e.codigo == codigo, "%s: %d, esperado %d" % (
+                    comando, e.codigo, codigo)
+            else:
+                raise AssertionError("%s aceito, esperado %d"
+                                     % (comando, codigo))
+        recusa(12, "exporta", kek_lmk, aqui)        # 'N' nao segue adiante
+        recusa(12, "exporta", kek_lmk, bloco_m)
+        recusa(13, "exporta", bloco, bloco)         # chave de dados nao e KEK
+        recusa(13, "importa", bloco, recebido)
+        so_e, _ = h.gen("K0", "E", "E")             # KEK que so embrulha
+        recusa(11, "importa", so_e, recebido)
+        outra = tr31.embrulha(os.urandom(32), dela)  # sob outra KEK
+        recusa(10, "importa", kek_lmk, outra)
+        adulterado = recebido[:-1] + ("0" if recebido[-1] != "0" else "1")
+        recusa(10, "importa", kek_lmk, adulterado)
+        print("volta %d: K0/K2/C0/C2/M0/M2/K4/K6 conferidos" % (volta + 1))
     print("%d de %d voltas conferidas" % (n, n))
     return 0
 
@@ -289,6 +347,8 @@ def main(argv=None):
     p.add_argument("--modo", default="B", choices=list("EDBGVCN"))
     p.add_argument("--exp", default="E", choices=list("ENS"))
     p = sub.add_parser("check"); p.add_argument("bloco")
+    for nome in ("export", "import"):
+        p = sub.add_parser(nome); p.add_argument("kek"); p.add_argument("bloco")
     for nome in ("encrypt", "decrypt"):
         p = sub.add_parser(nome)
         p.add_argument("bloco"); p.add_argument("iv"); p.add_argument("dados")
@@ -320,6 +380,11 @@ def main(argv=None):
         elif a.cmd == "check":
             for k, v in h.check(a.bloco).items():
                 print("%-16s: %s" % (k, v))
+        elif a.cmd in ("export", "import"):
+            f = h.exporta if a.cmd == "export" else h.importa
+            bloco, kcv = f(a.kek, a.bloco)
+            print(bloco)
+            print("KCV %s" % kcv, file=sys.stderr)
         elif a.cmd in ("encrypt", "decrypt"):
             print(h.cripto(a.bloco, bytes.fromhex(a.iv),
                            bytes.fromhex(a.dados),

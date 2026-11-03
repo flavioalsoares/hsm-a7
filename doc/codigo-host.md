@@ -229,10 +229,15 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
 - **`hsmhost.py`** fala com a ponte (`--tcp`, o padrão) ou direto com a serial
   (`--serial`, com `--porta` opcional). As camadas são as mesmas do `hsmtool`: codec (`monta`,
   `analisa`), transporte (`Tcp`, `Serial`) e os comandos (`Host`).
+- **`hsmhost.py export KEK BLOCO`** / **`import KEK BLOCO`** são o `K4` e o
+  `K6`: a troca de chave com outra instituição sob uma KEK de uso `K0`.
 - **`hsmhost.py confere --lmk`** é o equivalente do `keycycle` para a porta
   host: gera blocos pelo dispositivo, abre-os com o `tr31.py` e refaz AES-CBC
   e CMAC com a biblioteca `cryptography`, e também manda blocos feitos pelo
-  **Python** para o dispositivo usar. Precisa da LMK — o brinquedo aparecendo,
+  **Python** para o dispositivo usar. Desde o `K4`/`K6` o Python também faz
+  o papel da **outra instituição**: abre a KEK com a LMK, abre o que o `K4`
+  exportou e embrulha uma chave sob a KEK para o `K6` importar, e cobra as
+  recusas (`10`, `11`, `12`, `13`). Precisa da LMK — o brinquedo aparecendo,
   como no `keycycle`.
 
 ⚠ **Só um processo abre a serial.** Com a ponte rodando, o `hsmtool` não

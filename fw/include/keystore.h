@@ -32,6 +32,11 @@
  *                           isso, checa `exportability`, e existe só para
  *                           a camada de key block.
  *
+ *   keystore_embrulha_kek() (fase 5) é a segunda saída, e só entrega a
+ *                           chave JÁ embrulhada sob uma KEK. Passa pela
+ *                           mesma checagem -- a regra mora numa função
+ *                           estática, `exportavel()`, e as duas a chamam.
+ *
  * Duas portas, uma trancada. Se houvesse um `keystore_get_key()` genérico,
  * a checagem viraria convenção — e convenção é o que se esquece no
  * caminho raro.
@@ -353,6 +358,41 @@ int lmk_deriva_kb(uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX]);
 /* Zeroiza a LMK e todos os slots -- as chaves derivadas não sobrevivem à
  * chave que as protege. */
 void lmk_zeroiza(void);
+
+/* ---------------------------------------------------------------------
+ * KEK -- troca de chaves com outra instituição (fase 5)
+ *
+ * Uma KEK é uma chave de uso 'K0' cujo único serviço é proteger outras
+ * chaves em trânsito entre duas instituições que a compartilham. Ela
+ * chega como qualquer outra: num key block sob a LMK, no slot efêmero.
+ * ------------------------------------------------------------------- */
+
+/* KBEK e KBAK derivadas da KEK do slot `h`, para embrulhar
+ * (`precisa_modo` = KS_MODO_CIFRA) ou desembrulhar (KS_MODO_DECIFRA).
+ *
+ * Mesma porta de lmk_deriva_kb(), um degrau abaixo: o que sai são as
+ * subchaves derivadas por CMAC, nunca a KEK. Exige uso 'K0', AES-256, e
+ * `modo` 'B' ou o pedido. O chamador zeroiza as duas.
+ *
+ * Devolve 0; -1 slot inválido; -2 não é KEK; -3 o modo não permite. */
+int keystore_kek_deriva(ks_handle_t h, uint8_t precisa_modo,
+                        uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX]);
+
+/* Embrulha o slot `h` sob KBEK/KBAK de uma KEK: é EXPORTAR, e passa pela
+ * mesma regra de keystore_exporta() -- 'N' é recusado. O bloco sai com o
+ * cabeçalho do slot. `saida` recebe até TR31_ASCII_MAX caracteres.
+ *
+ * Devolve 0; -1 erro; -2 a chave não é exportável. */
+int keystore_embrulha_kek(ks_handle_t h, const uint8_t kbek[KS_KEY_MAX],
+                          const uint8_t kbak[KS_KEY_MAX],
+                          char *saida, uint32_t *saida_n);
+
+/* Embrulha o slot `h` sob a LMK, derivando as subchaves aqui dentro. NÃO
+ * é exportar (o bloco só abre neste dispositivo), então não checa
+ * `exportabilidade`. É o que o host guarda depois de importar.
+ *
+ * Devolve 0 em sucesso. */
+int keystore_embrulha_lmk(ks_handle_t h, char *saida, uint32_t *saida_n);
 
 /* ---------------------------------------------------------------------
  * KCV -- Key Check Value

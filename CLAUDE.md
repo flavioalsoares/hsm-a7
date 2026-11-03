@@ -562,8 +562,19 @@ Tudo em `doc/fase5-notas.md`. Três decisões do usuário (2026-11-02):
 
 ```
 D0 diagnostico   K0 gerar chave   K2 conferir bloco
+K4 exportar sob KEK               K6 importar sob KEK
 C0 cifrar        C2 decifrar      M0 gerar MAC      M2 verificar MAC
 ```
+
+⚠ **`K4`/`K6` (2026-11-03) trocam chave com outra instituição sob uma KEK**
+de uso `K0` — que é como a exportação deixa de ser "sempre sob a LMK". A
+KEK nasce por componentes no console (`comp-load --uso K0`). `K4` é
+exportar e recusa `'N'` (`12`) pela MESMA função estática `exportavel()`
+de `keystore_exporta()`; `K6` guarda sob a LMK e aceita `'N'`. A KEK e a
+chave nunca estão juntas no slot efêmero: `keystore_kek_deriva()` devolve
+KBEK/KBAK e o slot é apagado antes de a chave entrar. Ver
+`doc/fase5-notas.md`. ✅ Validado em hardware 2026-11-03: `confere` com
+100 de 100 voltas, o Python no papel da outra instituição.
 
 ⚠ **Os códigos de comando e de erro são DESTE projeto.** Da categoria vem só
 a forma geral (dois caracteres, resposta = comando + 1, erro em dois
@@ -583,6 +594,11 @@ recusa; a restauração da flash nunca escreve nele. `tb_ascii` prova pelo
 no `D0` e no Python; `hsmhost.py confere` com **100 de 100** voltas pela
 ponte TCP (`K0`/`K2`/`C0`/`C2`/`M0`/`M2` contra AES e CMAC independentes);
 log mostra os comandos como `HOST xy`.
+
+⚠ **`tb_ascii` é agora o testbench mais LENTO da suíte: 1 h 55 min**
+(medido em 2026-11-03, com o passo de KEK). Os `K4`/`K6` levam dois key
+blocks por pedido, ~300 caracteres a 115200 baud, e a UART simulada ciclo a
+ciclo é o que domina o tempo -- não a cripto.
 
 ⚠ **Com a ponte rodando, o `hsmtool` não abre a serial.** Para a cerimônia,
 pare a ponte.

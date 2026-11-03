@@ -115,6 +115,8 @@ control é para cerimônia, e a cerimônia não passa por aqui.
 | `D0` diagnóstico | `D1` | — | estado(1) · KCV da LMK(6) · versão(6) | não |
 | `K0` gerar chave | `K1` | uso(2) · modo(1) · exportabilidade(1) | key block · KCV(6) | **sim** |
 | `K2` conferir key block | `K3` | key block | uso(2) · algoritmo(1) · modo(1) · exportabilidade(1) · KCV(6) | não |
+| `K4` exportar sob KEK | `K5` | bloco da KEK · bloco da chave (os dois sob a LMK) | bloco da chave sob a KEK · KCV(6) | **sim** |
+| `K6` importar sob KEK | `K7` | bloco da KEK (sob a LMK) · bloco da chave (sob a KEK) | bloco da chave sob a LMK · KCV(6) | **sim** |
 | `C0` cifrar | `C1` | key block · IV(32) · dados | dados | **sim** |
 | `C2` decifrar | `C3` | key block · IV(32) · dados | dados | **sim** |
 | `M0` gerar MAC | `M1` | key block · dados | MAC(32) | **sim** |
@@ -130,6 +132,8 @@ control é para cerimônia, e a cerimônia não passa por aqui.
   abre dentro deste dispositivo.
 - **`K2`** abre o bloco, confere o MAC e devolve o cabeçalho e o KCV. É como
   o host descobre se um bloco é íntegro e o que ele contém, sem usá-lo.
+- **`K4`/`K6`** trocam chave com outra instituição — ver "Troca de chaves
+  sob KEK", abaixo.
 - **`C0`/`C2`** são AES-256-CBC com IV explícito e dados múltiplos de 16, até
   **160 bytes** (o limite vem do tamanho do frame: 513 bytes, com um key
   block de 144 caracteres e os dados em hex). O `modo` do bloco decide:
@@ -148,6 +152,8 @@ control é para cerimônia, e a cerimônia não passa por aqui.
 | `01` | verificação falhou (só `M2`) |
 | `10` | key block inválido: malformado, MAC errado, ou feito sob outra LMK — **um código só**, pela mesma razão do `IMPORT_KEY` |
 | `11` | o `modo` do bloco não permite esta operação |
+| `12` | a chave não é exportável (`'N'`) — só `K4` |
+| `13` | o bloco de proteção não é uma KEK (uso ≠ `K0`) — `K4`/`K6` |
 | `15` | dados inválidos: hex, comprimento, múltiplo de 16, limite |
 | `16` | parâmetro inválido em `K0` (uso, modo ou exportabilidade) |
 | `20` | o estado do dispositivo não permite o comando |
@@ -224,12 +230,93 @@ dá `01`. O `hsmtool audit` mostra os comandos como `HOST xy`, a recusa do
 
 ---
 
+## Troca de chaves sob KEK (`K4`/`K6`)
+
+*Acrescentada em 2026-11-03, fechando a lacuna 6b de `doc/fase3-notas.md`:
+a exportação deixa de ser "sempre sob a LMK" e passa a ser **para quem**.*
+
+Duas instituições que precisam trocar chaves combinam antes uma **KEK** —
+uma chave de uso `K0` que as duas têm e cujo único serviço é proteger
+outras chaves em trânsito. Cada lado a guarda sob a sua própria LMK. Daí em
+diante:
+
+```
+instituicao A                                     instituicao B
+bloco da chave sob LMK_A                          bloco da KEK sob LMK_B
+bloco da KEK sob LMK_A                                     |
+   |  K4                                                   |
+   +--> bloco da chave sob a KEK  ----- rede ----->  K6 ---+
+                                                     bloco da chave sob LMK_B
+```
+
+Em nenhum ponto a chave existe fora de um dispositivo em claro, e nenhuma
+LMK sai de casa.
+
+### De onde vem a KEK
+
+O modelo da categoria é a KEK formada **por componentes**, em cerimônia,
+com um custodiante de cada lado levando a sua parte. Aqui isso já existe
+no console, sem comando novo:
+
+```bash
+python3 host/hsmtool.py comp-load 0 2 --random --uso K0 --modo B   # botões
+python3 host/hsmtool.py comp-load 1 2 --random --uso K0 --modo B   # botões
+python3 host/hsmtool.py export-key <handle>      # bloco da KEK sob a LMK
+python3 host/hsmtool.py delete-key <handle>      # o host fica com o bloco
+```
+
+Para teste, `K0` com uso `K0` também gera uma KEK — mas uma KEK que só um
+lado conhece não serve para trocar nada; o `confere` faz assim porque o
+Python, tendo a LMK, abre o bloco e faz o papel da outra instituição.
+
+### Regras
+
+- **A KEK precisa de uso `K0`** (senão `13`). Sem isso, qualquer chave de
+  dados com modo `'B'` viraria chave de proteção. E AES-256, porque a
+  derivação X9.143 deste dispositivo é a da KBPK de 32 bytes.
+- **O `modo` da KEK manda**: `'E'` só embrulha (só `K4`), `'D'` só
+  desembrulha (só `K6`), `'B'` os dois (senão `11`). É a leitura que a
+  norma dá ao modo de uma KEK, e é o que permite uma KEK de mão única.
+- **`K4` é exportar, e `exportabilidade` decide** — `'N'` é recusado com
+  `12`, dentro do key store, pela mesma função que o `EXPORT_KEY` do
+  console usa (`exportavel()`, estática em `keystore.c`). O bloco sai com
+  o cabeçalho de entrada.
+- **`K6` não é exportar**: o resultado fica sob a LMK, e só abre aqui. Uma
+  chave `'N'` recebida é aceita — `'N'` diz que ela não segue adiante, e
+  não segue: o `K4` a recusa.
+- **Bloco recebido inválido é `10`, um código só** — MAC errado, outra KEK,
+  malformado. O `K6` é o comando mais exposto da porta, como o
+  `IMPORT_KEY` do console.
+- **A KEK e a chave nunca estão juntas no slot efêmero.** O firmware abre a
+  KEK, deriva KBEK/KBAK dela (`keystore_kek_deriva()`, a mesma porta de
+  `lmk_deriva_kb()` um degrau abaixo), apaga o slot, e só então abre a
+  chave. O que sai do key store são subchaves derivadas, nunca a KEK.
+
+✅ **Validado em hardware 2026-11-03.** Suíte com 18 testbenches passando
+(`tb_ascii` com o passo de KEK: `K4` → `K6` volta com o mesmo KCV e cifra
+idêntico; recusas `12`, `13`, `11`, `10`, `10`). Na placa, com a LMK
+`6935C4` restaurada da flash, `hsmhost.py confere`: **10 de 10** pela
+serial e **100 de 100** pela ponte. Em cada volta o Python, no papel da
+outra instituição, abre o que o `K4` exportou com a KEK, embrulha uma chave
+`'N'` sob a KEK para o `K6` importar, confere que ela volta sob a LMK com o
+cabeçalho intacto e cifra certo, e cobra as seis recusas. O log mostra
+`HOST K4`/`HOST K6` com os códigos. Firmware: 22 584 bytes de IMEM;
+bitstream com 0 critical warnings, WNS +0,258 ns.
+
+⚠ **`keystore_kek_deriva()` é o segundo chamador de `tr31_deriva()`.** O
+CLAUDE.md avisa que um segundo chamador é sinal de alguém com a chave
+mestra. Este está **dentro de `keystore.c`**, ao lado do primeiro, e deriva
+de uma KEK — que é exatamente o que uma KBPK é. Fora de `keystore.c` o
+aviso continua valendo.
+
+⚠ **Uma KEK `'B'` ainda cifra dados pelo `C0`.** O `K4`/`K6` exigem uso
+`K0`, mas os comandos de dados não recusam uso `K0` — é o item "checagem
+do `uso`" abaixo, que continua aberto.
+
+---
+
 ## Fora desta etapa
 
-- **Exportar e importar sob outra chave** (uma KEK de troca com outra
-  instituição): é o que qualifica a exportação (`doc/fase3-notas.md` §6b) e o
-  passo seguinte natural. Exige abrir um bloco de KEK e usá-la como chave de
-  proteção de um segundo bloco.
 - **Checagem do `uso` da chave** (`D0`, `M?`, `K0`): hoje, como no console,
   quem decide o que a chave pode fazer é o `modo`. A norma também amarra o
   uso, e um HSM comercial confere os dois.
