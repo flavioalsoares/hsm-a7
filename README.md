@@ -104,7 +104,9 @@ set ASCII como o de um HSM de pagamento, interpretado pelo firmware. O host
 guarda as chaves de trabalho como key blocks sob a LMK e as manda em cada
 comando; o dispositivo nao guarda nenhuma. O protocolo binario de antes vira
 o **console** (cerimonia, estado, log). `host/hsm_ponte.py` liga a UART a
-um socket TCP, e `host/hsmhost.py` e o cliente.
+um socket TCP, e `host/hsmhost.py` e o cliente. Validada em hardware em
+2026-11-03: 100 de 100 voltas conferidas pelo Python contra AES e CMAC
+independentes.
 
 Documentacao do codigo: `doc/codigo-host.md` (Python) e
 `doc/codigo-firmware.md` (C).

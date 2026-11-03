@@ -211,10 +211,16 @@ dividirem a UART.
 - **Placa, sem botões:** gravada; `ping`, `version` e `post` (oito testes
   verdes) pelo console; `D0` responde pela serial direta **e** pela ponte;
   `K0` recusado com `20` em `UNINITIALIZED`.
-- **Falta, com botões:** cerimônia, `activate`, e
-  `hsmhost.py confere --lmk <hex>` — o Python abrindo os blocos que o
-  firmware gerou e conferindo cifra e MAC contra uma implementação
-  independente.
+
+✅ **Validado em hardware 2026-11-03, com os botões.** Cerimônia com três
+componentes gerados por `--random` (KCVs `6F34C1`, `8AD3EA`, `3057EF`), KCV
+da LMK `6935C4` igual nos dois lados — o console e o `D0` da porta host
+mostram o mesmo valor que o Python calcula do XOR. `hsmhost.py confere`:
+**10 de 10** voltas pela serial direta e **100 de 100** pela ponte TCP. Cada
+volta: `K0` gera, o Python abre o bloco com a LMK, `K2` confere, `C0`/`C2`
+e `M0`/`M2` batem com AES e CMAC independentes, e uma tag com bit trocado
+dá `01`. O `hsmtool audit` mostra os comandos como `HOST xy`, a recusa do
+`M2` incluída.
 
 ---
 

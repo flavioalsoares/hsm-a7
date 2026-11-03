@@ -579,6 +579,11 @@ elemento de `g_slots`), usada pelas mesmas funções do console, e
 recusa; a restauração da flash nunca escreve nele. `tb_ascii` prova pelo
 `KEY_INFO(17)` do console que ele está vazio entre comandos.
 
+✅ **Validado em hardware 2026-11-03**: KCV da LMK `6935C4` igual no console,
+no `D0` e no Python; `hsmhost.py confere` com **100 de 100** voltas pela
+ponte TCP (`K0`/`K2`/`C0`/`C2`/`M0`/`M2` contra AES e CMAC independentes);
+log mostra os comandos como `HOST xy`.
+
 ⚠ **Com a ponte rodando, o `hsmtool` não abre a serial.** Para a cerimônia,
 pare a ponte.
 
