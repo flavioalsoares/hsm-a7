@@ -172,6 +172,7 @@ python3 host/hsmtool.py bench -n 10000  # criterio de aceitacao da fase 1
 python3 host/hsmtool.py lmk-status      # cerimonia de LMK (fase 3)
 python3 host/hsmtool.py lmk-load 0 --random
 python3 host/hsmtool.py activate
+python3 host/hsmtool.py kcv C0 C1 C2  # confere os KCVs no PC, sem placa
 
 # depois de OPERATIONAL, nenhum destes pede botao -- e esse e o ponto
 python3 host/hsmtool.py gen-key --uso D0 --modo B --exp E

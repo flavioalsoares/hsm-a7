@@ -99,6 +99,7 @@ dicionário `handlers` dentro de `main()`. Os grupos:
 | Fase 4 | `audit` | `0x2D` |
 | Destruição | `zeroize` | `0x2F` |
 | Bancada | `keycycle`, `raw` | vários |
+| Sem placa | `selftest`, `kcv` | nenhum |
 
 Pontos que valem uma leitura no código:
 
@@ -107,6 +108,10 @@ Pontos que valem uma leitura no código:
   control**: quem decide é o firmware, que lê os botões. Se eles não estiverem
   apertados quando o frame chegar, a resposta é `NOT_AUTHORIZED`, e essa
   recusa é a única prova de que o dual control existe de verdade.
+- **`kcv`** é a conta do custodiante, feita no PC e sem placa: o KCV de
+  cada componente e o do XOR deles (`--mostra` imprime a chave montada).
+  Serve para conferir o que `lmk-load`/`comp-load` e `lmk-status`
+  mostraram, e para obter a LMK que o `hsmhost.py confere --lmk` pede.
 - **`lmk-load --random`** usa `os.urandom` e não o `RANDOM` do dispositivo.
   Um componente gerado pelo próprio módulo que vai guardá-lo não é split
   knowledge: o módulo saberia os três.

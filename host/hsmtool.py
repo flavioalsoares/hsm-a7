@@ -1210,6 +1210,42 @@ def cmd_bench(client, args):
 # --------------------------------------------------------------------
 
 
+def cmd_kcv(args):
+    """KCV de componentes e do XOR deles, calculado AQUI, sem placa.
+
+    E a conta que o custodiante faz para conferir o que o dispositivo
+    mostra: o KCV de cada componente (o que o lmk-load/comp-load devolve)
+    e o da chave montada (o que o lmk-status devolve). Imprime a chave
+    montada so com --mostra: e material de chave na tela, e aqui ele so
+    existe porque o projeto e um brinquedo.
+    """
+    comps = []
+    for i, h in enumerate(args.componentes):
+        try:
+            c = bytes.fromhex(h)
+        except ValueError:
+            print(f"componente {i}: hex invalido", file=sys.stderr)
+            return 2
+        if len(c) not in (16, 24, 32):
+            print(f"componente {i}: {len(c)} bytes; AES pede 16, 24 ou 32",
+                  file=sys.stderr)
+            return 2
+        comps.append(c)
+    if len({len(c) for c in comps}) != 1:
+        print("componentes de tamanhos diferentes", file=sys.stderr)
+        return 2
+
+    chave = bytes(len(comps[0]))
+    for i, c in enumerate(comps):
+        print(f"KCV do componente {i} : {_kcv_local(c).hex().upper()}")
+        chave = bytes(a ^ b for a, b in zip(chave, c))
+    if len(comps) > 1:
+        print(f"KCV da chave (XOR)  : {_kcv_local(chave).hex().upper()}")
+        if args.mostra:
+            print(f"chave (XOR)         : {chave.hex().upper()}")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="CLI do HSM educacional")
     ap.add_argument("-p", "--port", default=None,
@@ -1220,6 +1256,11 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("selftest", help="confere o codec sem precisar da placa")
     sub.add_parser("ping")
+    p_kcv = sub.add_parser("kcv", help="KCV de componentes e do XOR deles "
+                           "(sem placa)")
+    p_kcv.add_argument("componentes", nargs="+", help="componentes em hex")
+    p_kcv.add_argument("--mostra", action="store_true",
+                       help="imprime tambem a chave montada (brinquedo)")
     sub.add_parser("version")
     sub.add_parser("dna")
 
@@ -1320,6 +1361,8 @@ def main(argv=None):
 
     if args.cmd == "selftest":
         return selftest()
+    if args.cmd == "kcv":
+        return cmd_kcv(args)
 
     port = args.port or default_port()
     if port is None:
