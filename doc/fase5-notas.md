@@ -269,6 +269,70 @@ Para teste, `K0` com uso `K0` também gera uma KEK — mas uma KEK que só um
 lado conhece não serve para trocar nada; o `confere` faz assim porque o
 Python, tendo a LMK, abre o bloco e faz o papel da outra instituição.
 
+### Passo a passo de uso
+
+**1. Formar a KEK, nos dois dispositivos, com os MESMOS componentes.** Cada
+instituição indica um custodiante, e cada custodiante leva o seu
+componente aos dois lados. O `--random` serve só no primeiro dispositivo,
+onde o componente é gerado e anotado; no segundo, o mesmo valor é digitado:
+
+```bash
+# instituicao A (custodiante de A gera o seu; o de B tambem)
+python3 host/hsmtool.py comp-load 0 2 --random --uso K0 --modo B   # botões
+python3 host/hsmtool.py comp-load 1 2 --random --uso K0 --modo B   # botões
+
+# instituicao B: os mesmos dois componentes, digitados
+python3 host/hsmtool.py comp-load 0 2 <componente 0> --uso K0 --modo B
+python3 host/hsmtool.py comp-load 1 2 <componente 1> --uso K0 --modo B
+```
+
+**2. Conferir pelo KCV, sem trocar a chave.** Cada `comp-load` devolve o
+KCV do componente, e o último devolve o handle; o `key-info` desse handle
+dá o KCV da KEK montada. Os dois lados comparam KCVs por telefone ou
+papel. Cada um pode prever o resultado antes, sem placa:
+
+```bash
+python3 host/hsmtool.py kcv <componente 0> <componente 1>
+```
+
+Mesmo KCV dos dois lados é a prova de que as duas KEKs são iguais. Nenhum
+custodiante viu a KEK inteira.
+
+**3. Tirar a KEK do key store.** Na porta host o dispositivo não guarda a
+chave de ninguém: o host fica com a KEK como key block sob a LMK, igual a
+qualquer outra chave, e o slot é apagado.
+
+```bash
+python3 host/hsmtool.py export-key <handle> -o kek.blk   # bloco sob a LMK
+python3 host/hsmtool.py delete-key <handle>
+```
+
+**4. Mandar uma chave (lado A, `K4`).** Recebe o bloco da KEK e o da chave,
+os dois sob a LMK_A, e devolve a chave sob a KEK. É o que vai pela rede,
+junto com o KCV para o outro lado conferir:
+
+```bash
+python3 host/hsmhost.py export $(cat kek.blk) $(cat chave.blk) > p_B.blk
+```
+
+**5. Receber a chave (lado B, `K6`).** Recebe o bloco da KEK, sob a LMK_B,
+e o que chegou, sob a KEK. Devolve a chave sob a LMK_B, que o host guarda
+e passa a mandar nos `C0`/`M0`. O KCV que sai tem de bater com o que A
+informou:
+
+```bash
+python3 host/hsmhost.py import $(cat kek.blk) $(cat p_B.blk) > chave_B.blk
+```
+
+O cabeçalho atravessa intacto: uso, modo e exportabilidade são os que a
+chave tinha em A. Uma chave `'N'` chega e é usada em B, mas não segue
+para uma terceira instituição.
+
+**Para mão única**, forme a KEK com `--modo E` no lado que só manda e
+`--modo D` no lado que só recebe. O componente é o mesmo, e o modo é do
+cabeçalho de cada dispositivo, não da chave. O `K6` em A e o `K4` em B
+passam a ser recusados com `11`.
+
 ### Regras
 
 - **A KEK precisa de uso `K0`** (senão `13`). Sem isso, qualquer chave de

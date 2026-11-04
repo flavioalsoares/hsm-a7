@@ -598,6 +598,26 @@ e uma chave marcada `N` recebe a resposta não, enquanto continua podendo ser
 usada aqui à vontade. E o modo de uso da KEK também conta: uma KEK que só
 embrulha serve para mandar chaves e não para recebê-las.
 
+Na prática, o uso tem cinco passos:
+
+1. **Formar a KEK com os mesmos componentes nos dois dispositivos.** Cada
+   custodiante leva o seu componente aos dois lados. O mesmo valor entra
+   nos dois dispositivos, e ninguém conhece a KEK inteira.
+2. **Conferir pelo KCV.** As duas instituições comparam o KCV da KEK, por
+   telefone ou em papel. KCVs iguais provam que as KEKs são iguais, sem
+   que a chave viaje.
+3. **Guardar a KEK fora do dispositivo.** Cada host fica com a KEK como key
+   block sob a sua LMK, como qualquer outra chave, e o slot é apagado.
+4. **Exportar.** O lado que manda apresenta o bloco da KEK e o da chave e
+   recebe a chave sob a KEK, com o KCV. É isso que vai pela rede.
+5. **Importar.** O lado que recebe apresenta o seu bloco da KEK e o que
+   chegou, e recebe a chave sob a sua própria LMK. O KCV tem de bater com
+   o informado.
+
+O cabeçalho atravessa intacto: uso, modo e exportabilidade continuam os que
+a chave tinha na origem. O roteiro com os comandos está em
+`doc/fase5-notas.md`.
+
 ## 31. Fase 6 — tamper e ataques
 
 Duas metades.
