@@ -603,6 +603,12 @@ ciclo é o que domina o tempo -- não a cripto.
 ⚠ **Com a ponte rodando, o `hsmtool` não abre a serial.** Para a cerimônia,
 pare a ponte.
 
+➡ **Próximo passo (decidido 2026-11-04, não iniciado): checagem do `uso`.**
+Cifrar/decifrar exige `D0`, MAC exige a família `M` (sem código exato),
+nas duas portas, em `keystore.c` ao lado da checagem de `modo`, recusa
+`11`/`BAD_KEY_USE`. Plano e testes afetados no fim de
+`doc/fase5-notas.md`. Depois disso, a Fase 6.
+
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 
 **Grave na flash, não na SRAM:**

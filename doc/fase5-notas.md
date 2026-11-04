@@ -379,8 +379,47 @@ do `uso`" abaixo, que continua aberto.
 
 ---
 
-## Fora desta etapa
+## Próximo passo — checagem do `uso` (decidida em 2026-11-04, não iniciada)
 
-- **Checagem do `uso` da chave** (`D0`, `M?`, `K0`): hoje, como no console,
-  quem decide o que a chave pode fazer é o `modo`. A norma também amarra o
-  uso, e um HSM comercial confere os dois.
+Hoje só o `modo` decide o que a chave faz. O `uso` é gravado e viaja no
+bloco, mas nenhum comando o confere. Por isso:
+
+- uma KEK (`K0`, modo `B`) cifra dados pelo `C0` e pelo `ENCRYPT`;
+- uma chave de PIN (`P0`) ou uma BDK (`B0`) com modo `B` também cifra.
+
+É a confusão de tipo de chave. Um HSM comercial confere os dois campos.
+
+**Decisão do usuário:**
+
+- **Cifrar/decifrar** (`C0`/`C2`, `ENCRYPT`/`DECRYPT`) exige uso `D0`.
+- **MAC** (`M0`/`M2`, `MAC_GENERATE`/`MAC_VERIFY`) exige uso da **família
+  `M`**, sem conferir o código exato. A norma distingue os `M*` por
+  algoritmo, e um HSM comercial confere qual; aqui é uma simplificação
+  aceita. Se um dia for conferir o código exato, a tabela vem de fonte, não
+  de memória, e as chaves de MAC do projeto mudam de uso.
+- **KEK** (`K4`/`K6`): já exige `K0`, não muda.
+- **Nas duas portas.** A checagem fica em `keystore.c`, ao lado da do
+  `modo` (`keystore_usa_aes()`, `keystore_cmac()`,
+  `keystore_cmac_verifica()`), e vale para o console e para o host.
+- A recusa usa o mesmo código da recusa por modo: `11` no host e
+  `BAD_KEY_USE` no console.
+
+**O que muda junto.** Algumas chaves de MAC de teste e de bancada são `D0`
+com modo `C`, e passam a `M0`:
+
+- `tb_ascii`, passo 6;
+- `gera_chave` do `tb_keystore`, que hoje é sempre `D0`; as chaves de modo
+  `C`/`G` passam a `M0`;
+- `hsmhost.py confere`, com `gen("D0","C","N")`.
+
+Isso não afrouxa teste nenhum: os testes **ganham** as recusas novas, uma
+KEK `K0`/`B` que não cifra e uma `D0` que não faz MAC. Conferir também o
+`tb_persist` (`M0`/`C` já está certo), o `keycycle` e o modelo do
+dispositivo em `host/test_hsmtool.py`.
+
+Ordem: firmware → testbenches → suíte inteira (o `tb_ascii` leva ~2 h) →
+host → placa.
+
+Fora desta decisão: recusar **gerar** uma chave com uso e modo
+incoerentes (`D0` com modo `G`). Uma chave assim não faria nada, porque a
+checagem no uso já a barra.
