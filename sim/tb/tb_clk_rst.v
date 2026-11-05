@@ -24,11 +24,13 @@ module tb_clk_rst;
     wire clk100;
     wire rst_n_o;
     wire locked;
+    wire lock_perdido;
 
     integer errors = 0;
 
     // 50 MHz: meio periodo = 10 ns
-    always #10 clk50 = ~clk50;
+    reg clk_parado = 1'b0;
+    always #10 if (!clk_parado) clk50 = ~clk50;
 
     clk_rst_gen #(
         .RST_HOLD_CYCLES (HOLD)
@@ -37,7 +39,8 @@ module tb_clk_rst;
         .rst_n_i  (rst_n),
         .clk_o    (clk100),
         .rst_n_o  (rst_n_o),
-        .locked_o (locked)
+        .locked_o (locked),
+        .lock_perdido_o (lock_perdido)
     );
 
     // ------------------------------------------------------------------
@@ -142,6 +145,38 @@ module tb_clk_rst;
         // recuperacao: novo lock + hold
         @(posedge rst_n_o);
         $display("[tb_clk_rst] recuperou o reset em t=%0.1f ns", $realtime);
+
+        // ---- 6. o botao derruba o lock, e isso nao e violacao ------------
+        if (lock_perdido !== 1'b0) begin
+            $display("[tb_clk_rst] FAIL: reset pelo botao marcou perda de lock");
+            errors = errors + 1;
+        end
+
+        // ---- 7. o clock de entrada falha: reset, e fica retido ------------
+        clk_parado = 1'b1;
+        #5000;
+        clk_parado = 1'b0;
+        if (locked !== 1'b0) begin
+            $display("[tb_clk_rst] FAIL: o MMCM nao perdeu lock sem clock");
+            errors = errors + 1;
+        end
+        wait (rst_n_o === 1'b0 || lock_perdido === 1'b1);
+        repeat (20) @(posedge clk50);
+        if (rst_n_o !== 1'b0 || lock_perdido !== 1'b1) begin
+            $display("[tb_clk_rst] FAIL: perda de lock: rst_n_o=%b retido=%b",
+                     rst_n_o, lock_perdido);
+            errors = errors + 1;
+        end
+        @(posedge rst_n_o);
+        rst_n = 1'b0;
+        repeat (10) @(posedge clk50);
+        rst_n = 1'b1;
+        @(posedge rst_n_o);
+        if (lock_perdido !== 1'b1) begin
+            $display("[tb_clk_rst] FAIL: o reset apagou a perda de lock");
+            errors = errors + 1;
+        end
+        $display("[tb_clk_rst] perda de lock retida, e o botao nao a apaga");
 
         // ---- veredito --------------------------------------------------
         if (errors == 0)

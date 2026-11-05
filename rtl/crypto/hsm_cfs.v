@@ -63,6 +63,10 @@
 //                          [6] RCT_FAIL    [7] APT_FAIL
 //   0x118  TRNG_BYTE    r  [7:0] byte condicionado; a leitura CONSOME
 //   0x11C  TRNG_DIAG    r  {APT_COUNT[15:0], RCT_COUNT[15:0]}
+//   0x120  ENV_STATUS   r  [5:0] retido  [13:8] agora  [16] VALID
+//   0x124  ENV_TEMP_INT r  {4'b0, TEMP[11:0], 4'b0, VCCINT[11:0]}
+//   0x128  ENV_AUX_BRAM r  {4'b0, VCCAUX[11:0], 4'b0, VCCBRAM[11:0]}
+//                          sensores de ambiente, ver hsm_xadc.v
 //   0x180..0x1FC  TRNG_SNAP[0..31]  r  1024 amostras brutas consecutivas
 //                          palavra 0 = as 32 amostras MAIS ANTIGAS
 //
@@ -151,6 +155,9 @@ module hsm_cfs (
     localparam [6:0] A_TRNG_STATUS = 7'h45;   // 0x114
     localparam [6:0] A_TRNG_BYTE   = 7'h46;   // 0x118
     localparam [6:0] A_TRNG_DIAG   = 7'h47;   // 0x11C
+    localparam [6:0] A_ENV_STATUS   = 7'h48;  // 0x120
+    localparam [6:0] A_ENV_TEMP_INT = 7'h49;  // 0x124
+    localparam [6:0] A_ENV_AUX_BRAM = 7'h4A;  // 0x128
     // TRNG_SNAP: 0x180..0x1FC -> waddr 7'h60..7'h7F, ou seja waddr[6:5]==11.
     // Faixa escolhida por ter prefixo limpo: decodificar por comparacao de
     // intervalo custa comparadores no caminho de leitura e e mais facil de
@@ -337,6 +344,26 @@ module hsm_cfs (
             endcase
         end
     end
+
+    // ------------------------------------------------------------------
+    // Sensores de ambiente. So leitura: nao ha registrador de escrita aqui,
+    // e e isso que impede o firmware de afrouxar ou limpar um alarme.
+    // ------------------------------------------------------------------
+    wire        env_valid;
+    wire [5:0]  env_sticky, env_live;
+    wire [11:0] env_temp, env_vccint, env_vccaux, env_vccbram;
+
+    hsm_xadc u_xadc (
+        .clk_i     (clk_i),
+        .rstn_i    (rstn_i),
+        .valid_o   (env_valid),
+        .sticky_o  (env_sticky),
+        .live_o    (env_live),
+        .temp_o    (env_temp),
+        .vccint_o  (env_vccint),
+        .vccaux_o  (env_vccaux),
+        .vccbram_o (env_vccbram)
+    );
 
     // ------------------------------------------------------------------
     // TRNG -- fonte de ruido, health tests e retrato da amostra bruta
@@ -587,6 +614,12 @@ module hsm_cfs (
                         rdata_o <= {24'd0, trng_byte};
                     else if (waddr == A_TRNG_DIAG)
                         rdata_o <= {hz_apt_cnt, hz_rct_cnt};
+                    else if (waddr == A_ENV_STATUS)
+                        rdata_o <= {15'd0, env_valid, 2'd0, env_live, 2'd0, env_sticky};
+                    else if (waddr == A_ENV_TEMP_INT)
+                        rdata_o <= {4'd0, env_temp, 4'd0, env_vccint};
+                    else if (waddr == A_ENV_AUX_BRAM)
+                        rdata_o <= {4'd0, env_vccaux, 4'd0, env_vccbram};
                     // TRNG_SNAP: 0x140..0x1BC, 32 palavras.
                     //
                     // Palavra 0 traz as 32 amostras MAIS ANTIGAS, para a

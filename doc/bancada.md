@@ -257,6 +257,33 @@ Medido nesta placa: `VCCINT 0,987 V`, `VCCAUX 1,774 V`, `VCCBRAM 0,987 V`,
 
 ---
 
+Com o design da fase 6, `python3 host/hsmtool.py env` mostra as mesmas
+grandezas. Medido em 2026-11-05, antes de ligar os alarmes, com `confere`
+rodando: VCCINT de 0,977 a 0,993 V, VCCAUX de 1,768 a 1,779 V, VCCBRAM de 0,977
+a 0,992 V, e 38,8 a 41,3 °C. O menor VCCINT fica 27 mV acima do piso de 0,95 V.
+
+## Provar o tamper na placa
+
+⚠ **Destrói a LMK da placa.** Refazer a cerimônia exige os botões.
+
+Aquecer o chip a 85 °C não é prático. O JTAG alcança o DRP do XADC mesmo sem
+caminho de escrita pelo fabric, então dá para baixar o limite. Baixe o rearme
+primeiro, para o alarme não ficar com o rearme acima do limite:
+
+```tcl
+open_hw_manager; connect_hw_server -allow_non_jtag; open_hw_target
+set d [lindex [get_hw_devices xc7a35t*] 0]; current_hw_device $d
+set sm [lindex [get_hw_sysmons -of_objects $d] 0]
+set_hw_sysmon_reg $sm 0x54 0x9800   ;# rearme em 26 C
+set_hw_sysmon_reg $sm 0x50 0x9A00   ;# limite em 30 C
+```
+
+`ALM[0]` sobe e o resto é o caminho real. Confira: D5 aceso, display em `tPr`,
+`hsmtool env` com a causa, `hsmtool audit` com o registro `TAMPER`, e comandos
+recusados com `STATUS_WRONG_STATE`. `boot_hw_device $d` recarrega da flash e faz
+o papel do religamento: `UNINITIALIZED`, log intacto, retenção limpa e limites de
+volta ao `INIT`. Feito em 2026-11-05; resultado em `doc/fase6-notas.md`.
+
 ## Um instrumento errado é pior que nenhum instrumento
 
 Duas vezes nesta bancada o **teste** é que estava errado, e nas duas o

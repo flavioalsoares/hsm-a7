@@ -97,6 +97,7 @@ dicionário `handlers` dentro de `main()`. Os grupos:
 | Chaves | `gen-key`, `export-key`, `import-key`, `key-info`, `delete-key`, `comp-load` | `0x22`–`0x25`, `0x2B`, `0x2C` |
 | Uso de chave | `encrypt`, `decrypt`, `mac`, `mac-verify` | `0x27`–`0x2A` |
 | Fase 4 | `audit` | `0x2D` |
+| Fase 6 | `env` | `0x2E` |
 | Destruição | `zeroize` | `0x2F` |
 | Bancada | `keycycle`, `raw` | vários |
 | Sem placa | `selftest`, `kcv` | nenhum |

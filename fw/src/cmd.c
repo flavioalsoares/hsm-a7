@@ -307,7 +307,10 @@ static hsm_status_t h_selftest(const uint8_t *in, uint16_t in_len,
      * copia. Restaurar daqui e o mesmo caminho do boot -- e o
      * dispositivo volta ao estado em que estava, agora com o key store
      * exercitado e a LMK conferida pelo KCV na volta. */
-    {
+    /* Em TAMPERED nao restaura: se apagar a flash tiver falhado, a copia
+     * ainda esta la, e o autoteste traria a LMK de volta para a BRAM de um
+     * dispositivo violado. */
+    if (state_get() != HSM_TAMPERED) {
         uint8_t achou;
         state_set(persist_restaura(&achou));
     }
@@ -1275,6 +1278,36 @@ static hsm_status_t h_delete_key(const uint8_t *in, uint16_t in_len,
     return STATUS_OK;
 }
 
+/* ENV_READ -- ver cmd.h.
+ *
+ * FRONTEIRA: dentro, sem material de chave. */
+static hsm_status_t h_env_read(const uint8_t *in, uint16_t in_len,
+                               uint8_t *out, uint16_t *out_len)
+{
+    hsm_env_t e;
+
+    (void)in;
+    *out_len = 0u;
+    if (in_len != 0u) {
+        return STATUS_BAD_PARAM;
+    }
+
+    hsm_env_le(&e);
+    out[0]  = e.retido;
+    out[1]  = e.agora;
+    out[2]  = e.valido;
+    out[3]  = (uint8_t)(e.temp >> 8);
+    out[4]  = (uint8_t)e.temp;
+    out[5]  = (uint8_t)(e.vccint >> 8);
+    out[6]  = (uint8_t)e.vccint;
+    out[7]  = (uint8_t)(e.vccaux >> 8);
+    out[8]  = (uint8_t)e.vccaux;
+    out[9]  = (uint8_t)(e.vccbram >> 8);
+    out[10] = (uint8_t)e.vccbram;
+    *out_len = 11u;
+    return STATUS_OK;
+}
+
 /* AUDIT_READ -- ver o checklist em cmd.h. */
 static hsm_status_t h_audit_read(const uint8_t *in, uint16_t in_len,
                                  uint8_t *out, uint16_t *out_len)
@@ -1402,8 +1435,12 @@ static const cmd_entry_t g_cmds[] = {
      * Nao ha estado do qual apagar a chave seja a resposta errada. */
     { CMD_ZEROIZE, ST_NORMAL | ST_TAMPERED, h_zeroize, L },
 
-    /* Fase 4. Ler o log nao entra nele -- ver cmd.h. */
-    { CMD_AUDIT_READ,         ST_NORMAL, h_audit_read, I },
+    /* Fase 4. Ler o log nao entra nele -- ver cmd.h. Responde em TAMPERED
+     * desde a fase 6: o log e o que se quer ler depois de uma violacao. */
+    { CMD_AUDIT_READ, ST_NORMAL | ST_TAMPERED, h_audit_read, I },
+
+    /* Fase 6. Sensores de ambiente -- ver cmd.h. */
+    { CMD_ENV_READ,   ST_NORMAL | ST_TAMPERED, h_env_read, I },
 };
 
 #undef L

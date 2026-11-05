@@ -344,3 +344,34 @@ int hsm_trng_startup(void)
     }
     return r;
 }
+
+/* ---------------------------------------------------------------------
+ * Sensores de ambiente
+ *
+ * FRONTEIRA: dentro, sem material de chave. Temperatura e tensao saem pelo
+ * console.
+ * ------------------------------------------------------------------- */
+
+#define GPIO_LOCK_PERDIDO  2  /* rtl/top/hsm_top.v */
+
+#define R_ENV_STATUS    72u   /* 0x120 */
+#define R_ENV_TEMP_INT  73u   /* 0x124 */
+#define R_ENV_AUX_BRAM  74u   /* 0x128 */
+
+void hsm_env_le(hsm_env_t *e)
+{
+    uint32_t st = NEORV32_CFS->REG[R_ENV_STATUS];
+    uint32_t ti = NEORV32_CFS->REG[R_ENV_TEMP_INT];
+    uint32_t ab = NEORV32_CFS->REG[R_ENV_AUX_BRAM];
+
+    e->retido  = (uint8_t)(st & 0x3Fu);
+    if (neorv32_gpio_pin_get(GPIO_LOCK_PERDIDO) != 0u) {
+        e->retido |= HSM_ENV_LOCK;
+    }
+    e->agora   = (uint8_t)((st >> 8) & 0x3Fu);
+    e->valido  = (uint8_t)((st >> 16) & 1u);
+    e->temp    = (uint16_t)(ti >> 16);
+    e->vccint  = (uint16_t)(ti & 0xFFFu);
+    e->vccaux  = (uint16_t)(ab >> 16);
+    e->vccbram = (uint16_t)(ab & 0xFFFu);
+}

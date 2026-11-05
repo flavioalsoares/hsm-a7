@@ -153,4 +153,31 @@ int hsm_health_apt(const uint8_t *amostras, unsigned bits);
  * seguro de uma fonte que reprovou. */
 int hsm_trng_startup(void);
 
+/* ---------------------------------------------------------------------
+ * Sensores de ambiente -- rtl/crypto/hsm_xadc.v
+ *
+ * So leitura. Os limites moram no bitstream e o alarme retido nao se
+ * limpa daqui: nao ha registrador de escrita para isso.
+ * ------------------------------------------------------------------- */
+
+#define HSM_ENV_TEMP_ALTA   0x01u
+#define HSM_ENV_VCCINT      0x02u
+#define HSM_ENV_VCCAUX      0x04u
+#define HSM_ENV_VCCBRAM     0x08u
+#define HSM_ENV_TEMP_BAIXA  0x10u
+#define HSM_ENV_SENSOR      0x20u
+#define HSM_ENV_LOCK        0x40u   /* MMCM perdeu lock; vem pelo GPIO */
+
+typedef struct {
+    uint8_t  retido;     /* bits acima, retidos ate reconfigurar o FPGA */
+    uint8_t  agora;      /* os mesmos bits, neste instante */
+    uint8_t  valido;     /* 1 se ja ha leitura real */
+    uint16_t temp;       /* codigos de 12 bits do XADC */
+    uint16_t vccint;
+    uint16_t vccaux;
+    uint16_t vccbram;
+} hsm_env_t;
+
+void hsm_env_le(hsm_env_t *e);
+
 #endif /* HSM_CFS_H */

@@ -116,6 +116,7 @@ CMD_DELETE_KEY = 0x2B
 CMD_KEY_FROM_COMPONENTS = 0x2C
 CMD_ZEROIZE = 0x2F
 CMD_AUDIT_READ = 0x2D
+CMD_ENV_READ = 0x2E
 
 LMK_N_COMPONENTES = 3
 LMK_KEY_LEN = 32
@@ -534,7 +535,7 @@ def cmd_selftest_dev(client, args):
 
     if r == 0:
         print("\nPOST: OK")
-        print("  (o autoteste zerou a BRAM e restaurou LMK e chaves da flash)")
+        print("  (zerou a BRAM; fora de TAMPERED, restaurou LMK e chaves da flash)")
         return 0
 
     print("\nPOST REPROVOU (mascara 0x%02X). O dispositivo esta em TAMPERED"
@@ -899,9 +900,44 @@ OPCODE_NAMES = {
     0x22: "GEN_KEY", 0x23: "EXPORT_KEY", 0x24: "IMPORT_KEY",
     0x26: "SET_STATE", 0x27: "ENCRYPT", 0x28: "DECRYPT",
     0x29: "MAC_GENERATE", 0x2A: "MAC_VERIFY", 0x2B: "DELETE_KEY",
-    0x2C: "KEY_FROM_COMPONENTS", 0x2F: "ZEROIZE",
+    0x2C: "KEY_FROM_COMPONENTS", 0x2F: "ZEROIZE", 0x2E: "ENV_READ",
+    0x0F: "TAMPER",
 }
 ESTADO_NOMES = {0: "Uni", 1: "Aut", 2: "OPE", 3: "tPr"}
+
+
+# Bits do alarme de ambiente -- espelham fw/include/hsm_cfs.h
+ENV_BITS = ["temperatura alta", "VCCINT", "VCCAUX", "VCCBRAM",
+            "temperatura baixa", "sensor parado", "perda de lock"]
+
+
+def env_causas(bits):
+    return [n for i, n in enumerate(ENV_BITS) if bits & (1 << i)]
+
+
+def env_decodifica(p):
+    """Resposta do ENV_READ em unidades. Funcoes de transferencia da UG480,
+    Figuras 2-9 e 2-10."""
+    retido, agora, valido, temp, vint, vaux, vbram = struct.unpack(">BBBHHHH", p)
+    return {
+        "retido": retido, "agora": agora, "valido": valido,
+        "temp": temp * 503.975 / 4096 - 273.15,
+        "vccint": vint * 3 / 4096, "vccaux": vaux * 3 / 4096,
+        "vccbram": vbram * 3 / 4096,
+    }
+
+
+def cmd_env(client, args):
+    """Temperatura e tensoes do die, e os alarmes de ambiente."""
+    e = env_decodifica(client.command(CMD_ENV_READ))
+    if not e["valido"]:
+        print("sensores ainda sem leitura")
+    print("temperatura : %.1f C" % e["temp"])
+    print("VCCINT      : %.3f V" % e["vccint"])
+    print("VCCAUX      : %.3f V" % e["vccaux"])
+    print("VCCBRAM     : %.3f V" % e["vccbram"])
+    print("agora       : %s" % (", ".join(env_causas(e["agora"])) or "nada"))
+    print("retido      : %s" % (", ".join(env_causas(e["retido"])) or "nada"))
 
 
 def cmd_audit(client, args):
@@ -926,6 +962,8 @@ def cmd_audit(client, args):
                 extra.append({0: "sem registro persistente", 1: "restaurado",
                               2: "registro INVALIDO"}.get(arg & 3, "?"))
                 detalhe = ", ".join(extra)
+            elif op == 0x0F:
+                detalhe = ", ".join(env_causas(arg))
             elif 0x30 <= op <= 0x7E:
                 # Porta host (fase 5): os dois caracteres do comando ASCII
                 # e o codigo de erro dele, em decimal.
@@ -1340,6 +1378,8 @@ def main(argv=None):
     p_kc.add_argument("-n", "--count", type=int, default=100)
     p_kc.add_argument("-v", "--verbose", action="store_true")
 
+    sub.add_parser("env", help="temperatura, tensoes e alarmes de ambiente")
+
     p_aud = sub.add_parser("audit", help="le o log de auditoria (fase 4)")
     p_aud.add_argument("--desde", type=int, default=0,
                        help="seq inicial (padrao: o mais antigo guardado)")
@@ -1395,6 +1435,7 @@ def main(argv=None):
         "keycycle": cmd_keycycle,
         "zeroize": cmd_zeroize,
         "audit": cmd_audit,
+        "env": cmd_env,
     }
 
     try:

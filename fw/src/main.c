@@ -9,6 +9,7 @@
  */
 #include <neorv32.h>
 
+#include "ambiente.h"
 #include "audit_log.h"
 #include "cmd.h"
 #include "flash.h"
@@ -188,10 +189,17 @@ int main(void)
         MARCO(LED_CMD, "post ok");
         neorv32_gpio_pin_set(LED_ALIVE, 1);
 
-        /* Fase 4: LMK, estado e slots voltam da flash. E o papel da
-         * memoria com bateria de um HSM comercial: desligar nao apaga.
-         * Sem registro valido, sobe em UNINITIALIZED como sempre. */
-        state_set(persist_restaura(&achou));
+        /* Fase 6: ambiente ANTES de restaurar. Fora da faixa, ou com o
+         * alarme retido de antes de um reset, a chave nao volta para a
+         * BRAM: a copia da flash e apagada. */
+        if (ambiente_boot() != 0) {
+            neorv32_gpio_pin_set(LED_TAMPER, 1);
+        } else {
+            /* Fase 4: LMK, estado e slots voltam da flash. E o papel da
+             * memoria com bateria de um HSM comercial: desligar nao apaga.
+             * Sem registro valido, sobe em UNINITIALIZED como sempre. */
+            state_set(persist_restaura(&achou));
+        }
     }
 
     /* Registro de boot: comando 0x00. O argumento resume o que aconteceu
@@ -220,6 +228,12 @@ int main(void)
      * mexendo nos mesmos buffers. */
     while (1) {
         cmd_poll();
+
+        /* Fase 6. Entre comandos: nao ha interrupcao, entao um comando em
+         * curso termina antes. O mais longo apaga um setor da flash. */
+        if (ambiente_poll() != 0) {
+            neorv32_gpio_pin_set(LED_TAMPER, 1);
+        }
 
         /* Rearme do dual control: e aqui que o firmware VE os botoes serem
          * soltos. Fica no laco, e nao dentro do handler, porque a condicao

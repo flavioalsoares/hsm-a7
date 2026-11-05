@@ -132,6 +132,12 @@ handler, resultado no log. Nenhum comando de cerimônia está nela.
 
 ---
 
+### Fase 6: ambiente
+
+| Arquivo | O que faz |
+|---|---|
+| `ambiente.c` | responde a sensor fora da faixa e a perda de lock: apaga, registra, vai para `TAMPERED`. Chamado no boot, antes de restaurar da flash, e no laço principal |
+
 ## 4. As portas do key store
 
 A API de `keystore.h` é **assimétrica de propósito**, e é o desenho que mais

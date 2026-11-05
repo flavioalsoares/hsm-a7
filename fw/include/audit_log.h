@@ -30,7 +30,7 @@
  * FORMATO -- 16 bytes por registro, big-endian
  *
  *   0..3   seq        numero de sequencia, sobe 1 por registro
- *   4      comando    opcode; 0x00 = boot
+ *   4      comando    opcode; 0x00 = boot, 0x0F = violacao de ambiente
  *   5      estado     estado do dispositivo ANTES do comando
  *   6      argumento  primeiro byte do payload (handle, indice...), ou 0
  *   7      resultado  status devolvido; 0xFF = pendente
@@ -54,6 +54,7 @@
 #define LOG_N_REG       (LOG_TAMANHO / LOG_REG_LEN)
 #define LOG_PENDENTE    0xFFu
 #define LOG_CMD_BOOT    0x00u
+#define LOG_CMD_TAMPER  0x0Fu   /* argumento = causa, HSM_ENV_* */
 
 /* Acha o fim do log. Chamado no boot, depois de flash_init(). */
 void log_init(void);

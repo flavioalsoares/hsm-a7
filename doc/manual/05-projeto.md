@@ -111,8 +111,11 @@ não existe borda para registrar nada. Usa o padrão clássico *afirma
 assíncrono / libera síncrono*, justamente para que todo o resto do projeto
 possa usar reset puramente síncrono.
 
-**Falta:** zeroizar e ir para `TAMPERED`, registrar o evento, e monitorar a
-frequência ativamente em vez de só reagir à perda de lock. Fase 6.
+Desde a Fase 6 a perda de lock também fica retida num flip-flop sem reset, e o
+módulo pulsa o `RST` do MMCM sozinho, porque o MMCM não volta a travar sem isso. O
+boot seguinte a encontra, apaga as chaves, vai para `TAMPERED` e registra o
+evento. **Falta** monitorar a frequência ativamente em vez de só reagir à
+perda de lock.
 
 ### 24.2 `debounce.v` — quando um ressalto vira autorização
 

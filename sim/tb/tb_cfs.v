@@ -520,6 +520,37 @@ module tb_cfs;
     localparam [31:0] TS_START_OK = 32'h0000_0020;
     localparam [31:0] TS_RCT_FAIL = 32'h0000_0040;
 
+    // Sensores: a leitura chega ao barramento, e nao ha como escrever.
+    task t_env;
+        reg [31:0] st0, st1, ti, ab;
+        begin
+            repeat (40000) @(posedge clk);   // ~400 us, media de 16 cheia
+            bus_rd(16'h0120, st0);
+            bus_rd(16'h0124, ti);
+            bus_rd(16'h0128, ab);
+            if (st0 !== 32'h0001_0000) begin
+                $display("[tb_cfs] FAIL: ENV_STATUS = 0x%08h", st0);
+                erros = erros + 1;
+            end
+            // nominal.txt: 36 C = 2513; 1,0 V = 1365; 1,8 V = 2457
+            if (ti[27:16] < 2505 || ti[27:16] > 2521 ||
+                ti[11:0]  < 1360 || ti[11:0]  > 1370 ||
+                ab[27:16] < 2452 || ab[27:16] > 2462 ||
+                ab[11:0]  < 1360 || ab[11:0]  > 1370) begin
+                $display("[tb_cfs] FAIL: leituras 0x%08h 0x%08h", ti, ab);
+                erros = erros + 1;
+            end
+            bus_wr(16'h0120, 32'hFFFFFFFF);
+            bus_wr(16'h0124, 32'hFFFFFFFF);
+            bus_rd(16'h0120, st1);
+            if (st1 !== st0) begin
+                $display("[tb_cfs] FAIL: escrita mudou ENV_STATUS");
+                erros = erros + 1;
+            end
+            $display("[tb_cfs] ENV         : leituras nominais, so leitura");
+        end
+    endtask
+
     task t_trng;
         reg [31:0] s, w;
         reg [31:0] snap [0:31];
@@ -627,7 +658,10 @@ module tb_cfs;
             $finish;
         end
 
-        repeat (4) @(posedge clk);
+        // Reset alem dos 100 ns do GSR (glbl.v): o XADC ignora o DRP ate la, e
+        // um pedido perdido deixaria a varredura esperando DRDY para sempre.
+        // Na placa o reset solta depois do lock do MMCM, muito depois disso.
+        repeat (20) @(posedge clk);
         rstn = 1'b1;
         repeat (80) @(posedge clk);       // o DNA_PORT leva 57 ciclos
 
@@ -638,6 +672,7 @@ module tb_cfs;
         t_write_only;
         t_wipe;
         t_trng;
+        t_env;
 
         if (irq !== 1'b0) begin
             $display("[tb_cfs] FAIL: irq_o nao ficou em zero");

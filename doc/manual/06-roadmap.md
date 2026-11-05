@@ -624,7 +624,8 @@ Duas metades.
 
 **Defesa:** XADC monitorando temperatura e tensão, disparando zeroize fora de
 faixa. É o mecanismo de proteção contra falhas ambientais do FIPS nível 4
-(seção 19), em versão mínima.
+(seção 19), em versão mínima. Implementada, junto com a perda de lock do MMCM.
+Ver `doc/fase6-notas.md`, que diz também o que ela não protege.
 
 **Ataque:** atacar o próprio HSM. Glitch de clock pela porta de
 reconfiguração dinâmica do MMCM, observar a assinatura sair errada, e então

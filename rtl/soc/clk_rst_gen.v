@@ -26,7 +26,8 @@ module clk_rst_gen #(
     input  wire rst_n_i,     // assincrono, ativo baixo (SW1, pull-up na placa)
     output wire clk_o,       // 100 MHz
     output wire rst_n_o,     // sincrono a clk_o, ativo baixo
-    output wire locked_o     // MMCM travado
+    output wire locked_o,    // MMCM travado
+    output wire lock_perdido_o  // retido: o lock caiu sem ninguem pedir
 );
 
     // ------------------------------------------------------------------
@@ -46,7 +47,9 @@ module clk_rst_gen #(
         rst_n_sync <= {rst_n_sync[0], rst_n_i};
     end
 
-    wire mmcm_rst = ~rst_n_sync[1];
+    wire rst_botao = ~rst_n_sync[1];
+    reg  religa    = 1'b0;   // ver "Perda de lock", abaixo
+    wire mmcm_rst  = rst_botao | religa;
 
     // ------------------------------------------------------------------
     // MMCM 50 -> 100 MHz
@@ -99,6 +102,53 @@ module clk_rst_gen #(
     BUFG u_bufg_out (.I(clk_out0),  .O(clk_o));
 
     assign locked_o = locked_w;
+
+    // ------------------------------------------------------------------
+    // Perda de lock, retida (fase 6)
+    //
+    // Reafirmar o reset e o que ja se fazia, mas a CPU voltava sem saber o
+    // que tinha acontecido. Este flip-flop conta a historia ao boot
+    // seguinte, e por isso NAO tem reset: so reconfigurar o FPGA limpa,
+    // como o alarme de ambiente (rtl/crypto/hsm_xadc.v).
+    //
+    // Mora no dominio de clk_in_i, o unico que corre com o MMCM fora de
+    // lock. Se o proprio oscilador parar, este bloco para junto, e a
+    // queda e vista quando ele voltar: o LOCKED ainda estara baixo.
+    //
+    // O SW1 tambem derruba o LOCKED, pelo RST do MMCM. Isso e pedido, nao
+    // ataque: `ja_travou` limpa enquanto o reset esta afirmado.
+    //
+    // O MMCM NAO volta sozinho: depois que o LOCKED cai ele exige um RST
+    // (UG953, MMCME2_BASE). Sem isso a CPU ficaria presa em reset e a
+    // resposta nunca rodaria, com a LMK intacta na flash, ate alguem apertar
+    // o SW1. `religa` pulsa o RST por 16 ciclos a cada 2^16 (1,3 ms) enquanto
+    // nao travar: um pulso so se perderia num clock que volta instavel.
+    // ------------------------------------------------------------------
+    reg        ja_travou = 1'b0;
+    reg        perdeu    = 1'b0;
+    reg [15:0] tentativa = 16'd0;
+
+    always @(posedge clk_in_i) begin
+        if (!perdeu || locked_w) begin
+            tentativa <= 16'd0;
+            religa    <= 1'b0;
+        end else begin
+            tentativa <= tentativa + 16'd1;
+            religa    <= (tentativa[15:4] == 12'd0);
+        end
+    end
+
+    always @(posedge clk_in_i) begin
+        if (rst_botao) begin
+            ja_travou <= 1'b0;
+        end else if (locked_w) begin
+            ja_travou <= 1'b1;
+        end else if (ja_travou) begin
+            perdeu    <= 1'b1;
+        end
+    end
+
+    assign lock_perdido_o = perdeu;
 
     // ------------------------------------------------------------------
     // Reset de saida: afirma assincrono, libera sincrono

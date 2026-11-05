@@ -309,11 +309,20 @@ checada; a qualidade do componente é responsabilidade do custodiante.
 
 | Opcode | Nome | Pedido | Resposta | Estados |
 |---|---|---|---|---|
-| `0x2D` | `AUDIT_READ` | seq inicial (4) | próximo (4) ‖ continuar (4) ‖ até 16 registros de 16 bytes | todos menos `TAMPERED` |
+| `0x2D` | `AUDIT_READ` | seq inicial (4) | próximo (4) ‖ continuar (4) ‖ até 16 registros de 16 bytes | todos |
 
 Cada registro: `seq(4) | comando(1) | estado(1) | argumento(1) | resultado(1)
 | reservado(4) | crc32(4)`. Comando `0x00` é o boot; resultado `0xFF` é
-"pendente", um comando que começou e não terminou.
+"pendente", um comando que começou e não terminou. Comando `0x0F` é uma
+violação de ambiente, com a causa no argumento.
+
+### Comando da Fase 6 — sensores
+
+| Opcode | Nome | Pedido | Resposta | Estados |
+|---|---|---|---|---|
+| `0x2E` | `ENV_READ` | vazio | retido (1) ‖ agora (1) ‖ válido (1) ‖ temperatura, VCCINT, VCCAUX, VCCBRAM (2 cada) | todos |
+
+Os quatro valores são códigos de 12 bits do XADC, e `hsmtool env` os converte.
 
 ### Porta host — command set ASCII (Fase 5)
 

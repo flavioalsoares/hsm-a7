@@ -338,6 +338,22 @@
 #define CMD_AUDIT_READ          0x2Du
 #define CMD_AUDIT_MAX_REG       16u
 
+/* ENV_READ -- le os sensores de ambiente. Fase 6.
+ *
+ * Payload: vazio. Resposta: retido(1) agora(1) valido(1), e temp, VCCINT,
+ * VCCAUX, VCCBRAM em 2 bytes big-endian cada, codigos de 12 bits do XADC.
+ * O host converte; ver host/hsmtool.py.
+ *
+ * Checklist:
+ *   estados      TODOS, TAMPERED inclusive: e la que se quer saber por que.
+ *   dual control nao. Ler nao muda nada.
+ *   vazamento    temperatura e tensao, com media de 16 e a poucas centenas
+ *                de leituras por segundo pela UART. Nao e um canal de
+ *                potencia util, mas e o motivo de a resposta ser so esta.
+ *   exportability nao se aplica.
+ *   log          nao, como os demais comandos de leitura. */
+#define CMD_ENV_READ            0x2Eu
+
 
 void         cmd_init(void);
 void         cmd_poll(void);

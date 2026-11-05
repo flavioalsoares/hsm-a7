@@ -74,6 +74,7 @@ module hsm_top #(
     wire clk;        // 100 MHz -- dominio unico de todo o SoC
     wire rst_n;      // sincrono a clk, ativo baixo
     wire mmcm_locked;
+    wire lock_perdido;
 
     clk_rst_gen #(
         .RST_HOLD_CYCLES (64)
@@ -82,7 +83,8 @@ module hsm_top #(
         .rst_n_i  (rst_n_i),
         .clk_o    (clk),
         .rst_n_o  (rst_n),
-        .locked_o (mmcm_locked)
+        .locked_o (mmcm_locked),
+        .lock_perdido_o (lock_perdido)
     );
 
     // ------------------------------------------------------------------
@@ -161,13 +163,19 @@ module hsm_top #(
     // lista do que esta deliberadamente DESLIGADO (OCD, caches, XBUS).
     // O core externo fica intocado no submodulo third_party/neorv32.
     // ------------------------------------------------------------------
+    // Vem do dominio de clk_in_i. Sem reset, como a origem: o reset e
+    // justamente o que a perda de lock acabou de provocar.
+    (* ASYNC_REG = "TRUE" *) reg [1:0] lock_perdido_q = 2'b00;
+    always @(posedge clk) lock_perdido_q <= {lock_perdido_q[0], lock_perdido};
+
     wire [7:0] gpio_out;
     wire [7:0] gpio_in;
     wire       flash_sck;
 
     assign gpio_in[0]   = btn_a_db;     // SW2 -- dual control A
     assign gpio_in[1]   = btn_b_db;     // SW5 -- dual control B
-    assign gpio_in[7:2] = 6'b000000;
+    assign gpio_in[2]   = lock_perdido_q[1]; // MMCM perdeu lock, retido
+    assign gpio_in[7:3] = 5'b00000;
 
     // Saidas do firmware, alem dos LEDs (ver fw/src/main.c):
     //   gpio_out[3:0]  D2..D5

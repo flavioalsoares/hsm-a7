@@ -186,6 +186,15 @@ run_one() {
         return 1
     fi
 
+    # Curva analogica do XADC. O nome e fixo no RTL; aqui escolhe-se o
+    # conteudo. Sem curva propria o testbench recebe a nominal -- sensor
+    # sem estimulo le zero, e o dispositivo se daria por violado.
+    if [ -f "$ROOT/sim/stim/$tb.txt" ]; then
+        cp "$ROOT/sim/stim/$tb.txt" xadc_stim.txt
+    else
+        cp "$ROOT/sim/stim/nominal.txt" xadc_stim.txt
+    fi
+
     xsim "${tb}_sim" -runall > "${tb}_sim.log" 2>&1 || true
     grep -E "^\[$tb\]" "${tb}_sim.log" || true
 

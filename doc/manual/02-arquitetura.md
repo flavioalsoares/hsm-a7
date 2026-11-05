@@ -280,9 +280,9 @@ Sair de `TAMPERED` exige energia removida e um boot em que o autoteste
 passe. Se a causa era física, ele não passa — que é o comportamento certo.
 
 E um dispositivo em `TAMPERED` deve responder o mínimo possível: o estado
-existe para proteger o que restou, não para continuar servindo. Só dois
-comandos respondem ali — `SELFTEST`, para dizer **o que** reprovou, e
-`ZEROIZE`, para apagar.
+existe para proteger o que restou, não para continuar servindo. Só quatro
+comandos respondem ali: `SELFTEST`, para dizer **o que** reprovou, `ZEROIZE`,
+para apagar, e, desde a Fase 6, `ENV_READ` e `AUDIT_READ`, para saber por quê.
 
 ## 10. Aleatoriedade: onde HSM vira ciência
 

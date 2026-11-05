@@ -217,8 +217,8 @@ tb_keystore     gerar -> exportar -> reimportar = mesmo KCV;
                 corpo recusado; duas exportacoes diferem           PASS
 ```
 
-⚠ **`tb_keystore` e o segundo testbench mais LENTO da suite** (1 h 22 min
-medidos em 2026-11-04, 460 ms simulados; o `tb_ascii` e o primeiro): ele manda
+⚠ **`tb_keystore` e o terceiro testbench mais LENTO da suite** (1 h 22 min
+medidos em 2026-11-04, 460 ms simulados; `tb_tamper` e `tb_ascii` vem antes): ele manda
 key blocks de 144 caracteres a 115200 baud, e cada frame custa ~13 ms de
 tempo simulado. Nao da para acelerar encolhendo o clock nominal como se faz
 com o debounce -- o baud rate sai da frequencia real do dominio.
@@ -596,7 +596,7 @@ no `D0` e no Python; `hsmhost.py confere` com **100 de 100** voltas pela
 ponte TCP (`K0`/`K2`/`C0`/`C2`/`M0`/`M2` contra AES e CMAC independentes);
 log mostra os comandos como `HOST xy`.
 
-⚠ **`tb_ascii` é agora o testbench mais LENTO da suíte: 1 h 55 min**
+⚠ **`tb_ascii` foi o testbench mais LENTO da suíte até a fase 6: 1 h 55 min**
 (medido em 2026-11-03, com o passo de KEK). Os `K4`/`K6` levam dois key
 blocks por pedido, ~300 caracteres a 115200 baud, e a UART simulada ciclo a
 ciclo é o que domina o tempo -- não a cripto.
@@ -611,6 +611,49 @@ chave de PIN e BDK não cifram dados, qualquer que seja o modo. Gerar
 continua livre: quem barra é o uso da chave. Chave de MAC é `M0`, não `D0`.
 Ver `doc/fase5-notas.md`. ✅ Validado em hardware 2026-11-04: `confere`
 com 100 de 100 voltas, e `BAD_KEY_USE` no console. Próximo passo: Fase 6.
+
+## Fase 6 — tamper e ataques (em andamento, 2026-11-04)
+
+Tudo em `doc/fase6-notas.md`. Feitos: sensores do XADC e perda de lock. Faltam
+glitch com contramedidas, BBRAM e RO-PUF.
+
+- **`rtl/crypto/hsm_xadc.v`** detecta e retém; `fw/src/ambiente.c` responde.
+  Limites do DS181 como `INIT` do primitivo, `DWE` em zero.
+- **Retenção sem reset**, em `hsm_xadc.v` e `clk_rst_gen.v`: o SW1 não apaga a
+  prova. Exceção deliberada à convenção de reset síncrono.
+- **Comando novo `0x2E ENV_READ`**, todos os estados; registro `0x0F` no log.
+
+⚠ **O MMCM não volta sozinho depois de perder o lock** (UG953):
+`clk_rst_gen.v` pulsa o `RST` por conta própria (`religa`). Sem isso a CPU fica
+presa em reset e a resposta não roda.
+
+⚠ **Testbench que instancia o CFS sem o `hsm_top` precisa segurar o reset além
+dos 100 ns do GSR**, senão o primeiro pedido ao DRP se perde e a varredura do
+XADC espera para sempre. A varredura não tem timeout.
+
+✅ **Validado em hardware 2026-11-05.** Sem falso disparo sob `confere` (100 de
+100), e o tamper disparado pelo JTAG: `TAMPERED`, causa no `env`, `TAMPER` no
+log, e `UNINITIALIZED` com log intacto depois de reconfigurar. Perda de lock e
+alarmes de tensão só em simulação. Timing **+0,471 ns**, 0 critical warnings,
+7699 LUTs, 7698 FF, BRAM 13. Suíte: 19 testbenches; `tb_tamper` leva 3 h 15 e é
+o mais lento, seguido do `tb_ascii` (2 h 26).
+
+⚠ **A placa está em `UNINITIALIZED`, sem LMK, desde esse teste.** Os key blocks
+sob a `6935C4` só voltam com a cerimônia e os mesmos componentes.
+
+⚠ **A resposta apaga a BRAM ANTES de gravar o log**: exceção declarada à regra
+de log antes de executar, decidida pelo usuário.
+
+⚠ **Todo testbench que instancia o CFS precisa de curva do XADC.** `sim.sh`
+copia `sim/stim/<tb>.txt`, ou `nominal.txt`, para `xadc_stim.txt`. Sensor sem
+estímulo lê zero, e o dispositivo se daria por violado.
+
+⚠ **Gravar um bitstream com alarme ligado pode apagar a LMK da placa** se o
+limite estiver errado. Provar o tamper na placa também apaga, e refazer a
+cerimônia exige os botões: só com autorização do usuário. Ver `doc/bancada.md`.
+
+⚠ **BBRAM muda a rotina de bancada**: sem bateria, a placa não sobe sozinha
+depois de desligar. Só com o usuário presente.
 
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 

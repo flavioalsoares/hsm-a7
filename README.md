@@ -108,6 +108,11 @@ um socket TCP, e `host/hsmhost.py` e o cliente. Validada em hardware em
 2026-11-03: 100 de 100 voltas conferidas pelo Python contra AES e CMAC
 independentes.
 
+**Fase 6 em andamento** (`doc/fase6-notas.md`): temperatura e tensao fora da
+faixa, sensor parado ou perda de lock do MMCM apagam as chaves sozinhos e levam
+a `TAMPERED`. `hsmtool env` le os sensores. Validado na placa em 2026-11-05, com
+o alarme de temperatura disparado pelo JTAG.
+
 Documentacao do codigo: `doc/codigo-host.md` (Python) e
 `doc/codigo-firmware.md` (C).
 
