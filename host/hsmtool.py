@@ -688,7 +688,8 @@ USOS = ("B0", "K0", "D0", "M0", "P0")
 
 def _cab_args(p):
     p.add_argument("--uso", default="D0", choices=USOS,
-                   help="uso X9.143 (padrao D0, chave de dados)")
+                   help="uso X9.143 (padrao D0; cifrar exige D0, MAC "
+                        "exige M0)")
     # Dois grupos que nao se cruzam: cifra (E/D/B) e MAC (G/V/C).
     p.add_argument("--modo", default="B",
                    choices=("E", "D", "B", "G", "V", "C", "N"),

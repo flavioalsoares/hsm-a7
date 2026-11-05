@@ -237,7 +237,8 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   **Python** para o dispositivo usar. Desde o `K4`/`K6` o Python também faz
   o papel da **outra instituição**: abre a KEK com a LMK, abre o que o `K4`
   exportou e embrulha uma chave sob a KEK para o `K6` importar, e cobra as
-  recusas (`10`, `11`, `12`, `13`). Precisa da LMK — o brinquedo aparecendo,
+  recusas (`10`, `11`, `12`, `13`), inclusive as do `uso`: KEK que não cifra
+  nem autentica, `D0` que não autentica, `M0` que não cifra. Precisa da LMK — o brinquedo aparecendo,
   como no `keycycle`.
 
 ⚠ **Só um processo abre a serial.** Com a ponte rodando, o `hsmtool` não

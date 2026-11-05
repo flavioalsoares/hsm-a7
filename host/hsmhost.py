@@ -266,7 +266,7 @@ def confere(h, lmk, n):
         assert cif == tr31._cbc(chave, iv, texto, True), "C0"
         assert h.cripto(bloco, iv, cif, False) == texto, "C2"
 
-        bloco_m, _ = h.gen("D0", "C", "N")
+        bloco_m, _ = h.gen("M0", "C", "N")
         chave_m, _ = tr31.desembrulha(lmk, bloco_m)
         msg = os.urandom(volta % (ASCII_DADOS_MAX + 1))
         tag = h.mac(bloco_m, msg)
@@ -322,6 +322,15 @@ def confere(h, lmk, n):
         recusa(10, "importa", kek_lmk, outra)
         adulterado = recebido[:-1] + ("0" if recebido[-1] != "0" else "1")
         recusa(10, "importa", kek_lmk, adulterado)
+
+        # O uso manda junto com o modo.
+        recusa(11, "cripto", kek_lmk, iv, texto, True)   # KEK nao cifra
+        recusa(11, "cripto", kek_lmk, iv, texto, False)  # nem decifra
+        recusa(11, "mac", kek_lmk, msg)                  # nem autentica
+        d_c, _ = h.gen("D0", "C", "E")                   # modo de MAC, uso D0
+        recusa(11, "mac", d_c, msg)
+        m_b, _ = h.gen("M0", "B", "E")                   # modo de cifra, uso M0
+        recusa(11, "cripto", m_b, iv, texto, True)
         print("volta %d: K0/K2/C0/C2/M0/M2/K4/K6 conferidos" % (volta + 1))
     print("%d de %d voltas conferidas" % (n, n))
     return 0

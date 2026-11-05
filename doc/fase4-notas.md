@@ -293,7 +293,7 @@ python3 host/hsmtool.py lmk-load 2 --random
 python3 host/hsmtool.py lmk-status              # anote o KCV
 python3 host/hsmtool.py activate                # botões
 python3 host/hsmtool.py gen-key                 # anote handle e KCV
-python3 host/hsmtool.py gen-key --modo C        # outra
+python3 host/hsmtool.py gen-key --uso M0 --modo C   # outra
 # DESLIGUE a placa da USB, espere, ligue de novo
 python3 host/hsmtool.py version                 # OPERATIONAL, sem cerimônia
 python3 host/hsmtool.py lmk-status              # o MESMO KCV

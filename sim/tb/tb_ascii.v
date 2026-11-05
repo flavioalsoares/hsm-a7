@@ -25,7 +25,10 @@
 //      abre sob a LMK. Recusas: chave 'N' nao sai (12), chave de dados nao
 //      serve de KEK (13), KEK so-'E' nao importa (11), bloco adulterado ou
 //      feito sob a LMK no lugar da KEK (10);
-//   9. NADA sobra no slot efemero entre comandos: o KEY_INFO do console no
+//   9. o `uso` do bloco manda junto com o modo: KEK de modo 'B' nao cifra
+//      nem autentica, chave de dados de modo 'C' nao autentica, chave de
+//      MAC de modo 'B' nao cifra (erro 11);
+//  10. NADA sobra no slot efemero entre comandos: o KEY_INFO do console no
 //      handle 17 encontra o slot vazio.
 //
 // O que ele NAO prova: que o C0 esta certo em termos absolutos. A chave e
@@ -509,7 +512,7 @@ module tb_ascii;
 
         // ---- 6. MAC --------------------------------------------------
         erros_antes = errors;
-        inicio("K", "0"); poe("D"); poe("0"); poe("C"); poe("N");
+        inicio("K", "0"); poe("M"); poe("0"); poe("C"); poe("N");
         ascii_troca();
         confere("K", "1", 0, "K0 MAC");
         for (i = 0; i < 144; i = i + 1) bloco_m[i] = resp[8 + i];
@@ -714,6 +717,60 @@ module tb_ascii;
         confere("K", "7", 10, "K6 bloco sob a LMK");
         if (errors == erros_antes)
             $display("[tb_ascii] KEK: K4 -> K6 volta com o mesmo KCV e cifra identico; recusas 12, 13, 11, 10, 10");
+
+        // ---- 8c. o uso manda junto com o modo ---------------------------
+        //
+        // bloco_k e K0 com modo 'B': o modo deixaria cifrar. Sem a checagem
+        // do uso, quem tem o bloco da KEK decifra com ela o que quiser --
+        // inclusive o corpo de um bloco embrulhado sob ela.
+        erros_antes = errors;
+        inicio("C", "0");
+        for (i = 0; i < 144; i = i + 1) poe(bloco_k[i]);
+        for (i = 0; i < 16; i = i + 1)  poe_hex(iv[i]);
+        poe_dec4(16);
+        for (i = 0; i < 16; i = i + 1)  poe_hex(texto[i]);
+        ascii_troca();
+        confere("C", "1", 11, "C0 com KEK");
+
+        inicio("C", "2");
+        for (i = 0; i < 144; i = i + 1) poe(bloco_k[i]);
+        for (i = 0; i < 16; i = i + 1)  poe_hex(iv[i]);
+        poe_dec4(16);
+        for (i = 0; i < 16; i = i + 1)  poe_hex(texto[i]);
+        ascii_troca();
+        confere("C", "3", 11, "C2 com KEK");
+
+        inicio("M", "0");
+        for (i = 0; i < 144; i = i + 1) poe(bloco_k[i]);
+        poe_dec4(4);
+        for (i = 0; i < 4; i = i + 1) poe_hex(texto[i]);
+        ascii_troca();
+        confere("M", "1", 11, "M0 com KEK");
+
+        inicio("K", "0"); poe("D"); poe("0"); poe("C"); poe("E");
+        ascii_troca();
+        confere("K", "1", 0, "K0 D0 modo C");
+        for (i = 0; i < 144; i = i + 1) bloco_e[i] = resp[8 + i];
+        inicio("M", "0");                         // modo de MAC, uso de dados
+        for (i = 0; i < 144; i = i + 1) poe(bloco_e[i]);
+        poe_dec4(4);
+        for (i = 0; i < 4; i = i + 1) poe_hex(texto[i]);
+        ascii_troca();
+        confere("M", "1", 11, "M0 com D0 modo C");
+
+        inicio("K", "0"); poe("M"); poe("0"); poe("B"); poe("E");
+        ascii_troca();
+        confere("K", "1", 0, "K0 M0 modo B");
+        for (i = 0; i < 144; i = i + 1) bloco_e[i] = resp[8 + i];
+        inicio("C", "0");                         // modo de cifra, uso de MAC
+        for (i = 0; i < 144; i = i + 1) poe(bloco_e[i]);
+        for (i = 0; i < 16; i = i + 1)  poe_hex(iv[i]);
+        poe_dec4(16);
+        for (i = 0; i < 16; i = i + 1)  poe_hex(texto[i]);
+        ascii_troca();
+        confere("C", "1", 11, "C0 com M0 modo B");
+        if (errors == erros_antes)
+            $display("[tb_ascii] uso: KEK nao cifra nem autentica, D0 nao autentica, M0 nao cifra (11)");
 
         // ---- 9. nada sobra no slot efemero ----------------------------
         //

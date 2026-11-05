@@ -80,13 +80,15 @@ typedef uint8_t ks_handle_t;
 #define KS_ALG_AES      'A'
 #define KS_ALG_3DES     'T'    /* aceito no header, NÃO implementado aqui */
 
-/* Modo de uso -- X9.143. É ESTE campo que restringe operações, não o
- * `uso`: `uso` diz que tipo de chave é, `modo` diz o que ela pode fazer.
+/* Modo de uso -- X9.143. `uso` diz que tipo de chave é, `modo` diz o que
+ * ela pode fazer, e os DOIS restringem: cifrar exige uso D0, MAC exige a
+ * família M, e o modo tem de permitir a operação.
  *
  * A separação entre os dois grupos é o que fecha a confusão de tipo: uma
  * chave marcada `'B'` (cifra e decifra) NÃO autentica, e uma marcada
  * `'C'` (MAC) NÃO cifra. Não é convenção — `keystore_usa_aes()` e
- * `keystore_cmac()` consultam o campo, cada uma exigindo o seu grupo. */
+ * `keystore_cmac()` consultam os dois campos, cada uma exigindo o seu
+ * grupo. */
 #define KS_MODO_CIFRA    'E'   /* cifrar                    */
 #define KS_MODO_DECIFRA  'D'   /* decifrar                  */
 #define KS_MODO_AMBOS    'B'   /* cifrar e decifrar         */
@@ -198,7 +200,8 @@ void keystore_efemera_apaga(void);
  *
  * NÃO devolve os bytes -- é por aqui que toda operação criptográfica passa.
  * `precisa_modo` é KS_MODO_CIFRA ou KS_MODO_DECIFRA; a função recusa se o
- * `modo` do slot não permitir.
+ * `modo` do slot não permitir, ou se o `uso` não for D0 -- KEK, chave de
+ * PIN e BDK não cifram dados, qualquer que seja o modo.
  *
  * Devolve 0 em sucesso. */
 int keystore_usa_aes(ks_handle_t h, uint8_t precisa_modo);
@@ -212,8 +215,8 @@ int keystore_usa_aes(ks_handle_t h, uint8_t precisa_modo);
  * poder ser usada para MAC, ou pior, `exportabilidade` viraria um
  * controle sobre USO, que não é o que ela é.
  *
- * Exige `modo` do grupo de MAC: gerar precisa de `'G'` ou `'C'`,
- * verificar precisa de `'V'` ou `'C'`. Uma chave de cifra é recusada —
+ * Exige `uso` da família M e `modo` do grupo de MAC: gerar precisa de
+ * `'G'` ou `'C'`, verificar de `'V'` ou `'C'`. Uma chave de cifra é recusada —
  * é a mesma separação que `keystore_usa_aes()` aplica do outro lado.
  *
  * Devolve 0 em sucesso. */
@@ -222,7 +225,8 @@ int keystore_cmac(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
 
 /* Verificação em TEMPO CONSTANTE, e dentro da fronteira.
  *
- * Devolve 1 se confere, 0 se não, -1 se o slot ou o modo não permitem.
+ * Devolve 1 se confere, 0 se não, -1 se o slot, o uso ou o modo não
+ * permitem.
  *
  * O dispositivo compara e devolve o veredito; ele NÃO devolve o MAC para
  * o host comparar. Comparar MAC com `memcmp` do lado de fora é um canal

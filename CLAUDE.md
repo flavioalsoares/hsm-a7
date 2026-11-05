@@ -217,7 +217,8 @@ tb_keystore     gerar -> exportar -> reimportar = mesmo KCV;
                 corpo recusado; duas exportacoes diferem           PASS
 ```
 
-⚠ **`tb_keystore` e o testbench mais LENTO da suite** (~30 min): ele manda
+⚠ **`tb_keystore` e o segundo testbench mais LENTO da suite** (1 h 22 min
+medidos em 2026-11-04, 460 ms simulados; o `tb_ascii` e o primeiro): ele manda
 key blocks de 144 caracteres a 115200 baud, e cada frame custa ~13 ms de
 tempo simulado. Nao da para acelerar encolhendo o clock nominal como se faz
 com o debounce -- o baud rate sai da frequencia real do dominio.
@@ -338,7 +339,7 @@ entrega é a chave. O controle real é o `modo` do slot e o log de auditoria,
 que ainda não existe.
 
 ⚠ **`exportabilidade='N'` NÃO impede usar** — impede sair. Quem restringe o
-que a chave pode fazer é o `modo`.
+que a chave pode fazer são o `uso` e o `modo`.
 
 ⚠ **`'S'` é o valor MAIS PERMISSIVO, não o mais estrito** (corrigido
 2026-10-18): libera exportação também em formatos legados, além de key
@@ -603,11 +604,13 @@ ciclo é o que domina o tempo -- não a cripto.
 ⚠ **Com a ponte rodando, o `hsmtool` não abre a serial.** Para a cerimônia,
 pare a ponte.
 
-➡ **Próximo passo (decidido 2026-11-04, não iniciado): checagem do `uso`.**
-Cifrar/decifrar exige `D0`, MAC exige a família `M` (sem código exato),
-nas duas portas, em `keystore.c` ao lado da checagem de `modo`, recusa
-`11`/`BAD_KEY_USE`. Plano e testes afetados no fim de
-`doc/fase5-notas.md`. Depois disso, a Fase 6.
+⚠ **O `uso` manda junto com o `modo`** (2026-11-04). Cifrar/decifrar exige
+`D0`, MAC exige a família `M` (sem conferir o código exato, por decisão do
+usuário), nas duas portas, em `keystore.c`; recusa `11`/`BAD_KEY_USE`. KEK,
+chave de PIN e BDK não cifram dados, qualquer que seja o modo. Gerar
+continua livre: quem barra é o uso da chave. Chave de MAC é `M0`, não `D0`.
+Ver `doc/fase5-notas.md`. ✅ Validado em hardware 2026-11-04: `confere`
+com 100 de 100 voltas, e `BAD_KEY_USE` no console. Próximo passo: Fase 6.
 
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 

@@ -151,7 +151,7 @@ control é para cerimônia, e a cerimônia não passa por aqui.
 | `00` | sem erro |
 | `01` | verificação falhou (só `M2`) |
 | `10` | key block inválido: malformado, MAC errado, ou feito sob outra LMK — **um código só**, pela mesma razão do `IMPORT_KEY` |
-| `11` | o `modo` do bloco não permite esta operação |
+| `11` | o `uso` ou o `modo` do bloco não permite esta operação |
 | `12` | a chave não é exportável (`'N'`) — só `K4` |
 | `13` | o bloco de proteção não é uma KEK (uso ≠ `K0`) — `K4`/`K6` |
 | `15` | dados inválidos: hex, comprimento, múltiplo de 16, limite |
@@ -373,53 +373,63 @@ mestra. Este está **dentro de `keystore.c`**, ao lado do primeiro, e deriva
 de uma KEK — que é exatamente o que uma KBPK é. Fora de `keystore.c` o
 aviso continua valendo.
 
-⚠ **Uma KEK `'B'` ainda cifra dados pelo `C0`.** O `K4`/`K6` exigem uso
-`K0`, mas os comandos de dados não recusam uso `K0` — é o item "checagem
-do `uso`" abaixo, que continua aberto.
+Os comandos de dados recusam uma KEK: ver "Checagem do `uso`", abaixo.
 
 ---
 
-## Próximo passo — checagem do `uso` (decidida em 2026-11-04, não iniciada)
+## Checagem do `uso` (decidida e feita em 2026-11-04)
 
-Hoje só o `modo` decide o que a chave faz. O `uso` é gravado e viaja no
-bloco, mas nenhum comando o confere. Por isso:
+Até aqui só o `modo` decidia o que a chave fazia. O `uso` era gravado e
+viajava no bloco, mas nenhum comando o conferia. Por isso uma KEK (`K0`,
+modo `B`) cifrava dados pelo `C0` e pelo `ENCRYPT`, e uma chave de PIN (`P0`)
+ou uma BDK (`B0`) de modo `B` também. É a confusão de tipo de chave: quem
+decifra com a chave que protege chaves lê as chaves. Um HSM comercial
+confere os dois campos.
 
-- uma KEK (`K0`, modo `B`) cifra dados pelo `C0` e pelo `ENCRYPT`;
-- uma chave de PIN (`P0`) ou uma BDK (`B0`) com modo `B` também cifra.
+Agora o serviço pede os dois:
 
-É a confusão de tipo de chave. Um HSM comercial confere os dois campos.
+| serviço | comandos | `uso` | `modo` |
+|---|---|---|---|
+| cifrar / decifrar | `C0`, `C2`, `ENCRYPT`, `DECRYPT` | `D0` | `E`/`D`/`B` |
+| MAC | `M0`, `M2`, `MAC_GENERATE`, `MAC_VERIFY` | família `M` | `G`/`V`/`C` |
+| proteger chave | `K4`, `K6` | `K0` | `E`/`D`/`B` |
 
-**Decisão do usuário:**
+Decisões do usuário:
 
-- **Cifrar/decifrar** (`C0`/`C2`, `ENCRYPT`/`DECRYPT`) exige uso `D0`.
-- **MAC** (`M0`/`M2`, `MAC_GENERATE`/`MAC_VERIFY`) exige uso da **família
-  `M`**, sem conferir o código exato. A norma distingue os `M*` por
-  algoritmo, e um HSM comercial confere qual; aqui é uma simplificação
-  aceita. Se um dia for conferir o código exato, a tabela vem de fonte, não
-  de memória, e as chaves de MAC do projeto mudam de uso.
-- **KEK** (`K4`/`K6`): já exige `K0`, não muda.
+- **Família `M`, sem conferir o código exato.** A norma distingue os `M*`
+  por algoritmo, e um HSM comercial confere qual; aqui é uma simplificação
+  aceita. Se um dia for conferir, a tabela vem de fonte, não de memória, e
+  as chaves de MAC do projeto mudam de uso.
 - **Nas duas portas.** A checagem fica em `keystore.c`, ao lado da do
-  `modo` (`keystore_usa_aes()`, `keystore_cmac()`,
-  `keystore_cmac_verifica()`), e vale para o console e para o host.
-- A recusa usa o mesmo código da recusa por modo: `11` no host e
-  `BAD_KEY_USE` no console.
+  `modo` (`uso_dados()` e `uso_mac()`, estáticas, chamadas por
+  `keystore_usa_aes()`, `keystore_cmac()` e `keystore_cmac_verifica()`).
+- **A recusa é a mesma do `modo`:** `11` no host e `BAD_KEY_USE` no console.
 
-**O que muda junto.** Algumas chaves de MAC de teste e de bancada são `D0`
-com modo `C`, e passam a `M0`:
+Gerar continua livre: `K0` e `GEN_KEY` aceitam uso e modo incoerentes
+(`D0` com modo `C`), e o que recusa é o **uso** da chave. Uma chave assim é
+inútil, e não perigosa. Recusar já na geração ficou fora desta decisão.
 
-- `tb_ascii`, passo 6;
-- `gera_chave` do `tb_keystore`, que hoje é sempre `D0`; as chaves de modo
-  `C`/`G` passam a `M0`;
-- `hsmhost.py confere`, com `gen("D0","C","N")`.
+**Chaves antigas.** Uma chave `D0` de modo `C` criada antes disto para de
+fazer MAC, e o cabeçalho é coberto pelo MAC do bloco: não há como
+remarcá-la. Vale para blocos guardados e para slots na flash.
 
-Isso não afrouxa teste nenhum: os testes **ganham** as recusas novas, uma
-KEK `K0`/`B` que não cifra e uma `D0` que não faz MAC. Conferir também o
-`tb_persist` (`M0`/`C` já está certo), o `keycycle` e o modelo do
-dispositivo em `host/test_hsmtool.py`.
+A propriedade entrou também no POST (`KAT_FALHA_KS`): KEK de modo `B`
+recusa cifrar e `D0` de modo `C` recusa autenticar, a cada boot.
 
-Ordem: firmware → testbenches → suíte inteira (o `tb_ascii` leva ~2 h) →
-host → placa.
+**Estado da verificação (2026-11-04).**
 
-Fora desta decisão: recusar **gerar** uma chave com uso e modo
-incoerentes (`D0` com modo `G`). Uma chave assim não faria nada, porque a
-checagem no uso já a barra.
+- **Simulação:** os 17 testbenches implementados passam com este firmware
+  (`tb_hmac_kat` é esqueleto). O `tb_keystore` tinha estourado o limite de
+  300 ms de tempo simulado, e a causa era orçamento, não travamento: o passo
+  do uso acrescenta 7 `GEN_KEY` e 7 `DELETE_KEY`, cada um gravando na flash,
+  e termina em t = 321 ms. O teste inteiro fecha em 460 ms (1 h 22 min de
+  relógio), e o limite passou a 600 ms.
+- **Síntese:** 0 critical warnings, WNS +0,258 ns, 7510 LUTs, 7574 FF, 13
+  BRAM, os mesmos números da fase 4. A mudança é só de firmware.
+- **Hardware:** gravado na flash, o dispositivo voltou em `OPERATIONAL` com
+  KCV da LMK `6935C4` no console e no `D0`, e o POST passou nos oito testes.
+  `hsmhost.py confere` deu **10 de 10** voltas pela serial e **100 de 100**
+  pela ponte TCP, com as recusas `11` da porta host. No console, uma KEK
+  recusou `ENCRYPT` e uma `D0` de modo `C` recusou `MAC_GENERATE`, as duas
+  com `BAD_KEY_USE`. O log registrou os comandos e as recusas nas duas
+  portas (`HOST C0` com erro 11, `ENCRYPT` com `BAD_KEY_USE`).

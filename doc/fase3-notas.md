@@ -1246,7 +1246,7 @@ KEK (uma ZMK, por exemplo, para trocar chave com outra instituição). Nesse
 dia isto deixa de ser lacuna e passa a ser bloqueio.
 
 ⚠ **Não confundir com o campo `modo`.** `exportabilidade` impede **sair**;
-`modo` restringe o que a chave pode **fazer**. Uma chave `'N'` pode e deve
+`uso` e `modo` restringem o que a chave pode **fazer**. Uma chave `'N'` pode e deve
 ser usada pelos comandos `ENCRYPT`/`DECRYPT` — não poder sair é diferente de
 não poder trabalhar, e é o caso mais comum de uma chave bem configurada.
 

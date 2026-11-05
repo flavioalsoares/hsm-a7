@@ -238,9 +238,10 @@ static unsigned kat_trng(void)
  */
 static unsigned kat_keystore(void)
 {
-    ks_handle_t h_nao, h_sim, h_cifra;
+    ks_handle_t h_nao, h_sim, h_cifra, h_mac;
     ks_info_t   info;
     uint8_t     saida[KS_KEY_MAX];
+    uint8_t     tag[CMAC_TAG_LEN];
     unsigned    falha = 0u;
 
     keystore_init();
@@ -294,6 +295,24 @@ static unsigned kat_keystore(void)
         }
     }
 
+    /* --- o `uso` tambem manda: KEK de modo 'B' nao cifra dados, e chave
+     *     de dados de modo 'C' nao faz MAC, embora o modo deixasse --- */
+    if (falha == 0u) {
+        if (keystore_usa_aes(h_sim, KS_MODO_CIFRA) == 0) {
+            falha = KAT_FALHA_KS;        /* KEK cifrou dados */
+        }
+    }
+    if (falha == 0u) {
+        h_mac = keystore_instala((const uint8_t *)KS_USO_DADOS, KS_ALG_AES,
+                                 KS_MODO_MAC, KS_EXP_NAO,
+                                 kat_aes1_key, KS_KEY_MAX);
+        if (h_mac == KS_HANDLE_INVALIDO) {
+            falha = KAT_FALHA_KS;
+        } else if (keystore_cmac(h_mac, kat_aes1_key, KS_KEY_MAX, tag) == 0) {
+            falha = KAT_FALHA_KS;        /* chave de dados autenticou */
+        }
+    }
+
     /* --- header invalido e recusado: 3DES nao existe neste hardware --- */
     if (falha == 0u) {
         if (keystore_instala((const uint8_t *)KS_USO_DADOS, KS_ALG_3DES,
@@ -319,7 +338,7 @@ static unsigned kat_keystore(void)
      * propriedade do key store, e KAT_FALHA_KS ja e o bit dele.
      *
      * Vale mais do que parece. Depois deste ponto o firmware acabou de
-     * escrever chave em quatro slots e apagar tudo; se a zeroizacao
+     * escrever chave em varios slots e apagar tudo; se a zeroizacao
      * tivesse um buraco -- um campo novo fora do laco, um wipe que o
      * compilador tivesse eliminado -- o boot seguinte comecaria com
      * material vivo na BRAM e nada denunciaria. */
@@ -328,6 +347,7 @@ static unsigned kat_keystore(void)
         falha = KAT_FALHA_KS;
     }
     wipe(saida, sizeof saida);
+    wipe(tag, sizeof tag);
     (void)hsm_cfs_wipe();
     return falha;
 }

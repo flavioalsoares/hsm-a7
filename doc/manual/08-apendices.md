@@ -257,8 +257,8 @@ sobreviver ao comprometimento.
   seção 16 usa como exemplo. O IV vem de quem chama, porque uma função que
   puxa entropia sozinha não é testável de forma determinística.
 
-  O `modo` do slot decide: uma chave marcada `'E'` (só cifrar) recusa
-  `DECRYPT` com `BAD_KEY_USE`. E `exportabilidade='N'` **não** impede usar
+  O `uso` e o `modo` do slot decidem: só uma chave de dados (`D0`) cifra, e
+  uma marcada `'E'` (só cifrar) recusa `DECRYPT` com `BAD_KEY_USE`. E `exportabilidade='N'` **não** impede usar
   — não poder sair é diferente de não poder trabalhar.
 
   ⚠ **É um oráculo de cifragem, e vale dizer.** Quem tem o handle cifra e
@@ -346,7 +346,7 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `M2` | `M3` | key block ‖ MAC(32) ‖ dados | — (o veredito é o erro) | `OPERATIONAL` |
 
 Erros: `00` sem erro · `01` verificação falhou · `10` key block inválido ·
-`11` o modo do bloco não permite · `12` chave não exportável · `13` o
+`11` o uso ou o modo do bloco não permite · `12` chave não exportável · `13` o
 bloco de proteção não é KEK · `15` dados inválidos · `16` parâmetro
 inválido · `20` estado não permite · `21` comando desconhecido · `22`
 mensagem malformada · `27` falha no log · `90` erro interno. Os códigos de
@@ -377,7 +377,7 @@ o código de erro em decimal no `resultado`.
 | `0x21` | `NOT_AUTHORIZED` | falta dual control |
 | `0x22` | `NOT_EXPORTABLE` | exportabilidade do slot proíbe |
 | `0x23` | `NO_SLOT` | key store cheio |
-| `0x24` | `BAD_KEY_USE` | o `modo` do slot proíbe a operação |
+| `0x24` | `BAD_KEY_USE` | o `uso` ou o `modo` do slot proíbe a operação |
 | `0x25` | `MAC_INVALID` | o MAC não confere |
 | `0x26` | `STORE_FAIL` | fase 4: a flash não gravou; a operação foi desfeita |
 | `0x27` | `LOG_FAIL` | fase 4: sem registro no log, o comando não executa |
@@ -919,9 +919,16 @@ cruzam**:
 | MAC | `G` `V` `C` | `mac` / `mac-verify` |
 
 Tente `mac` numa chave `--modo B` e veja `BAD_KEY_USE`. Tente `encrypt`
-numa `--modo C` e veja o mesmo. Essa separação não é burocracia de campo —
-é a defesa contra **confusão de tipo de chave**, que é a origem de uma
-família inteira de ataques de API (seção 15).
+numa `--modo C` e veja o mesmo.
+
+O `uso` manda junto: `encrypt` exige `D0`, e `mac` exige um uso da família
+`M`. Por isso a chave acima é `--uso M0`, e não só `--modo C`. Gere uma
+`--uso K0 --modo B` e tente `encrypt`: o modo deixaria, o uso não deixa.
+
+Essa separação não é burocracia de campo — é a defesa contra **confusão de
+tipo de chave**, que é a origem de uma família inteira de ataques de API
+(seção 15). Uma KEK que decifrasse "dados" entregaria as chaves que ela
+protege.
 
 ### E.7 Liberar um slot, e montar uma chave a várias mãos
 

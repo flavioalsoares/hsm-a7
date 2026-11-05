@@ -139,8 +139,8 @@ vale entender:
 
 | Função | Devolve chave? | Quem chama |
 |---|---|---|
-| `keystore_usa_aes(h, modo)` | **não**: carrega no coprocessador, depois de checar o `modo` do slot | `ENCRYPT`, `DECRYPT` |
-| `keystore_cmac(h, ...)` / `keystore_cmac_verifica(...)` | **não**: calcula dentro de `keystore.c` | `MAC_GENERATE`, `MAC_VERIFY` |
+| `keystore_usa_aes(h, modo)` | **não**: carrega no coprocessador, depois de checar `uso` (`D0`) e `modo` do slot | `ENCRYPT`, `DECRYPT` |
+| `keystore_cmac(h, ...)` / `keystore_cmac_verifica(...)` | **não**: calcula dentro de `keystore.c`, depois de checar `uso` (família `M`) e `modo` | `MAC_GENERATE`, `MAC_VERIFY` |
 | `lmk_deriva_kb(kbek, kbak)` | só as **subchaves derivadas**, nunca a LMK | `EXPORT_KEY`, `IMPORT_KEY` |
 | `keystore_exporta(h, out)` | **sim**, e recusa `exportabilidade = 'N'` | só `EXPORT_KEY` |
 | `keystore_registro_monta(...)` | o registro persistente, com a LMK em claro e os slots **embrulhados** | só `persist.c` (fase 4) |

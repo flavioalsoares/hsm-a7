@@ -350,10 +350,35 @@ int keystore_info(ks_handle_t h, ks_info_t *out)
     return 0;
 }
 
+/* 1 se o `uso` do slot é o de chave de dados.
+ *
+ * O `modo` diz o que a chave pode fazer; o `uso` diz o que ela É, e os dois
+ * têm de concordar com o serviço pedido. Sem isto uma KEK, uma chave de PIN
+ * ou uma BDK de modo 'B' decifrariam "dados" -- que é a confusão de tipo de
+ * chave na forma clássica: quem decifra com a chave que protege chaves lê
+ * as chaves. Ver doc/fase5-notas.md. */
+static int uso_dados(int i)
+{
+    return (g_slots[i].uso[0] == (uint8_t)KS_USO_DADOS[0]) &&
+           (g_slots[i].uso[1] == (uint8_t)KS_USO_DADOS[1]);
+}
+
+/* 1 se o `uso` do slot é da família M, chaves de MAC.
+ *
+ * A família inteira, e não o código exato: decisão do usuário. A norma
+ * distingue os M* por algoritmo; aqui só existe CMAC. */
+static int uso_mac(int i)
+{
+    return g_slots[i].uso[0] == (uint8_t)KS_USO_MAC[0];
+}
+
 int keystore_usa_aes(ks_handle_t h, uint8_t precisa_modo)
 {
     int i = indice(h);
     if (i < 0) {
+        return -1;
+    }
+    if (!uso_dados(i)) {
         return -1;
     }
 
@@ -398,7 +423,7 @@ int keystore_cmac(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
     if ((i < 0) || (tag == 0)) {
         return -1;
     }
-    if (!modo_mac_ok(g_slots[i].modo, KS_MODO_GERA)) {
+    if (!uso_mac(i) || !modo_mac_ok(g_slots[i].modo, KS_MODO_GERA)) {
         return -1;
     }
     if (cmac_aes256(g_slots[i].chave, msg, msg_n, tag) != 0) {
@@ -421,7 +446,7 @@ int keystore_cmac_verifica(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
     if ((i < 0) || (tag == 0)) {
         return -1;
     }
-    if (!modo_mac_ok(g_slots[i].modo, KS_MODO_VERIFICA)) {
+    if (!uso_mac(i) || !modo_mac_ok(g_slots[i].modo, KS_MODO_VERIFICA)) {
         return -1;
     }
 

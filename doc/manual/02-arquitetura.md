@@ -424,7 +424,7 @@ cada mecanismo entra.
 | **Atribuição** | Recebe atributos: uso, modo, exportabilidade | Estrutura do slot |
 | **Distribuição** | Sai embrulhada em key block, ou nunca sai | TR-31, KBEK/KBAK, `exportability` |
 | **Armazenamento** | BRAM interna; backup como key block | Fronteira, hierarquia sob LMK |
-| **Uso** | Só operações permitidas pelo modo de uso | Mediação, máquina de estados |
+| **Uso** | Só operações permitidas pelo uso e pelo modo de uso | Mediação, máquina de estados |
 | **Rotação** | Nova chave gerada, antiga marcada | `use_count`, política |
 | **Destruição** | Zeroize, com prova | `wipe()`, verificação por dump |
 

@@ -287,11 +287,13 @@ module tb_keystore;
     endtask
 
     // GEN_KEY: uso(2) || algoritmo(1) || modo(1) || exportabilidade(1)
-    task gera_chave;
+    task gera_chave_uso;
+        input [7:0] uso0;
+        input [7:0] uso1;
         input [7:0] modo;
         input [7:0] exp;
         begin
-            req_pl[0] = "D"; req_pl[1] = "0";
+            req_pl[0] = uso0; req_pl[1] = uso1;
             req_pl[2] = "A";
             req_pl[3] = modo;
             req_pl[4] = exp;
@@ -301,11 +303,64 @@ module tb_keystore;
         end
     endtask
 
+    task gera_chave;                     // chave de dados
+        input [7:0] modo;
+        input [7:0] exp;
+        begin
+            gera_chave_uso("D", "0", modo, exp);
+        end
+    endtask
+
+    // ENCRYPT de um bloco zerado, e cobra BAD_KEY_USE
+    task recusa_cifrar;
+        input [7:0] h;
+        integer k;
+        begin
+            req_pl[0] = h;
+            for (k = 0; k < 32; k = k + 1) req_pl[1 + k] = 8'h00;
+            req_plen = 33;
+            send_cmd_pl(8'h27);
+            get_response();
+            espera_status("ENCRYPT com uso errado", 8'h24);
+        end
+    endtask
+
+    // MAC_GENERATE e MAC_VERIFY, e cobra BAD_KEY_USE nos dois
+    task recusa_mac;
+        input [7:0] h;
+        integer k;
+        begin
+            req_pl[0] = h;
+            for (k = 0; k < 16; k = k + 1) req_pl[1 + k] = 8'h00;
+            req_plen = 17;
+            send_cmd_pl(8'h29);
+            get_response();
+            espera_status("MAC_GENERATE com uso errado", 8'h24);
+
+            req_pl[0] = h;
+            for (k = 0; k < 32; k = k + 1) req_pl[1 + k] = 8'h00;
+            req_plen = 33;
+            send_cmd_pl(8'h2A);
+            get_response();
+            espera_status("MAC_VERIFY com uso errado", 8'h24);
+        end
+    endtask
+
+    task apaga_chave;
+        input [7:0] h;
+        begin
+            req_pl[0] = h; req_plen = 1;
+            send_cmd_pl(8'h2B);
+            get_response();
+            espera_status("DELETE_KEY", 8'h00);
+        end
+    endtask
+
     reg [7:0] bloco  [0:255];
     reg [7:0] bloco2 [0:255];
     integer   bloco_n, bloco2_n;
     reg [7:0] kcv_e [0:2];
-    reg [7:0] h_nao, h_sim, h_imp, h_cifra, h_mac, h_gera;
+    reg [7:0] h_nao, h_sim, h_imp, h_cifra, h_mac, h_gera, h_uso;
     reg [7:0] tag_a [0:15];
     reg [7:0] livres_1;
     reg [7:0] h_comp;
@@ -324,7 +379,7 @@ module tb_keystore;
     // nao do generic. Entao o custo e do protocolo, e nao ha o que apertar
     // sem trocar o que esta sendo testado.
     initial begin
-        #300000000;                     // 300 ms
+        #600000000;                     // 600 ms
         $display("[tb_keystore] FAIL: timeout");
         $display("[tb_keystore] FAIL");
         $finish;
@@ -544,7 +599,7 @@ module tb_keystore;
         // Confusao de tipo de chave e a origem de uma familia inteira de
         // ataques de API, e a defesa vive num lugar so -- dentro do
         // keystore, nao espalhada pelos handlers.
-        gera_chave("C", "E");            // 'C' = gerar e verificar MAC
+        gera_chave_uso("M", "0", "C", "E");  // 'C' = gerar e verificar MAC
         espera_status("GEN_KEY modo C", 8'h00);
         h_mac = resp[1];
 
@@ -608,12 +663,68 @@ module tb_keystore;
             $display("[tb_keystore]   'C' recusa cifrar, 'B' recusa autenticar");
         end
 
+        // ---- 5e2. O USO TAMBEM MANDA ---------------------------------
+        //
+        // O `modo` sozinho nao basta. Uma KEK de modo 'B' tem modo de cifra
+        // e, sem a checagem do uso, decifraria "dados" -- e quem decifra
+        // com a chave que protege chaves le as chaves. Cifrar exige D0, MAC
+        // exige a familia M, qualquer que seja o modo.
+        gera_chave_uso("K", "0", "B", "E");      // KEK
+        espera_status("GEN_KEY K0", 8'h00);
+        h_uso = resp[1];
+        recusa_cifrar(h_uso);
+        apaga_chave(h_uso);
+
+        gera_chave_uso("P", "0", "B", "E");      // chave de PIN
+        espera_status("GEN_KEY P0", 8'h00);
+        h_uso = resp[1];
+        recusa_cifrar(h_uso);
+        apaga_chave(h_uso);
+
+        gera_chave_uso("B", "0", "B", "E");      // BDK
+        espera_status("GEN_KEY B0", 8'h00);
+        h_uso = resp[1];
+        recusa_cifrar(h_uso);
+        apaga_chave(h_uso);
+
+        gera_chave_uso("M", "0", "B", "E");      // modo de cifra, uso de MAC
+        espera_status("GEN_KEY M0 modo B", 8'h00);
+        h_uso = resp[1];
+        recusa_cifrar(h_uso);
+        apaga_chave(h_uso);
+
+        gera_chave("C", "E");                    // modo de MAC, uso de dados
+        espera_status("GEN_KEY D0 modo C", 8'h00);
+        h_uso = resp[1];
+        recusa_mac(h_uso);
+        apaga_chave(h_uso);
+
+        gera_chave_uso("K", "0", "C", "E");      // modo de MAC, uso de KEK
+        espera_status("GEN_KEY K0 modo C", 8'h00);
+        h_uso = resp[1];
+        recusa_mac(h_uso);
+        apaga_chave(h_uso);
+
+        // A familia M inteira, e nao so M0: M6 com modo 'C' autentica.
+        gera_chave_uso("M", "6", "C", "E");
+        espera_status("GEN_KEY M6", 8'h00);
+        h_uso = resp[1];
+        req_pl[0] = h_uso;
+        for (k = 0; k < 16; k = k + 1) req_pl[1 + k] = 8'h00;
+        req_plen = 17;
+        send_cmd_pl(8'h29);
+        get_response();
+        espera_status("MAC_GENERATE com M6", 8'h00);
+        apaga_chave(h_uso);
+        $display("[tb_keystore] uso: K0, P0, B0 e M0 recusam cifrar; D0 e K0 recusam MAC; M6 autentica");
+        $display("[tb_keystore] t = %0d ms ao fim do passo do uso", $time / 1000000);
+
         // ---- 5f. 'G' gera e NAO verifica -----------------------------
         //
         // O caso fino: dentro do proprio grupo de MAC, gerar e verificar
         // sao permissoes distintas. Uma chave que so gera nao pode ser
         // usada como oraculo de verificacao.
-        gera_chave("G", "E");
+        gera_chave_uso("M", "0", "G", "E");
         espera_status("GEN_KEY modo G", 8'h00);
         h_gera = resp[1];
 
