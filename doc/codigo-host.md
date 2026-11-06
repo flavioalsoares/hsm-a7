@@ -271,7 +271,17 @@ vem do próprio dispositivo, numa execução sem pulso armado.
 
 ---
 
-## 7. Como acrescentar um subcomando
+## 7. `puf.py`: medidas do RO-PUF (fase 6)
+
+Só funciona com `build/puf/hsm_puf.bit` na placa. O hardware só conta: `ler` e
+`termica` gravam as contagens em CSV, e `analisa`, `deriva`, `compara` e `corretor`
+trabalham sobre os arquivos, sem placa. Formar bits é conta sobre a mesma medida, e
+por isso três pareamentos saem de uma varredura. Resultados em
+`doc/puf_resultados.md`.
+
+---
+
+## 8. Como acrescentar um subcomando
 
 1. a constante `CMD_<NOME>`, copiando o valor de `fw/include/cmd.h`;
 2. o nome do status novo em `STATUS_NAMES`, se houver;

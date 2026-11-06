@@ -615,7 +615,8 @@ com 100 de 100 voltas, e `BAD_KEY_USE` no console. Próximo passo: Fase 6.
 ## Fase 6 — tamper e ataques (em andamento, 2026-11-04)
 
 Tudo em `doc/fase6-notas.md`. Feitos: sensores do XADC, perda de lock, glitch de
-clock e dupla execução. Faltam BBRAM e RO-PUF.
+clock, dupla execução e as medidas do RO-PUF (`doc/puf_resultados.md`). Falta
+BBRAM.
 
 - **`rtl/crypto/hsm_xadc.v`** detecta e retém; `fw/src/ambiente.c` responde.
   Limites do DS181 como `INIT` do primitivo, `DWE` em zero.
@@ -639,6 +640,7 @@ alarmes de tensão só em simulação. Timing **+0,471 ns**, 0 critical warnings
 o mais lento, seguido do `tb_ascii` (2 h 26).
 
 Suíte em 2026-11-06: 21 testbenches, 8 h 41, com `tb_glitch` e `tb_confere`.
+Depois entrou o `tb_puf`, que leva cerca de 10 min.
 
 ⚠ **O injetor de glitch nunca entra no bitstream de produção** (`HSM_ATAQUE`, ver
 `rtl/soc/glitch_inj.v`). Ele escuta a linha RX e não fala com a CPU, para o
@@ -656,6 +658,12 @@ duas cargas por pedido.
 
 ⚠ **`glitch.py` reconfigura a placa depois de qualquer classe diferente de `ok`,**
 o que limpa o erro grave. O flag se lê sem reiniciar.
+
+⚠ **O bitstream do RO-PUF não tem CPU, então carrega por JTAG, na SRAM**, sem tocar
+a flash: `BIT=build/puf/hsm_puf.bit ./scripts/program.sh`, e `openFPGALoader -r`
+volta à produção. Build: `scripts/build-puf.tcl`. Conferir `build/puf/rotas.txt`:
+os 64 anéis têm de sair com uma rota só, ou se mede o roteador. A carga térmica e o
+limite de 70 °C ficam no hardware.
 
 ⚠ **A resposta apaga a BRAM ANTES de gravar o log**: exceção declarada à regra
 de log antes de executar, decidida pelo usuário.

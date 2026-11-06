@@ -543,8 +543,8 @@ firmware.
 
 *Iniciada em 2026-11-04 (`doc/fase6-notas.md`). Feitos os sensores de ambiente
 e a perda de lock, validados em 2026-11-05. O glitch de clock foi feito por `BUFGMUX`, e
-não pelo DRP, que exige reset, com dupla execução como contramedida; BBRAM e RO-PUF
-não começaram.*
+não pelo DRP, que exige reset, com dupla execução como contramedida. O RO-PUF foi
+medido em 2026-11-06 (`doc/puf_resultados.md`). Falta a BBRAM.*
 
 **Entrada de componente por cartão — depois de tudo.** *Registrado em
 2026-08-29 e deliberadamente sem fase própria.* O caminho está desenhado na

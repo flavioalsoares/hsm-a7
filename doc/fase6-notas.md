@@ -15,7 +15,7 @@ O plano tem cinco frentes:
 | Perda de lock do MMCM | feita |
 | Glitch de clock, e contramedidas | feita |
 | Bitstream cifrado com chave em BBRAM | não começada, ver o aviso no fim |
-| Experimento de RO-PUF (`doc/puf-experimento.md`) | não começado |
+| Experimento de RO-PUF (`doc/puf-experimento.md`) | medido, ver `doc/puf_resultados.md` |
 
 ## O que dispara
 

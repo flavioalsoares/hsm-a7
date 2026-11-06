@@ -155,15 +155,15 @@ run_one() {
     [ -d "$ROOT/build/patched/aes" ]    && cripto+=("$ROOT"/build/patched/aes/*.v)
     [ -d "$ROOT/build/patched/sha256" ] && cripto+=("$ROOT"/build/patched/sha256/*.v)
 
-    # Testbench do bitstream de ataque: o proprio arquivo pede o define.
-    local defs=()
-    grep -q 'sim-define: HSM_ATAQUE' "$src" && defs=(-d HSM_ATAQUE)
+    # Testbench de bitstream separado: o proprio arquivo pede o define.
+    local defs=() d
+    for d in $(sed -n 's/.*sim-define: *//p' "$src"); do defs+=(-d "$d"); done
 
     if ! xvlog "${defs[@]}" -i "$WORK/../vectors" \
                "${cripto[@]}" \
                "$ROOT"/rtl/crypto/*.v \
                "$ROOT"/rtl/soc/*.v "$ROOT"/rtl/top/*.v \
-               "$ROOT"/rtl/diag/*.v "$ROOT"/sim/models/*.v "$src" \
+               "$ROOT"/rtl/diag/*.v "$ROOT"/rtl/puf/*.v "$ROOT"/sim/models/*.v "$src" \
                "$XILINX_VIVADO/data/verilog/src/glbl.v" \
                > "${tb}_compile.log" 2>&1; then
         echo "--- falha de compilacao:"; tail -20 "${tb}_compile.log"; return 1
