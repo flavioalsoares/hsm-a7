@@ -633,7 +633,8 @@ execução, verificação de resultado (seção 17.4). Enquanto a Fase 7 não ex
 alvo é o AES e o MAC, e não a assinatura.
 
 Também: bitstream encriptado com chave em BBRAM, como confidencialidade de
-firmware. E o experimento de RO-PUF, documentado à parte, que mede na própria
+firmware. O mecanismo foi provado na placa, e a produção segue sem cifra, por
+decisão explicada na seção 18.5. E o experimento de RO-PUF, documentado à parte, que mede na própria
 placa **por que** um PUF de FPGA é ruim e por que o corretor de erros é
 obrigatório.
 

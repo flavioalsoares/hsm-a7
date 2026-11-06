@@ -14,7 +14,7 @@ O plano tem cinco frentes:
 | Sensores de ambiente pelo XADC | feita |
 | Perda de lock do MMCM | feita |
 | Glitch de clock, e contramedidas | feita |
-| Bitstream cifrado com chave em BBRAM | não começada, ver o aviso no fim |
+| Bitstream cifrado com chave em BBRAM | provado na SRAM com o PUF; a produção segue sem cifra |
 | Experimento de RO-PUF (`doc/puf-experimento.md`) | medido, ver `doc/puf_resultados.md` |
 
 ## O que dispara
@@ -291,9 +291,71 @@ Um pulso aplicado de fora, no pino do oscilador, passaria pelo MMCM, que o
 filtraria. O injetor interno reproduz a violação de timing, não o caminho físico.
 Aqui, o ataque externo mais provável seria pela tensão.
 
-## Bitstream cifrado: aviso antes de começar
+## Bitstream cifrado com chave em BBRAM
 
 `VCCBATT` está no rail de 1,8 V e não há bateria, então a chave em BBRAM some a
 cada desligamento. Com o bitstream cifrado na flash, a placa não sobe sozinha
-até a chave ser recarregada por JTAG. Esta frente muda a rotina de bancada, e
-só começa com o usuário presente.
+até a chave ser recarregada por JTAG. Por isso a prova foi feita com o PUF, na
+SRAM.
+
+**A produção fica sem cifra**, por decisão do usuário: o dispositivo é didático, e
+cifrar trocaria o boot autônomo por uma gravação de chave a cada religamento, sem
+proteger a LMK, que está na mesma flash. A explicação está no manual, seção 18.5.
+
+A licença BASIC do Vivado não gera bitstream cifrado, mas grava a chave e carrega
+o resultado. A cifra fica em `scripts/cifra_bitstream.py`:
+
+```bash
+./scripts/bbram-chave.sh
+python3 scripts/cifra_bitstream.py build/puf/hsm_puf.bit \
+    build/chave/bitstream.nky build/cifrado/hsm_puf.bit
+ACAO=grava vivado -mode batch -source scripts/bbram.tcl
+ACAO=carrega ARQ=build/cifrado/hsm_puf.bit \
+    vivado -mode batch -source scripts/bbram.tcl
+ACAO=apaga vivado -mode batch -source scripts/bbram.tcl
+openFPGALoader -c digilent_hs2 --freq 1000000 -r
+```
+
+### Formato
+
+AES-256-CBC, com o HMAC-SHA-256 dentro da parte cifrada:
+
+```
+em claro   preâmbulo, sync, CTL0 com DEC, IV no registrador CBC, tamanho no DWC
+cifrado    ipad, corpo, pad1, 256 bytes zerados, opad, 32 zerados, pad2, tag
+em claro   NOPs até o tamanho original
+```
+
+- A chave do HMAC viaja cifrada no próprio bitstream, em `ipad` e `opad`.
+- Os 32 bits de cada palavra são invertidos antes e depois do AES, e o IV entra antes
+  dessa inversão.
+- No corpo, o `CTL0` ganha `DEC`, as escritas de CRC viram `RCRC` e o `DESYNC` sai.
+- O bit 31 do `CTL0` escolhe a origem da chave. Em zero, BBRAM. O script recusa
+  qualquer outro valor.
+
+A referência foi o código aberto do `bootgen`, porque o Zynq-7000 usa o mesmo motor de
+decifra. A saída do script é igual byte a byte à do `bootgen -arch fpga -encrypt bbram`
+nos bitstreams do PUF, do diagnóstico e de produção, com uma chave de teste.
+
+### Resultado na placa
+
+Carga pelo Vivado, em 2026-11-06:
+
+| Chave na BBRAM | Bitstream cifrado com | Resultado |
+|---|---|---|
+| certa | a mesma chave | `DONE` em 1, decifrador ligado, `V` responde `PUF1` |
+| certa | outra chave | `DONE` em 0, sem resposta |
+| vazia | a chave apagada | `DONE` em 0, sem resposta |
+
+O PUF decifrado difere em 1 de 32 bits de uma medida sem cifra, dentro do que os bits
+instáveis explicam. Com a chave na BBRAM, a produção sem cifra sobe normalmente pela
+flash: a chave não obriga a usar cifra, porque quem obrigaria é o eFUSE.
+
+⚠ **Bitstream cifrado não carrega pelo `openFPGALoader`.** Ele termina com `DEC Error`,
+com ou sem a chave certa, então esse erro não diz nada sobre a chave.
+
+⚠ **`-key bbr` e o valor proibido são a mesma opção do mesmo comando.** Chave só por
+`scripts/bbram.tcl`, que tem o destino escrito fixo.
+
+⚠ **A chave fica em `build/chave/`, ignorado pelo git.** Em BBRAM ela não pode ser lida
+de volta, e só a decifração prova que foi gravada.

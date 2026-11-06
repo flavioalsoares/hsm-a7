@@ -118,5 +118,6 @@ report_timing_summary -file $outdir/timing.txt
 report_utilization    -file $outdir/utilization.txt
 report_power          -file $outdir/power.txt
 
+write_checkpoint -force $outdir/post_route.dcp
 write_bitstream -force $outdir/hsm_puf.bit
 puts "OK -> $outdir/hsm_puf.bit"

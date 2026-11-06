@@ -615,8 +615,8 @@ com 100 de 100 voltas, e `BAD_KEY_USE` no console. Próximo passo: Fase 6.
 ## Fase 6 — tamper e ataques (em andamento, 2026-11-04)
 
 Tudo em `doc/fase6-notas.md`. Feitos: sensores do XADC, perda de lock, glitch de
-clock, dupla execução e as medidas do RO-PUF (`doc/puf_resultados.md`). Falta
-BBRAM.
+clock, dupla execução, as medidas do RO-PUF (`doc/puf_resultados.md`) e o bitstream
+cifrado com chave em BBRAM, provado na SRAM.
 
 - **`rtl/crypto/hsm_xadc.v`** detecta e retém; `fw/src/ambiente.c` responde.
   Limites do DS181 como `INIT` do primitivo, `DWE` em zero.
@@ -677,7 +677,12 @@ limite estiver errado. Provar o tamper na placa também apaga, e refazer a
 cerimônia exige os botões: só com autorização do usuário. Ver `doc/bancada.md`.
 
 ⚠ **BBRAM muda a rotina de bancada**: sem bateria, a placa não sobe sozinha
-depois de desligar. Só com o usuário presente.
+depois de desligar se a flash tiver bitstream cifrado. A produção segue sem cifra.
+Mexer nisso só com o usuário presente.
+
+⚠ **A licença BASIC do Vivado não cifra bitstream**: quem cifra é
+`scripts/cifra_bitstream.py`. Chave só por `scripts/bbram.tcl`, com destino fixo
+`bbr`, e carga pelo mesmo script: pelo `openFPGALoader` falha com `DEC Error`.
 
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 

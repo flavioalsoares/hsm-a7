@@ -406,8 +406,8 @@ bateria descarregou acorda zeroizado e inútil.** É a falha segura correta.
 
 Este projeto reproduz isso por acidente de hardware, e o acidente é
 instrutivo: no core board QMTECH usado, o pino `VCCBATT` está ligado ao rail
-de 1,8 V, sem bateria. A chave de bitstream em BBRAM se perde a cada
-desligamento e precisa ser recarregada por JTAG.
+de 1,8 V, sem bateria. Uma chave de bitstream em BBRAM se perde a cada
+desligamento e teria de ser recarregada por JTAG (seção 18.5).
 
 Aqui isso é desejável — nada persiste no hardware, tudo é recuperável — e é
 exatamente o comportamento de um HSM comercial com bateria descarregada.
@@ -440,3 +440,47 @@ O valor está em entender por que os degraus existem. Um leitor que termine
 esta parte sabendo *o que* uma malha ativa faz, *por que* ela precisa de
 bateria e *por que* um HSM sem bateria acorda inútil aprendeu algo que
 nenhum diagrama de blocos ensina.
+
+### 18.5 Proteger o bitstream, e por que a produção não usa
+
+O bitstream é o arquivo que configura o FPGA, e aqui ele carrega também o
+firmware. Quem tira a flash da placa lê tudo isso: o circuito, o código e os
+vetores de teste. Cifrar o bitstream fecha essa leitura.
+
+O mecanismo tem duas partes:
+
+- **Uma chave dentro do FPGA.** Ela nunca sai dali. O bitstream chega cifrado, um
+  bloco de hardware dedicado decifra e confere a autenticidade, e só então o FPGA
+  se configura. Quem lê a flash só vê bytes sem sentido.
+- **Um lugar para guardar essa chave.** Existem dois, e a diferença entre eles é o
+  centro da questão:
+
+| | BBRAM | eFUSE |
+|---|---|---|
+| O que é | memória mantida por uma bateria | fusíveis queimados uma única vez |
+| Sem energia | a chave some | a chave fica para sempre |
+| Erro | apaga e grava de novo | placa perdida |
+| Neste projeto | permitida | proibida pela regra nº 1 |
+
+A chave entra na BBRAM só pelo JTAG. Num produto real, isso acontece uma vez, na
+fábrica, e a bateria mantém a chave daí em diante. O equipamento liga sozinho: lê
+a flash, decifra e funciona. O JTAG não faz parte do uso.
+
+**O que a placa mostrou.** O mecanismo foi provado com o experimento de RO-PUF. A
+placa só aceitou o bitstream com a chave certa na BBRAM. Com outra chave, ou com a
+BBRAM vazia, ela recusou a configuração.
+
+**Por que a produção segue sem cifra.** Este é um dispositivo didático, e a decisão
+do autor foi manter o bitstream de produção sem cifra, por dois motivos:
+
+1. **Sem bateria, cifrar transformaria cada desligamento em manutenção.** Nesta
+   placa a chave some ao desligar (seção 18.2). Com a flash cifrada, o equipamento
+   não subiria sozinho, e cada religamento exigiria gravar a chave de novo pelo JTAG.
+   Sem cifra, ele liga e funciona sem cabo nenhum.
+2. **Cifrar não protegeria o que importa aqui.** A cifra cobre o bitstream, e a LMK
+   está em outra região da mesma flash (Fase 4). Quem lê a flash continuaria lendo a
+   chave mestra. O código deste projeto, por sua vez, é aberto.
+
+A lição vale para qualquer equipamento: **um controle só protege o que está dentro
+do seu alcance, e todo controle cobra um custo de operação.** Antes de ligar um,
+pergunte o que ele cobre e quem vai pagar por ele todos os dias.
