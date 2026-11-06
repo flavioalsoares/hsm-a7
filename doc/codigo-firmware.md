@@ -137,6 +137,7 @@ handler, resultado no log. Nenhum comando de cerimônia está nela.
 | Arquivo | O que faz |
 |---|---|
 | `ambiente.c` | responde a sensor fora da faixa e a perda de lock: apaga, registra, vai para `TAMPERED`. Chamado no boot, antes de restaurar da flash, e no laço principal |
+| `state.c` | além da máquina de estados, guarda o flag de erro grave (`erro_grave_marca()`, `erro_grave_ativo()`): marcado quando a dupla execução discorda, vale até o próximo boot e não apaga chave nenhuma |
 
 ## 4. As portas do key store
 
@@ -146,7 +147,8 @@ vale entender:
 | Função | Devolve chave? | Quem chama |
 |---|---|---|
 | `keystore_usa_aes(h, modo)` | **não**: carrega no coprocessador, depois de checar `uso` (`D0`) e `modo` do slot | `ENCRYPT`, `DECRYPT` |
-| `keystore_cmac(h, ...)` / `keystore_cmac_verifica(...)` | **não**: calcula dentro de `keystore.c`, depois de checar `uso` (família `M`) e `modo` | `MAC_GENERATE`, `MAC_VERIFY` |
+| `keystore_cbc_confere(h, ...)` | **não**: cifra ou decifra duas vezes, recarregando a chave antes de cada execução, e compara. Discordou: apaga a saída e marca erro grave | `ENCRYPT`, `DECRYPT`, `C0`, `C2` |
+| `keystore_cmac(h, ...)` / `keystore_cmac_verifica(...)` | **não**: calcula dentro de `keystore.c`, duas vezes, depois de checar `uso` (família `M`) e `modo` | `MAC_GENERATE`, `MAC_VERIFY` |
 | `lmk_deriva_kb(kbek, kbak)` | só as **subchaves derivadas**, nunca a LMK | `EXPORT_KEY`, `IMPORT_KEY` |
 | `keystore_exporta(h, out)` | **sim**, e recusa `exportabilidade = 'N'` | só `EXPORT_KEY` |
 | `keystore_registro_monta(...)` | o registro persistente, com a LMK em claro e os slots **embrulhados** | só `persist.c` (fase 4) |

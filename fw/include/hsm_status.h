@@ -38,6 +38,7 @@ typedef enum {
     /* Falhas do dispositivo */
     STATUS_SELFTEST_FAIL   = 0x30,
     STATUS_TAMPERED        = 0x31,
+    STATUS_CRYPTO_FAIL     = 0x32,  /* fase 6: dupla execucao discordou */
 
     STATUS_INTERNAL_ERROR  = 0xFF
 } hsm_status_t;

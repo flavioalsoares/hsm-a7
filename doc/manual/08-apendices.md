@@ -358,7 +358,7 @@ Erros: `00` sem erro · `01` verificação falhou · `10` key block inválido ·
 `11` o uso ou o modo do bloco não permite · `12` chave não exportável · `13` o
 bloco de proteção não é KEK · `15` dados inválidos · `16` parâmetro
 inválido · `20` estado não permite · `21` comando desconhecido · `22`
-mensagem malformada · `27` falha no log · `90` erro interno. Os códigos de
+mensagem malformada · `27` falha no log · `90` erro interno · `91` erro grave. Os códigos de
 comando e de erro são deste projeto.
 
 `K4` e `K6` trocam chave com outra instituição sob uma **KEK** — chave de
@@ -391,6 +391,7 @@ o código de erro em decimal no `resultado`.
 | `0x26` | `STORE_FAIL` | fase 4: a flash não gravou; a operação foi desfeita |
 | `0x27` | `LOG_FAIL` | fase 4: sem registro no log, o comando não executa |
 | `0x30` | `SELFTEST_FAIL` | |
+| `0x32` | `CRYPTO_FAIL` | A dupla execução discordou: nada sai, as chaves ficam e o dispositivo marca erro grave |
 | `0x31` | `TAMPERED` | |
 | `0xFF` | `INTERNAL_ERROR` | |
 

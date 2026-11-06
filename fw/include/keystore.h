@@ -206,6 +206,17 @@ void keystore_efemera_apaga(void);
  * Devolve 0 em sucesso. */
 int keystore_usa_aes(ks_handle_t h, uint8_t precisa_modo);
 
+/* AES-CBC com dupla execução (fase 6), para o que sai ao host. Carrega a chave
+ * e cifra duas vezes, e compara. Devolve 0; -1 se o `modo` ou o `uso` proíbe;
+ * -2 se discordou, com `saida` apagada e erro grave marcado; -3 em erro
+ * interno. `saida` não pode ser `entrada`. A chave expandida sai apagada.
+ *
+ * O key block segue em aes_cbc(): o MAC do bloco já reprova um corpo errado. */
+#define KS_CONFERE_MAX  256u
+int keystore_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
+                         const uint8_t iv[16], const uint8_t *entrada,
+                         uint8_t *saida, uint32_t n, int cifrar);
+
 /* MAC sob a chave de um slot -- CMAC-AES-256, SP 800-38B.
  *
  * Vive AQUI, e não em `cmd.c`, pelo mesmo motivo de `lmk_deriva_kb()`:

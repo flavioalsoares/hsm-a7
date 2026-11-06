@@ -265,38 +265,116 @@ instante certo, a CPU pula uma instrução — e se a instrução pulada for o
 `if` que compara o PIN, ou o que verifica a exportabilidade da chave, você
 contornou a verificação sem tocar em criptografia alguma.
 
+**Por que um clock rápido produz erro.** Entre dois flip-flops existe lógica, e
+o sinal leva tempo para atravessá-la. Para o segundo flip-flop capturar o valor
+certo, vale:
+
+```
+T_clock  >=  t_saida + t_logica + t_setup
+```
+
+Se o período encolhe abaixo disso, a borda chega antes do resultado. O flip-flop
+guarda o valor antigo, ou uma mistura de bits novos e antigos. Nada quebra e
+nada avisa: o circuito segue funcionando, com um valor errado dentro.
+
+Quatro consequências explicam o comportamento de um ataque real:
+
+- **Só os caminhos longos falham.** Um período um pouco curto atinge os poucos
+  caminhos mais lentos e poupa o resto. Por isso a falha é seletiva.
+- **O que falha depende do que está ativo.** Um caminho só erra se seu valor
+  estiver mudando naquele ciclo, e por isso o instante do pulso escolhe o alvo.
+- **A ferramenta de timing não diz onde falha.** Ela calcula o pior caso de
+  processo, tensão e temperatura. Um chip típico, frio e bem alimentado aguenta
+  bem mais do que a frequência garantida.
+- **Existe uma janela útil.** Pouco abaixo do limite nada acontece, e muito
+  abaixo a CPU busca instruções erradas e trava. Só no meio a CPU continua
+  viva com um resultado errado, que é o que o atacante quer.
+
+**Injeção de falha não é canal lateral.** Canal lateral observa um dispositivo
+que funciona certo. Injeção de falha perturba o dispositivo para que ele
+funcione errado.
+
 ### 17.4 Contramedidas
 
 - **Dupla execução e comparação** — calcular duas vezes e confrontar. Dobra
-  o custo e derrota falhas isoladas.
-- **Verificação do resultado** — no RSA, checar a assinatura antes de emitir.
+  o custo e derrota falhas isoladas. Não derrota duas falhas iguais: se o pulso
+  atingir as duas execuções do mesmo jeito, elas concordam no erro.
+- **Verificação do resultado** — refazer a conta pelo caminho inverso, como
+  decifrar o que acabou de cifrar. No RSA, checar a assinatura antes de emitir.
+  É mais forte que repetir, porque o caminho inverso não erra do mesmo jeito.
 - **Sensores** — detectores de frequência fora de faixa, de tensão, de
   temperatura, de luz. Ao disparar: zeroize.
 - **Redundância na codificação** — representar estados críticos com valores
   distantes em distância de Hamming, para que um bit trocado não converta
   "recusado" em "aceito".
 
-O último ponto é subestimado. Se `AUTORIZADO = 1` e `NEGADO = 0`, um único
+**Dupla execução só vê o que difere entre as execuções.** Essa é a regra que
+decide se a contramedida funciona. Compare os dois arranjos:
+
+```
+errado:   carrega chave -> cifra -> cifra -> compara
+certo:    carrega chave -> cifra -> carrega chave -> cifra -> compara
+```
+
+No primeiro, a carga da chave é um **ponto comum**: acontece uma vez, e as duas
+execuções herdam o resultado dela. Uma falha ali produz uma chave expandida
+errada, as duas execuções calculam certo sobre essa chave errada, e o comparador
+vê dois resultados iguais. O nome disso é **falha de modo comum**, e é o mesmo
+problema de dois motores de avião alimentados pelo mesmo tanque.
+
+Por isso a pergunta útil não é "calculei duas vezes?", e sim "o que as duas
+execuções compartilham?". Tudo o que for compartilhado fica sem proteção:
+
+| Ponto comum | Como cobrir |
+|---|---|
+| Carga e expansão da chave | Repetir a carga dentro de cada execução |
+| Entrada já lida da memória | Verificar antes, por CRC ou MAC do pedido |
+| Saída depois da comparação | Comparar o mais tarde possível, e proteger o transporte |
+| A própria comparação | Comparar de forma redundante, com valores distantes |
+
+O que não dá é fechar tudo. A última linha mostra por quê: o comparador é mais
+código, e pode ser atacado também. Contramedida de falha aumenta o custo do
+ataque, sem eliminá-lo. Repetir exige também que as execuções fiquem separadas
+no tempo além da largura do pulso, ou um pulso só atinge as duas.
+
+Isso também mostra por que contramedida se valida atacando. Em simulação, a
+falha é posta onde quem escreveu o teste imaginou, e por isso o teste passa. O
+ataque real cai onde a física deixa, inclusive nos pontos comuns.
+
+O último ponto da lista é subestimado. Se `AUTORIZADO = 1` e `NEGADO = 0`, um único
 bit trocado inverte a decisão. Se `AUTORIZADO = 0x5A` e `NEGADO = 0xA5`, é
 preciso trocar muitos bits coordenadamente.
 
 ### 17.5 Onde este projeto está
 
-O gerador de clock deste projeto tem a versão mínima e honesta de um sensor:
+O gerador de clock deste projeto trata a perda de lock do MMCM como violação:
+reafirma o reset, retém o evento, apaga as chaves e vai para `TAMPERED`. Mas o
+detector só vê o lock. Um pulso que encurta o clock sem derrubar o `LOCKED`
+passa por ele.
 
-```verilog
-    wire rst_src_n = locked_w & rst_n_sync[1];
-```
+A Fase 6 faz esse ataque contra o próprio dispositivo. A reconfiguração dinâmica
+do MMCM, que o plano previa, exige reset e para o clock. O injetor usa então um
+segundo clock, mais rápido, e um multiplexador de clock global. Fica num
+bitstream separado, nunca no de produção, e faz o papel do equipamento externo
+de quem ataca: escuta a linha serial, conta bytes, espera um atraso e dá o pulso.
 
-Perda de lock do MMCM **reafirma o reset** em vez de ser ignorada. Não
-sabemos *por que* o lock caiu, mas sabemos que não dá para confiar no que
-vier depois. Um HSM real iria além: zeroizaria, iria para `TAMPERED`, e
-registraria o evento.
+Isso é um modelo, com uma diferença importante. Um pulso aplicado de fora, no
+pino do oscilador, passaria pelo MMCM, que o filtraria. Quem atacasse esta placa
+de verdade usaria mais provavelmente a tensão. O injetor interno reproduz o
+efeito, a violação de timing, e não o caminho físico.
 
-A Fase 6 do plano faz exatamente este ataque contra o próprio dispositivo —
-glitch de clock pela porta de reconfiguração dinâmica do MMCM — e depois
-implementa as contramedidas. É o roteiro clássico de aprender segurança de
-hardware: construir, quebrar, reforçar.
+A medição contou a história da seção 17.4 na prática. Sem contramedida, o
+dispositivo devolveu resultados errados com CRC válido. Com dupla execução e a
+chave carregada uma vez só, continuou devolvendo, e nenhuma discordância apareceu:
+era a falha de modo comum. Com a chave carregada a cada execução, os resultados
+errados sumiram das medições e as recusas apareceram exatamente nos momentos das
+duas cargas. A falha não deixou de acontecer. Passou a ser vista.
+
+Quando as execuções discordam, o comando é recusado, nada sai, e o equipamento
+marca **erro grave**. As chaves não são apagadas. Numa violação detectada por
+sensor, apagar é a resposta certa. Aqui o aparelho só sabe que uma conta deu errado
+uma vez, e recomissionar nem sempre é viável ou barato. Por isso a decisão fica com
+quem opera: o flag fica visível até o próximo boot, e o log guarda o comando.
 
 ## 18. Ataques físicos e antitamper
 

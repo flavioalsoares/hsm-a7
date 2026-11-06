@@ -152,6 +152,7 @@ STATUS_NAMES = {
     0x27: "LOG_FAIL",
     0x30: "SELFTEST_FAIL",
     0x31: "TAMPERED",
+    0x32: "CRYPTO_FAIL",
     0xFF: "INTERNAL_ERROR",
 }
 
@@ -908,7 +909,8 @@ ESTADO_NOMES = {0: "Uni", 1: "Aut", 2: "OPE", 3: "tPr"}
 
 # Bits do alarme de ambiente -- espelham fw/include/hsm_cfs.h
 ENV_BITS = ["temperatura alta", "VCCINT", "VCCAUX", "VCCBRAM",
-            "temperatura baixa", "sensor parado", "perda de lock"]
+            "temperatura baixa", "sensor parado", "perda de lock",
+            "ERRO GRAVE: dupla execucao discordou"]
 
 
 def env_causas(bits):

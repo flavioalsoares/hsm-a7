@@ -75,6 +75,9 @@ module hsm_top #(
     wire rst_n;      // sincrono a clk, ativo baixo
     wire mmcm_locked;
     wire lock_perdido;
+`ifdef HSM_ATAQUE
+    wire glitch;     // ver rtl/soc/glitch_inj.v
+`endif
 
     clk_rst_gen #(
         .RST_HOLD_CYCLES (64)
@@ -84,8 +87,20 @@ module hsm_top #(
         .clk_o    (clk),
         .rst_n_o  (rst_n),
         .locked_o (mmcm_locked),
+`ifdef HSM_ATAQUE
+        .glitch_i (glitch),
+`endif
         .lock_perdido_o (lock_perdido)
     );
+
+`ifdef HSM_ATAQUE
+    glitch_inj u_glitch (
+        .clk_i    (clk),
+        .rstn_i   (rst_n),
+        .rxd_i    (uart_rxd_i),
+        .glitch_o (glitch)
+    );
+`endif
 
     // ------------------------------------------------------------------
     // Sincronizadores de entrada assincrona

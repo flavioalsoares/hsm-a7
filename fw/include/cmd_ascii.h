@@ -45,6 +45,7 @@
 #define ASCII_MALFORMADA    22u
 #define ASCII_LOG           27u
 #define ASCII_INTERNO       90u
+#define ASCII_ERRO_GRAVE    91u   /* fase 6: a dupla execucao discordou */
 
 /* Processa uma mensagem e escreve a resposta inteira (sem LEN) em `resp`,
  * que tem `resp_max` bytes. Sempre produz resposta. */

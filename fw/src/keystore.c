@@ -6,7 +6,9 @@
 #include "keystore.h"
 #include "cmac.h"
 #include "drbg.h"
+#include "aes_modos.h"
 #include "hsm_cfs.h"
+#include "state.h"
 #include "tr31.h"
 #include "wipe.h"
 
@@ -415,10 +417,60 @@ static int modo_mac_ok(uint8_t modo, uint8_t precisa)
     return (modo == precisa) ? 1 : 0;
 }
 
+/* FRONTEIRA: dentro. A segunda cópia é dado em claro de quem decifra, e sai
+ * apagada em todo caminho. Ver keystore.h. */
+int keystore_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
+                         const uint8_t iv[AES_BLOCO], const uint8_t *entrada,
+                         uint8_t *saida, uint32_t n, int cifrar)
+{
+    static uint8_t segunda[KS_CONFERE_MAX];
+    int      i = indice(h);
+    int      r = 0;
+    uint32_t j;
+    uint8_t  dif = 0u;
+
+    if ((i < 0) || (n > KS_CONFERE_MAX)) {
+        return -3;
+    }
+
+    /* A chave é carregada DE NOVO para a segunda execução. Com uma carga só,
+     * uma falha na expansão da chave erra as duas do mesmo jeito, e elas
+     * concordam: medido na placa. */
+    if (keystore_usa_aes(h, precisa_modo) != 0) {
+        return -1;
+    }
+    if (aes_cbc(iv, entrada, saida, n, cifrar) != 0) {
+        r = -3;
+    } else if (keystore_usa_aes(h, precisa_modo) != 0) {
+        r = -3;
+    } else if (aes_cbc(iv, entrada, segunda, n, cifrar) != 0) {
+        r = -3;
+    } else {
+        g_slots[i].contador_uso--;    /* um pedido, um uso */
+        for (j = 0u; j < n; j++) {
+            dif |= (uint8_t)(saida[j] ^ segunda[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        }
+    }
+
+    wipe(segunda, sizeof segunda);
+    if (r != 0) {
+        wipe(saida, n);
+    }
+    (void)hsm_cfs_wipe();
+    return r;
+}
+
 int keystore_cmac(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
                   uint8_t tag[CMAC_TAG_LEN])
 {
-    int i = indice(h);
+    int      i = indice(h);
+    uint8_t  segunda[CMAC_TAG_LEN];
+    uint32_t j;
+    uint8_t  dif = 0u;
 
     if ((i < 0) || (tag == 0)) {
         return -1;
@@ -426,7 +478,10 @@ int keystore_cmac(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
     if (!uso_mac(i) || !modo_mac_ok(g_slots[i].modo, KS_MODO_GERA)) {
         return -1;
     }
-    if (cmac_aes256(g_slots[i].chave, msg, msg_n, tag) != 0) {
+    if ((cmac_aes256(g_slots[i].chave, msg, msg_n, tag) != 0) ||
+        (cmac_aes256(g_slots[i].chave, msg, msg_n, segunda) != 0)) {
+        wipe(tag, CMAC_TAG_LEN);
+        wipe(segunda, CMAC_TAG_LEN);
         return -1;
     }
     g_slots[i].contador_uso++;
@@ -434,6 +489,17 @@ int keystore_cmac(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
     /* A chave expandida fica no coprocessador depois do CMAC. Limpar
      * agora, e nao "na proxima vez que alguem carregar chave". */
     (void)hsm_cfs_wipe();
+
+    /* Dupla execucao, fase 6. */
+    for (j = 0u; j < CMAC_TAG_LEN; j++) {
+        dif |= (uint8_t)(tag[j] ^ segunda[j]);
+    }
+    wipe(segunda, CMAC_TAG_LEN);
+    if (dif != 0u) {
+        wipe(tag, CMAC_TAG_LEN);
+        erro_grave_marca();
+        return -2;
+    }
     return 0;
 }
 
@@ -441,7 +507,7 @@ int keystore_cmac_verifica(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
                            const uint8_t tag[CMAC_TAG_LEN])
 {
     int i = indice(h);
-    int r;
+    int r, r2;
 
     if ((i < 0) || (tag == 0)) {
         return -1;
@@ -451,9 +517,16 @@ int keystore_cmac_verifica(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
     }
 
     /* Tempo constante, e DENTRO da fronteira -- ver keystore.h. */
-    r = cmac_aes256_verifica(g_slots[i].chave, msg, msg_n, tag);
+    r  = cmac_aes256_verifica(g_slots[i].chave, msg, msg_n, tag);
+    r2 = cmac_aes256_verifica(g_slots[i].chave, msg, msg_n, tag);
     g_slots[i].contador_uso++;
     (void)hsm_cfs_wipe();
+
+    /* Dupla execucao, fase 6: o veredito e o que uma falha quer inverter. */
+    if (r != r2) {
+        erro_grave_marca();
+        return -2;
+    }
     return r;
 }
 

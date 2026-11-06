@@ -7,10 +7,22 @@
 /* Fase 1: o dispositivo nasce e permanece em UNINITIALIZED. As transicoes
  * chegam na fase 3 com a cerimonia de LMK. */
 static hsm_state_t g_state;
+static int         g_erro_grave;
 
 void state_init(void)
 {
-    g_state = HSM_UNINITIALIZED;
+    g_state      = HSM_UNINITIALIZED;
+    g_erro_grave = 0;
+}
+
+void erro_grave_marca(void)
+{
+    g_erro_grave = 1;
+}
+
+int erro_grave_ativo(void)
+{
+    return g_erro_grave;
 }
 
 void state_set(hsm_state_t s)

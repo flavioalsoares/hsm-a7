@@ -27,8 +27,15 @@ module clk_rst_gen #(
     output wire clk_o,       // 100 MHz
     output wire rst_n_o,     // sincrono a clk_o, ativo baixo
     output wire locked_o,    // MMCM travado
+`ifdef HSM_ATAQUE
+    input  wire glitch_i,    // so no bitstream de ataque: clock rapido
+`endif
     output wire lock_perdido_o  // retido: o lock caiu sem ninguem pedir
 );
+
+`ifndef GLITCH_DIV
+`define GLITCH_DIV 7         // 1000 MHz / 7 = 143 MHz
+`endif
 
     // ------------------------------------------------------------------
     // Sincronizacao do reset de entrada no dominio de clk_in_i
@@ -56,6 +63,7 @@ module clk_rst_gen #(
     // ------------------------------------------------------------------
     wire clkfb_out, clkfb_in;
     wire clk_out0;
+    wire clk_out1;
     wire locked_w;
 
     MMCME2_BASE #(
@@ -67,7 +75,11 @@ module clk_rst_gen #(
         .CLKOUT0_DIVIDE_F   (10.000),   // 1000 / 10 = 100 MHz
         .CLKOUT0_DUTY_CYCLE (0.500),
         .CLKOUT0_PHASE      (0.000),
+`ifdef HSM_ATAQUE
+        .CLKOUT1_DIVIDE     (`GLITCH_DIV),
+`else
         .CLKOUT1_DIVIDE     (1),
+`endif
         .CLKOUT2_DIVIDE     (1),
         .CLKOUT3_DIVIDE     (1),
         .CLKOUT4_DIVIDE     (1),
@@ -82,7 +94,7 @@ module clk_rst_gen #(
         .CLKFBOUTB(),
         .CLKOUT0  (clk_out0),
         .CLKOUT0B (),
-        .CLKOUT1  (),
+        .CLKOUT1  (clk_out1),
         .CLKOUT1B (),
         .CLKOUT2  (),
         .CLKOUT2B (),
@@ -99,7 +111,11 @@ module clk_rst_gen #(
     // Realimentacao por BUFG: compensa o atraso da rede global e mantem
     // clk_o alinhado em fase com clk_in_i.
     BUFG u_bufg_fb  (.I(clkfb_out), .O(clkfb_in));
+`ifdef HSM_ATAQUE
+    BUFGMUX u_bufg_out (.I0(clk_out0), .I1(clk_out1), .S(glitch_i), .O(clk_o));
+`else
     BUFG u_bufg_out (.I(clk_out0),  .O(clk_o));
+`endif
 
     assign locked_o = locked_w;
 

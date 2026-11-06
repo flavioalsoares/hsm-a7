@@ -1001,6 +1001,7 @@ static hsm_status_t h_key_info(const uint8_t *in, uint16_t in_len,
 static hsm_status_t h_cripto(const uint8_t *in, uint16_t in_len,
                              uint8_t *out, uint16_t *out_len, int cifrar)
 {
+    int r;
     ks_info_t info;
     uint32_t  n;
 
@@ -1022,21 +1023,16 @@ static hsm_status_t h_cripto(const uint8_t *in, uint16_t in_len,
     if (keystore_info(in[0], &info) != 0) {
         return STATUS_BAD_PARAM;
     }
-    if (keystore_usa_aes(in[0],
-                         cifrar ? (uint8_t)KS_MODO_CIFRA
-                                : (uint8_t)KS_MODO_DECIFRA) != 0) {
+    r = keystore_cbc_confere(in[0],
+                             cifrar ? (uint8_t)KS_MODO_CIFRA
+                                    : (uint8_t)KS_MODO_DECIFRA,
+                             &in[1], &in[1u + AES_BLOCO], out, n, cifrar);
+    if (r == -1) {
         return STATUS_BAD_KEY_USE;
     }
-
-    if (aes_cbc(&in[1], &in[1u + AES_BLOCO], out, n, cifrar) != 0) {
-        wipe(out, n);
-        (void)hsm_cfs_wipe();
-        return STATUS_INTERNAL_ERROR;
+    if (r != 0) {
+        return (r == -2) ? STATUS_CRYPTO_FAIL : STATUS_INTERNAL_ERROR;
     }
-
-    /* A chave expandida fica no aes_key_mem depois da operacao. Apagar
-     * agora, e nao "na proxima vez que alguem carregar chave". */
-    (void)hsm_cfs_wipe();
 
     *out_len = (uint16_t)n;
     return STATUS_OK;
@@ -1086,6 +1082,7 @@ static hsm_status_t h_decrypt(const uint8_t *in, uint16_t in_len,
 static hsm_status_t h_mac_generate(const uint8_t *in, uint16_t in_len,
                                    uint8_t *out, uint16_t *out_len)
 {
+    int r;
     ks_info_t info;
     uint32_t  n;
 
@@ -1105,8 +1102,9 @@ static hsm_status_t h_mac_generate(const uint8_t *in, uint16_t in_len,
     if (keystore_info(in[0], &info) != 0) {
         return STATUS_BAD_PARAM;
     }
-    if (keystore_cmac(in[0], (n > 0u) ? &in[1] : 0, n, out) != 0) {
-        return STATUS_BAD_KEY_USE;
+    r = keystore_cmac(in[0], (n > 0u) ? &in[1] : 0, n, out);
+    if (r != 0) {
+        return (r == -2) ? STATUS_CRYPTO_FAIL : STATUS_BAD_KEY_USE;
     }
 
     *out_len = CMAC_TAG_LEN;
@@ -1138,6 +1136,9 @@ static hsm_status_t h_mac_verify(const uint8_t *in, uint16_t in_len,
     r = keystore_cmac_verifica(in[0],
                                (n > 0u) ? &in[1u + CMAC_TAG_LEN] : 0, n,
                                &in[1]);
+    if (r == -2) {
+        return STATUS_CRYPTO_FAIL;
+    }
     if (r < 0) {
         return STATUS_BAD_KEY_USE;
     }
@@ -1293,7 +1294,8 @@ static hsm_status_t h_env_read(const uint8_t *in, uint16_t in_len,
     }
 
     hsm_env_le(&e);
-    out[0]  = e.retido;
+    /* 0x80 nao e causa de violacao: ambiente.c nunca o ve. */
+    out[0]  = (uint8_t)(e.retido | (erro_grave_ativo() ? 0x80u : 0u));
     out[1]  = e.agora;
     out[2]  = e.valido;
     out[3]  = (uint8_t)(e.temp >> 8);

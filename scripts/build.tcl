@@ -3,6 +3,10 @@
 set part    xc7a35tftg256-1
 set top     hsm_top
 set outdir  ./build
+# Bitstream de ataque da fase 6: HSM_ATAQUE=1 vivado ... ; GLITCH_DIV escolhe o
+# clock rapido (1000 MHz / divisor). Sem a variavel, sai o de producao.
+set ataque  [info exists ::env(HSM_ATAQUE)]
+set nome_bit $top
 set neorv32 ./third_party/neorv32
 
 file mkdir $outdir
@@ -95,8 +99,21 @@ foreach f [glob -nocomplain rtl/*/*.v rtl/*/*.vhd] {
 }
 read_xdc constraints/qmtech_a35t.xdc
 
+set defines {}
+if {$ataque} {
+    set div 7
+    if {[info exists ::env(GLITCH_DIV)]} { set div $::env(GLITCH_DIV) }
+    set defines [list -verilog_define HSM_ATAQUE -verilog_define GLITCH_DIV=$div]
+    read_xdc constraints/ataque.xdc
+    # Os clocks do MMCM so existem depois da sintese.
+    set_property USED_IN_SYNTHESIS false [get_files constraints/ataque.xdc]
+    set nome_bit hsm_ataque
+    set outdir  ./build/ataque
+    file mkdir $outdir
+}
+
 # ---------------------------------------------------------------------
-synth_design -top $top -part $part
+synth_design -top $top -part $part {*}$defines
 write_checkpoint -force $outdir/post_synth.dcp
 report_utilization -file $outdir/utilization_synth.txt
 
@@ -116,5 +133,5 @@ write_checkpoint -force $outdir/post_route.dcp
 report_timing_summary -file $outdir/timing.txt
 report_utilization    -file $outdir/utilization.txt
 
-write_bitstream -force $outdir/$top.bit
-puts "OK -> $outdir/$top.bit"
+write_bitstream -force $outdir/$nome_bit.bit
+puts "OK -> $outdir/$nome_bit.bit"

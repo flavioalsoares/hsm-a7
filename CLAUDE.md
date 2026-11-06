@@ -158,9 +158,9 @@ registrador de retrato.
 aceitar qualquer comando e cobre AES-256, SHA-256, HMAC-SHA-256 e CTR_DRBG
 contra vetores oficiais, mais os testes de partida da fonte. Falha leva a
 `TAMPERED`, e o dispositivo continua atendendo **só** ao `SELFTEST`. Custo
-medido: **9,25 ms** de boot. A série, toda medida na simulação (o
+medido: **10,19 ms** de boot. A série, toda medida na simulação (o
 `tb_tr31_block` reporta a cada rodada): 5,94 ms ao fim da fase 2 → 8,31 com
-o key block no POST → 9,09 com a prova de zeroização → 9,25 hoje. **Cada
+o key block no POST → 9,09 com a prova de zeroização → 9,25 → 10,19 na fase 6. **Cada
 propriedade que o dispositivo garante sobre si mesmo cobra milissegundos de
 todo boot, para sempre.**
 
@@ -248,7 +248,7 @@ sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste que
 reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
 disso.
 
-⚠ **Fase 4: a IMEM passou a 32 KB, e o firmware ocupa ~18,8 KB (57%).**
+⚠ **Fase 4: a IMEM passou a 32 KB. Na fase 6 o firmware ocupa 23 700 bytes (72%).**
 O que segue é o registro da fase 3, quando o teto era 16 KB.
 
 ⚠ **IMEM em 14 856 de 16 384 bytes (90,7%), com 1 528 livres.** A conta
@@ -614,8 +614,8 @@ com 100 de 100 voltas, e `BAD_KEY_USE` no console. Próximo passo: Fase 6.
 
 ## Fase 6 — tamper e ataques (em andamento, 2026-11-04)
 
-Tudo em `doc/fase6-notas.md`. Feitos: sensores do XADC e perda de lock. Faltam
-glitch com contramedidas, BBRAM e RO-PUF.
+Tudo em `doc/fase6-notas.md`. Feitos: sensores do XADC, perda de lock, glitch de
+clock e dupla execução. Faltam BBRAM e RO-PUF.
 
 - **`rtl/crypto/hsm_xadc.v`** detecta e retém; `fw/src/ambiente.c` responde.
   Limites do DS181 como `INIT` do primitivo, `DWE` em zero.
@@ -638,8 +638,24 @@ alarmes de tensão só em simulação. Timing **+0,471 ns**, 0 critical warnings
 7699 LUTs, 7698 FF, BRAM 13. Suíte: 19 testbenches; `tb_tamper` leva 3 h 15 e é
 o mais lento, seguido do `tb_ascii` (2 h 26).
 
-⚠ **A placa está em `UNINITIALIZED`, sem LMK, desde esse teste.** Os key blocks
-sob a `6935C4` só voltam com a cerimônia e os mesmos componentes.
+Suíte em 2026-11-06: 21 testbenches, 8 h 41, com `tb_glitch` e `tb_confere`.
+
+⚠ **O injetor de glitch nunca entra no bitstream de produção** (`HSM_ATAQUE`, ver
+`rtl/soc/glitch_inj.v`). Ele escuta a linha RX e não fala com a CPU, para o
+firmware atacado ser o de produção. Mudar isso invalida o que se mede.
+
+⚠ **O que sai ao host é calculado duas vezes** (`keystore_cbc_confere()`,
+`keystore_cmac()`, `keystore_cmac_verifica()`), **e a chave é carregada antes de
+cada execução.** Carregar uma vez só é falha de modo comum: a placa mostrou
+resultados errados com CRC válido e nenhuma discordância. Não "otimizar" isso.
+Discordou: `CRYPTO_FAIL` (`0x32`, `91` no ASCII), nada sai, e o erro grave fica
+marcado até o próximo boot (`0x80` no `retido`, D5 aceso). Chave nenhuma é apagada,
+por decisão do usuário. ✅ Validado na placa 2026-11-06: 0 resultados errados em
+13 506 tentativas, e `CRYPTO_FAIL` visto nas duas cargas. `tb_confere` cobra as
+duas cargas por pedido.
+
+⚠ **`glitch.py` reconfigura a placa depois de qualquer classe diferente de `ok`,**
+o que limpa o erro grave. O flag se lê sem reiniciar.
 
 ⚠ **A resposta apaga a BRAM ANTES de gravar o log**: exceção declarada à regra
 de log antes de executar, decidida pelo usuário.

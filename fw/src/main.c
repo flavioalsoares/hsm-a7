@@ -231,7 +231,7 @@ int main(void)
 
         /* Fase 6. Entre comandos: nao ha interrupcao, entao um comando em
          * curso termina antes. O mais longo apaga um setor da flash. */
-        if (ambiente_poll() != 0) {
+        if ((ambiente_poll() != 0) || erro_grave_ativo()) {
             neorv32_gpio_pin_set(LED_TAMPER, 1);
         }
 

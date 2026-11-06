@@ -627,10 +627,10 @@ faixa. É o mecanismo de proteção contra falhas ambientais do FIPS nível 4
 (seção 19), em versão mínima. Implementada, junto com a perda de lock do MMCM.
 Ver `doc/fase6-notas.md`, que diz também o que ela não protege.
 
-**Ataque:** atacar o próprio HSM. Glitch de clock pela porta de
-reconfiguração dinâmica do MMCM, observar a assinatura sair errada, e então
-implementar contramedidas — dupla execução, verificação de resultado (seção
-17.4).
+**Ataque:** atacar o próprio HSM. Glitch de clock num bitstream separado,
+observar o resultado sair errado, e então implementar contramedidas — dupla
+execução, verificação de resultado (seção 17.4). Enquanto a Fase 7 não existe, o
+alvo é o AES e o MAC, e não a assinatura.
 
 Também: bitstream encriptado com chave em BBRAM, como confidencialidade de
 firmware. E o experimento de RO-PUF, documentado à parte, que mede na própria

@@ -155,7 +155,11 @@ run_one() {
     [ -d "$ROOT/build/patched/aes" ]    && cripto+=("$ROOT"/build/patched/aes/*.v)
     [ -d "$ROOT/build/patched/sha256" ] && cripto+=("$ROOT"/build/patched/sha256/*.v)
 
-    if ! xvlog -i "$WORK/../vectors" \
+    # Testbench do bitstream de ataque: o proprio arquivo pede o define.
+    local defs=()
+    grep -q 'sim-define: HSM_ATAQUE' "$src" && defs=(-d HSM_ATAQUE)
+
+    if ! xvlog "${defs[@]}" -i "$WORK/../vectors" \
                "${cripto[@]}" \
                "$ROOT"/rtl/crypto/*.v \
                "$ROOT"/rtl/soc/*.v "$ROOT"/rtl/top/*.v \

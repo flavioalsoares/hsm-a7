@@ -50,4 +50,10 @@ hsm_state_t state_get(void);
 uint32_t    state_mask(void);
 const char *state_name(hsm_state_t s);
 
+/* Erro grave (fase 6): a dupla execucao discordou. Nao e um estado: as chaves
+ * ficam e os comandos seguem. A operacao foi recusada, e isto avisa que o
+ * dispositivo calculou errado. Fica ate o proximo boot; o log guarda o evento. */
+void erro_grave_marca(void);
+int  erro_grave_ativo(void);
+
 #endif /* STATE_H */

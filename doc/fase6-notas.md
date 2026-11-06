@@ -7,13 +7,13 @@ nele, e apaga as chaves sozinho. Num equipamento de verdade isso vem de malha
 no invólucro, chave de tampa e sensores, com bateria, e funciona até desligado.
 Esta placa não tem nada disso, então só sobra o que o próprio chip mede.
 
-O plano tem cinco frentes. Duas estão feitas:
+O plano tem cinco frentes:
 
 | Frente | Situação |
 |---|---|
 | Sensores de ambiente pelo XADC | feita |
 | Perda de lock do MMCM | feita |
-| Glitch de clock pelo DRP do MMCM, e contramedidas | não começada |
+| Glitch de clock, e contramedidas | feita |
 | Bitstream cifrado com chave em BBRAM | não começada, ver o aviso no fim |
 | Experimento de RO-PUF (`doc/puf-experimento.md`) | não começado |
 
@@ -115,7 +115,7 @@ Vale escrever sem rodeio: é uma demonstração do mecanismo, não proteção re
 - **O JTAG alcança o XADC pelo outro lado** e pode mudar os limites. Fechar o JTAG
   seria eFUSE, e isso não acontece neste projeto.
 - **Um glitch curto pode passar.** O alarme usa média de 16 leituras, algo na
-  faixa de 100 µs. É o que a frente de glitch vai medir.
+  faixa de 100 µs. O pulso de clock medido aqui não aciona nenhum sensor.
 - **O oscilador parado para o próprio detector de lock.** A queda é vista quando
   o clock voltar. Enquanto ele não volta, nada roda: a CPU está parada, mas a
   LMK continua na flash. A resposta só acontece depois.
@@ -150,6 +150,13 @@ tirou de `TAMPERED`. Reconfigurado da flash: `UNINITIALIZED`, 0 de 3 componentes
 `sem registro persistente`, log intacto, retenção limpa, limites de volta ao
 `INIT`.
 
+**Glitch e dupla execução, em 2026-11-06,** bitstream SHA-256 `a0f8c1d02414bf03…`:
+os 21 testbenches implementados passam, em 8 h 41, com `tb_glitch` e `tb_confere`
+novos. Timing e recursos iguais aos arquivados, porque o firmware mora em BRAM e o
+injetor fica fora deste bitstream. Firmware com 23 700 bytes de código, POST em
+10,19 ms. Na placa: POST verde, LMK preservada na troca de bitstream, `confere` com
+10 de 10 voltas pela serial e 100 de 100 pela ponte, nada retido.
+
 **Não provado na placa:**
 
 - Perda de lock: não há como parar o oscilador por software. Só simulação.
@@ -158,6 +165,131 @@ tirou de `TAMPERED`. Reconfigurado da flash: `UNINITIALIZED`, 0 de 3 componentes
 - D5 aceso e `tPr` no display: precisam de alguém olhando.
 - Tempo de resposta: o estado foi conferido até 12 s depois do disparo, e isso
   não mede a latência.
+
+## Glitch de clock
+
+A teoria está no manual, seção 17. Aqui fica como o ataque é montado.
+
+### Por que não pelo DRP
+
+O plano dizia "via DRP do MMCM". A XAPP888 (v1.8) exige o MMCM em reset durante
+a reconfiguração, ou um reset depois dela, e o modelo de simulação recusa a
+escrita fora de reset. Reset para o clock e reinicia o SoC, o que não é um pulso.
+Por isso o DRP foi descartado como injetor, e o ataque usa o `BUFGMUX`.
+
+### O injetor
+
+`rtl/soc/glitch_inj.v`, ligado só com `HSM_ATAQUE`. O MMCM ganha um segundo clock
+no `CLKOUT1`, e um `BUFGMUX` troca o clock do SoC por ele durante o pulso. A
+realimentação do MMCM não passa pelo mux, então o `LOCKED` não cai e o detector
+de perda de lock não vê nada.
+
+O injetor faz o papel do equipamento externo: escuta a linha RX e não fala com a
+CPU. **O firmware é o de produção**, e por isso uma contramedida é medida no
+mesmo código que vai para a placa. Ele se configura por um frame que o firmware
+recusa com `UNKNOWN_CMD`:
+
+```
+CMD 0xF7 | 'G' | 'L' | ATRASO(3) | LARGURA(1) | BYTES(2)
+```
+
+Depois do CRC desse frame ele fica armado. No fim do byte número `BYTES` do pedido
+seguinte, espera `ATRASO` ciclos e liga o clock rápido por `LARGURA` ciclos dele.
+Dispara uma vez e desarma. O disparo por contagem de bytes vem de fora, como o de
+um atacante, com a incerteza de quando o firmware atende o byte.
+
+```bash
+HSM_ATAQUE=1 GLITCH_DIV=5 vivado -mode batch -source scripts/build.tcl
+BIT=build/ataque/hsm_ataque.bit ./scripts/program.sh flash
+python3 host/glitch.py --alvo encrypt --handle 1 --de 0 --ate 100000 --passo 200
+```
+
+`GLITCH_DIV` divide o VCO de 1000 MHz. `constraints/ataque.xdc` tira o clock rápido
+da análise de timing, porque ele existe para violá-la; o domínio de 100 MHz
+continua analisado. Sem `HSM_ATAQUE`, o bitstream de produção sai igual, exceto
+pela data no cabeçalho.
+
+`tb_glitch` prova a largura, o atraso, o disparo único e o `LOCKED` firme. Ele
+**não** mostra a falha: simulação RTL não tem atraso de porta, então o clock rápido
+não viola nada ali. Só a placa mostra o erro.
+
+### A janela de falha
+
+`SELFTEST` como alvo, pulso de 255 ciclos, a 40 °C:
+
+| Pulso | Tentativas | Passou | Autoteste reprovou | Resposta inválida | CPU travou |
+|---|---|---|---|---|---|
+| 143 MHz | 7334 | 7334 | 0 | 0 | 0 |
+| 167 MHz | 551 | 551 | 0 | 0 | 0 |
+| 200 MHz | 551 | 542 | 8 | 1 | 0 |
+| 250 MHz | 317 | 27 | 25 | 0 | 265 |
+
+O timing garante cerca de 105 MHz, e este chip atravessa 167 MHz. A janela útil
+fica perto de 200 MHz, onde a CPU segue viva. Com o `SELFTEST` como alvo, um
+resultado errado aceito não é mensurável; para isso servem `ENCRYPT` e
+`MAC_VERIFY`.
+
+### Contramedida: dupla execução e erro grave
+
+O que sai ao host é calculado duas vezes e comparado: `keystore_cbc_confere()` para
+cifrar e decifrar, e `keystore_cmac()` e `keystore_cmac_verifica()` para MAC, nas
+duas portas. O key block fica de fora, porque o MAC dele já reprova um corpo errado.
+
+Quando as execuções discordam, o comando devolve `CRYPTO_FAIL` (`0x32`, ou `91` no
+ASCII) e nada sai. As chaves ficam: é o meio-termo decidido pelo usuário, porque
+recomissionar nem sempre é viável ou barato. O equipamento marca **erro grave**: bit
+`0x80` no `retido` do `ENV_READ` e D5 aceso com o display ainda em `OPE`, o que o
+separa de `tPr`. O flag vale até o próximo boot, e o log guarda o comando recusado.
+Os comandos seguintes continuam funcionando.
+
+**A chave é carregada para cada execução.** A primeira versão carregava uma vez, e
+a placa mostrou o defeito: resultados errados com CRC válido, nenhum `CRYPTO_FAIL`.
+As duas execuções concordavam no erro. A explicação está no manual, seção 17.4,
+"falha de modo comum". `tb_confere` cobra duas cargas por pedido, além de sabotar a
+segunda execução e exigir a recusa, a LMK no lugar e a chave ainda utilizável.
+
+O `tb_confere` não teria achado esse defeito sozinho: ele força o erro onde o teste
+escolhe. Quem valida esta contramedida é a medição na placa.
+
+### Resultado na placa
+
+Pulso de 200 MHz, 255 ciclos, `ENCRYPT` de 256 bytes. "Errado" é sucesso com
+resultado errado e CRC válido.
+
+| Firmware | Tentativas | Errado | `CRYPTO_FAIL` |
+|---|---|---|---|
+| Sem dupla execução | ~270 | 2 | não existia |
+| Chave carregada uma vez | 3601 | 4 | 0 |
+| Chave carregada a cada execução | 13 506 | **0** | 15 em 2703 |
+
+A última linha soma duas varreduras; só na segunda, de 2703 tentativas, o status
+das recusas foi classificado. Os `CRYPTO_FAIL` caem em duas janelas de cerca de
+900 ciclos, separadas por 34 000: a carga de chave de cada execução. A primeira é
+onde caíam os resultados errados da versão anterior, e isso confirma a falha de modo
+comum. Bitstreams diferentes têm posicionamento diferente, mas a falha continua
+acontecendo: o que mudou foi ela ser vista.
+
+Fora dessas janelas, o pulso dá em duas recusas sem consequência. Durante a
+conferência do pedido, `BAD_CRC`; durante a montagem da resposta, dados certos com
+CRC errado, que o host recusa.
+
+`MAC_VERIFY` com tag errada, 5002 tentativas: nenhuma tag falsa aceita, nenhum
+`CRYPTO_FAIL`, 482 `BAD_CRC` e 5 respostas inválidas.
+
+O erro grave foi visto depois de uma falha real, sem reiniciar: `retido = 0x80`, o
+`ENCRYPT` seguinte certo, o flag ainda ligado, KCV da LMK igual e `CRYPTO_FAIL` no
+log. D5 aceso precisa de alguém olhando.
+
+**O que isso não prova.** Zero em 13 506 é uma medida, não uma garantia: vale para
+este pulso, este chip e este bitstream. O injetor dá um pulso só, e um ataque com
+dois pulsos iguais, um em cada execução, não foi medido. A comparação e a resposta
+depois dela seguem sendo ponto comum.
+
+### O que o modelo não representa
+
+Um pulso aplicado de fora, no pino do oscilador, passaria pelo MMCM, que o
+filtraria. O injetor interno reproduz a violação de timing, não o caminho físico.
+Aqui, o ataque externo mais provável seria pela tensão.
 
 ## Bitstream cifrado: aviso antes de começar
 

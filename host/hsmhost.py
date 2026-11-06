@@ -50,6 +50,7 @@ ERROS = {
     22: "mensagem malformada",
     27: "falha no log de auditoria",
     90: "erro interno",
+    91: "erro grave: dupla execucao discordou",
 }
 
 

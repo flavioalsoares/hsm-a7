@@ -405,6 +405,7 @@ static uint8_t h_k2(leitor_t *in, escritor_t *out)
  * decifra. Entra no log, antes. */
 static uint8_t cripto(leitor_t *in, escritor_t *out, int cifrar)
 {
+    int            v;
     const uint8_t *b = 0;
     uint16_t       bn = 0u;
     uint8_t        iv[AES_BLOCO];
@@ -423,13 +424,15 @@ static uint8_t cripto(leitor_t *in, escritor_t *out, int cifrar)
     }
     if ((r = abre_bloco(b, bn, &info)) != ASCII_OK)            { return r; }
 
-    if (keystore_usa_aes(KS_HANDLE_EFEMERA,
-                         cifrar ? (uint8_t)KS_MODO_CIFRA
-                                : (uint8_t)KS_MODO_DECIFRA) != 0) {
+    v = keystore_cbc_confere(KS_HANDLE_EFEMERA,
+                             cifrar ? (uint8_t)KS_MODO_CIFRA
+                                    : (uint8_t)KS_MODO_DECIFRA,
+                             iv, g_dados, g_res, n, cifrar);
+    if (v == -1) {
         return ASCII_MODO;
     }
-    if (aes_cbc(iv, g_dados, g_res, n, cifrar) != 0) {
-        return ASCII_INTERNO;
+    if (v != 0) {
+        return (v == -2) ? ASCII_ERRO_GRAVE : ASCII_INTERNO;
     }
     poe_dec(out, n, 4u);
     poe_hex(out, g_res, n);
@@ -445,6 +448,7 @@ static uint8_t h_c2(leitor_t *in, escritor_t *out) { return cripto(in, out, 0); 
  * bloco, que e o servico; 'G' ou 'C' no `modo`; entra no log. */
 static uint8_t h_m0(leitor_t *in, escritor_t *out)
 {
+    int            v;
     const uint8_t *b = 0;
     uint16_t       bn = 0u;
     uint8_t        tag[CMAC_TAG_LEN];
@@ -459,9 +463,9 @@ static uint8_t h_m0(leitor_t *in, escritor_t *out)
     if ((r = fim(in)) != ASCII_OK)                             { return r; }
     if ((r = abre_bloco(b, bn, &info)) != ASCII_OK)            { return r; }
 
-    if (keystore_cmac(KS_HANDLE_EFEMERA, (n > 0u) ? g_dados : 0, n, tag)
-        != 0) {
-        return ASCII_MODO;
+    v = keystore_cmac(KS_HANDLE_EFEMERA, (n > 0u) ? g_dados : 0, n, tag);
+    if (v != 0) {
+        return (v == -2) ? ASCII_ERRO_GRAVE : ASCII_MODO;
     }
     poe_hex(out, tag, CMAC_TAG_LEN);
     return ASCII_OK;
@@ -493,6 +497,9 @@ static uint8_t h_m2(leitor_t *in, escritor_t *out)
 
     v = keystore_cmac_verifica(KS_HANDLE_EFEMERA, (n > 0u) ? g_dados : 0,
                                n, tag);
+    if (v == -2) {
+        return ASCII_ERRO_GRAVE;
+    }
     if (v < 0) {
         return ASCII_MODO;
     }

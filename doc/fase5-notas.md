@@ -161,6 +161,7 @@ control é para cerimônia, e a cerimônia não passa por aqui.
 | `22` | mensagem malformada: campo faltando ou sobrando |
 | `27` | falha ao registrar no log de auditoria — o comando não executou |
 | `90` | erro interno |
+| `91` | erro grave: a dupla execução discordou (fase 6) |
 
 Mensagem com menos de 6 caracteres não tem comando para responder: volta com
 o cabeçalho que veio (completado com `0`), resposta `ZZ` e erro `22`.

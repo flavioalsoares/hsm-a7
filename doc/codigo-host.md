@@ -248,7 +248,30 @@ dividirem a UART; para a cerimônia, pare a ponte.
 
 ---
 
-## 6. Como acrescentar um subcomando
+## 6. `glitch.py`: varredura do injetor de falha (fase 6)
+
+Só funciona com o bitstream de ataque na placa, e só se fala com ele pela serial
+comum. Para cada atraso, arma o injetor com um frame `0xF7` (que o firmware recusa
+com `UNKNOWN_CMD`, e quem lê é o injetor), manda o comando alvo e classifica a
+resposta. Os alvos são `selftest`, `encrypt` e `mac-verify`.
+
+| Classe | Significado |
+|---|---|
+| `ok` | respondeu certo |
+| `detectou` | o dispositivo recusou; o detalhe traz o status |
+| `ERRADO` | sucesso com resultado errado: a falha passou |
+| `ERRADO-crc` | idem, com CRC errado |
+| `crc-so` | só o CRC saiu errado, com os dados certos |
+| `mudo` | não respondeu; a placa é reconfigurada da flash |
+| `lixo` | frame inválido |
+
+No alvo `encrypt` a resposta é lida crua: o CRC é do transporte, não controle de
+segurança, e um frame com CRC errado também precisa ser classificado. A referência
+vem do próprio dispositivo, numa execução sem pulso armado.
+
+---
+
+## 7. Como acrescentar um subcomando
 
 1. a constante `CMD_<NOME>`, copiando o valor de `fw/include/cmd.h`;
 2. o nome do status novo em `STATUS_NAMES`, se houver;
