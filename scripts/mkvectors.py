@@ -17,6 +17,7 @@ mistura duas responsabilidades.
 Saída em build/, que está no .gitignore: é derivado de vectors/.
 """
 
+import hashlib
 import pathlib
 import re
 import sys
@@ -159,6 +160,66 @@ def sha256_padded():
     return len(digests)
 
 
+def rsa():
+    """RSA: produtos de Montgomery e o KAT do SigGen15.
+
+    O KAT e do CAVP: S^e mod n tem de dar o EM de PKCS#1 v1.5. Os produtos sao
+    conta de inteiros do Python sobre o n do mesmo arquivo. a, b e o esperado
+    nao sao vetores de autoridade, e sim a referencia do testbench.
+    """
+    texto = (VEC / "rsa" / "SigGen15_186-3.rsp").read_text()
+    texto = texto.split("[mod = 3072]")[0]
+    n = int(re.search(r"^n = (\w+)", texto, re.M)[1], 16)
+    e = int(re.search(r"^e = (\w+)", texto, re.M)[1], 16)
+    prefixo = bytes.fromhex("3031300d060960864801650304020105000420")
+
+    def limbs(x):
+        return [(x >> (16 * i)) & 0xFFFF for i in range(128)]
+
+    def n0p(m):
+        return (-pow(m, -1, 1 << 16)) % (1 << 16)
+
+    def pseudo(semente, m):
+        h, x = semente.encode(), 0
+        for _ in range(9):
+            h = hashlib.sha256(h).digest()
+            x = (x << 256) | int.from_bytes(h, "big")
+        return x % m
+
+    modulos = [(128, n), (64, (n >> 1024) | 1), (2, (n >> 2016) | 1),
+               (1, (n >> 2032) | 1)]
+    produtos, cfg = [], []
+    for L, m in modulos:
+        R = 1 << (16 * L)
+        casos = [(0, 1), (1, 1), (1, m - 1), (m - 1, m - 1), (R % m, R % m)]
+        casos += [(pseudo(f"a{L}{i}", m), pseudo(f"b{L}{i}", m)) for i in range(6)]
+        for a, b in casos:
+            esperado = a * b * pow(R, -1, m) % m
+            produtos += limbs(m) + limbs(a) + limbs(b) + limbs(esperado)
+            cfg += [L, n0p(m)]
+    escreve("rsa_mont", ["%04x" % x for x in produtos], 4)
+    escreve("rsa_mont_cfg", ["%04x" % x for x in cfg], 4)
+
+    kat = limbs(n) + limbs((1 << 4096) % n)
+    total = 0
+    for v in re.finditer(r"SHAAlg = SHA256\nMsg = (\w+)\nS = (\w+)", texto):
+        t = prefixo + hashlib.sha256(bytes.fromhex(v[1])).digest()
+        em = int.from_bytes(b"\0\1" + b"\xff" * (253 - len(t)) + b"\0" + t, "big")
+        s = int(v[2], 16)
+        if pow(s, e, n) != em:
+            raise SystemExit("SigGen15: vetor nao fecha em Python")
+        kat += limbs(s) + limbs(em)
+        total += 1
+    escreve("rsa_kat", ["%04x" % x for x in kat], 4)
+
+    # Pedido do R4: o segundo vetor, porque o POST usa o primeiro.
+    v = list(re.finditer(r"SHAAlg = SHA256\nMsg = (\w+)\nS = (\w+)", texto))[1]
+    r4 = (n.to_bytes(256, "big") + e.to_bytes(4, "big") +
+          hashlib.sha256(bytes.fromhex(v[1])).digest() + bytes.fromhex(v[2]))
+    escreve("rsa_r4", ["%02x" % x for x in r4], 2)
+    return len(cfg) // 2, total, n0p(n), e
+
+
 def main():
     if not VEC.exists():
         raise SystemExit("vectors/ ausente — rode ./scripts/fetch-vectors.sh")
@@ -166,6 +227,7 @@ def main():
     n_ecb, _ = aes("ECB")
     n_cbc, _ = aes("CBC")
     n_sha = sha256_padded()
+    n_rsa_mont, n_rsa_kat, rsa_n0p, rsa_e = rsa()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.
@@ -175,6 +237,10 @@ def main():
         f"`define N_AES_ECB {n_ecb}\n"
         f"`define N_AES_CBC {n_cbc}\n"
         f"`define N_SHA256  {n_sha}\n"
+        f"`define N_RSA_MONT {n_rsa_mont}\n"
+        f"`define N_RSA_KAT  {n_rsa_kat}\n"
+        f"`define RSA_N0P   16'h{rsa_n0p:04x}\n"
+        f"`define RSA_E     32'h{rsa_e:08x}\n"
     )
     print(f"  counts.vh: ECB={n_ecb} CBC={n_cbc} SHA={n_sha}")
     print(f"=== ok -> {OUT}")

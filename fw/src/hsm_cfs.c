@@ -26,6 +26,12 @@
 #define R_DNA_LO   64u    /* 0x100 */
 #define R_DNA_HI   65u    /* 0x104 */
 
+#define R_RSA_CTRL   128u  /* 0x200 */
+#define R_RSA_N0P    129u  /* 0x204 */
+#define R_RSA_STATUS 130u  /* 0x208 */
+#define R_RSA_ADDR   131u  /* 0x20C */
+#define R_RSA_DATA   132u  /* 0x210 */
+
 #define C_AES_INIT  0x01u
 #define C_AES_NEXT  0x02u
 #define C_AES_ENC   0x04u
@@ -374,4 +380,51 @@ void hsm_env_le(hsm_env_t *e)
     e->vccint  = (uint16_t)(ti & 0xFFFu);
     e->vccaux  = (uint16_t)(ab >> 16);
     e->vccbram = (uint16_t)(ab & 0xFFFu);
+}
+
+/* ------------------------------------------------------------------ */
+/* RSA                                                                 */
+/* ------------------------------------------------------------------ */
+
+void hsm_cfs_rsa_n0p(uint16_t v)
+{
+    NEORV32_CFS->REG[R_RSA_N0P] = v;
+}
+
+void hsm_cfs_rsa_escreve(uint16_t janela, const uint8_t *be, uint32_t limbs)
+{
+    uint32_t i, p;
+
+    NEORV32_CFS->REG[R_RSA_ADDR] = janela;
+    for (i = 0u; i < limbs; i++) {
+        p = 2u * (limbs - 1u - i);          /* limb 0 = menos significativo */
+        NEORV32_CFS->REG[R_RSA_DATA] = ((uint32_t)be[p] << 8) | be[p + 1u];
+    }
+}
+
+void hsm_cfs_rsa_le(uint16_t janela, uint8_t *be, uint32_t limbs)
+{
+    uint32_t i, p, v;
+
+    NEORV32_CFS->REG[R_RSA_ADDR] = janela;
+    for (i = 0u; i < limbs; i++) {
+        p = 2u * (limbs - 1u - i);
+        v = NEORV32_CFS->REG[R_RSA_DATA];
+        be[p]      = (uint8_t)(v >> 8);
+        be[p + 1u] = (uint8_t)v;
+    }
+}
+
+int hsm_cfs_rsa_mont(unsigned dst, unsigned a, unsigned b, uint32_t limbs)
+{
+    uint32_t i;
+
+    NEORV32_CFS->REG[R_RSA_CTRL] = 1u | (dst << 4) | (a << 8) | (b << 12) |
+                                   (limbs << 16);
+    for (i = 0u; i < CFS_SPIN_LIMIT; i++) {
+        if ((NEORV32_CFS->REG[R_RSA_STATUS] & 1u) == 0u) {
+            return 0;
+        }
+    }
+    return -1;
 }

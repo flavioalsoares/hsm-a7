@@ -18,6 +18,7 @@
  * chave nenhuma.
  */
 #include "cmd_ascii.h"
+#include "rsa.h"
 #include "aes_modos.h"
 #include "audit_log.h"
 #include "cmac.h"
@@ -506,6 +507,40 @@ static uint8_t h_m2(leitor_t *in, escritor_t *out)
     return (v == 1) ? ASCII_OK : ASCII_VERIF_FALHOU;
 }
 
+/* R4 -- verificar assinatura RSA: n(512) . e(8) . digest(64) . S(512).
+ *       Assinatura PKCS#1 v1.5 com SHA-256. Erro 01 se nao confere.
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao, e nao usa chave nenhuma do dispositivo.
+ *   em laco      so dados publicos entram, e sai um bit.
+ *   exportacao   nao se aplica.
+ *   log          sim, antes de executar, como M2.
+ */
+static uint8_t h_r4(leitor_t *in, escritor_t *out)
+{
+    static uint8_t n[RSA_BYTES], s[RSA_BYTES];
+    uint8_t        ee[4], digest[RSA_SHA256_LEN];
+    uint32_t       e;
+    uint8_t        r;
+    int            v;
+
+    (void)out;
+    if ((r = le_hex(in, n, RSA_BYTES)) != ASCII_OK)            { return r; }
+    if ((r = le_hex(in, ee, 4u)) != ASCII_OK)                  { return r; }
+    if ((r = le_hex(in, digest, RSA_SHA256_LEN)) != ASCII_OK)  { return r; }
+    if ((r = le_hex(in, s, RSA_BYTES)) != ASCII_OK)            { return r; }
+    if ((r = fim(in)) != ASCII_OK)                             { return r; }
+
+    e = ((uint32_t)ee[0] << 24) | ((uint32_t)ee[1] << 16) |
+        ((uint32_t)ee[2] << 8) | ee[3];
+    v = rsa_verifica(n, e, digest, s);
+    if (v < 0) {
+        return ASCII_PARAM;
+    }
+    return (v == 1) ? ASCII_OK : ASCII_VERIF_FALHOU;
+}
+
 /* K4 -- exportar sob KEK: bloco da KEK . bloco da chave (os dois sob a
  *       LMK) -> bloco da chave sob a KEK . KCV(6)
  *
@@ -643,6 +678,7 @@ static const ascii_entry_t g_ascii[] = {
     { 'C', '2', ST_OPER,   h_c2, L },
     { 'M', '0', ST_OPER,   h_m0, L },
     { 'M', '2', ST_OPER,   h_m2, L },
+    { 'R', '4', ST_OPER,   h_r4, L },
 };
 
 #undef L

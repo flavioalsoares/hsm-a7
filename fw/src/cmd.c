@@ -275,7 +275,8 @@ static hsm_status_t h_selftest(const uint8_t *in, uint16_t in_len,
 
     r = kat_post();
     out[0]   = (uint8_t)r;
-    *out_len = 1u;
+    out[1]   = (uint8_t)(r >> 8);
+    *out_len = 2u;
 
     /* ⚠ O AUTOTESTE E DESTRUTIVO, E ISSO NAO PODE FICAR IMPLICITO.
      *

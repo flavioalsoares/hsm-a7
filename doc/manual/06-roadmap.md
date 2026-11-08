@@ -641,14 +641,230 @@ obrigatório.
 Esta é a fase mais divertida e a mais instrutiva: construir, quebrar,
 reforçar.
 
-## 32. Fase 7 — assimétrico
+## 32. Fase 7 — assimétrico *(em andamento)*
 
-RSA-2048 por Montgomery nos 90 DSP48E1; P-256 depois.
+RSA-2048 primeiro, P-256 depois. Deixado por último de propósito: o
+aprendizado de arquitetura de HSM está nas fases 3 a 5. E há um gancho direto
+com a seção 17.1 — implementar RSA-CRT sem verificar a assinatura antes de
+emitir é reproduzir o ataque Bellcore no próprio equipamento.
 
-Deixado por último de propósito: o aprendizado de arquitetura de HSM está nas
-fases 3 a 5. E há um gancho direto com a seção 17.1 — implementar RSA-CRT
-sem verificar a assinatura antes de emitir é reproduzir o ataque Bellcore no
-próprio equipamento.
+Até aqui a fase entregou a **verificação** de assinatura RSA-2048: um
+multiplicador modular no fabric, a exponenciação no firmware, o KAT no POST e o
+comando `R4` na porta host. A assinatura, que usa a chave privada, vem depois.
+As medidas e o estado de cada peça estão em `doc/fase7-notas.md`.
+
+### Por que um HSM precisa de criptografia assimétrica
+
+Tudo o que o dispositivo fazia até a fase 6 é **simétrico**: quem cifra e quem
+decifra têm a mesma chave. Isso funciona dentro de uma instituição, e entre
+duas só depois de elas já terem uma chave em comum — foi o que a KEK da seção 30
+resolveu, por componentes levados em mãos.
+
+A criptografia assimétrica separa a chave em duas metades. A **privada** fica
+dentro da fronteira e nunca sai; a **pública** pode ser publicada. O que uma
+faz, só a outra confere. Disso saem dois serviços que a simétrica não presta:
+
+- **assinatura:** só o dono da privada produz, qualquer um confere. Prova
+  origem sem segredo compartilhado;
+- **troca de chave:** duas partes que nunca se encontraram combinam uma chave
+  simétrica por um canal aberto.
+
+Num HSM de pagamento, os dois aparecem na carga remota de chaves: o terminal e
+o centro de processamento trocam a chave de transporte por certificados e
+assinaturas, sem custodiantes viajando com envelopes.
+
+### RSA em uma página
+
+Escolhem-se dois primos grandes, `p` e `q`, e calcula-se `n = p·q`. O expoente
+público `e` é um número pequeno e ímpar; o privado `d` é o inverso de `e`
+módulo `(p−1)(q−1)`. Chave pública: `(n, e)`. Chave privada: `d` — ou,
+equivalentemente, `p` e `q`, porque com eles se calcula `d`.
+
+```
+    assinar:    s = m^d mod n          (só quem tem d)
+    verificar:  s^e mod n == m ?       (qualquer um com n e e)
+```
+
+Com números de brinquedo: `p = 61`, `q = 53`, `n = 3233`, `e = 17`, `d = 2753`.
+A assinatura de `m = 65` é `65^2753 mod 3233 = 588`, e quem verifica calcula
+`588^17 mod 3233 = 65`. Confere.
+
+A segurança vem de que, conhecendo só `n`, achar `p` e `q` é fatorar — e para
+`n` de 2048 bits (617 dígitos decimais) não se conhece método viável. Toda a
+operação, porém, é **uma única conta**: elevar um número de 2048 bits a outro e
+reduzir módulo um terceiro. O resto desta seção é sobre como fazer essa conta
+num FPGA pequeno, e fazê-la sem vazar `d`.
+
+### Exponenciação: elevar sem calcular a potência
+
+`m^d` com `d` de 2048 bits não se calcula multiplicando `m` por ele mesmo `d`
+vezes — seriam `2^2048` multiplicações. Lê-se o expoente bit a bit, do mais
+alto para o mais baixo:
+
+```
+    acc = 1
+    para cada bit de d:
+        acc = acc · acc mod n          (eleva ao quadrado: sempre)
+        se o bit é 1:
+            acc = acc · m mod n        (multiplica: só nos bits 1)
+```
+
+É o *square-and-multiply*. Para um expoente de 2048 bits são 2048 quadrados e,
+em média, 1024 multiplicações — cerca de 3000 produtos modulares de 2048 bits.
+Para verificar, com `e` pequeno, bastam algumas dezenas. É por isso que
+verificar é barato e assinar é caro.
+
+⚠ **O `se o bit é 1` é o ataque de temporização da seção 16.1.** Um bit 1
+custa um produto a mais, e quem mede o tempo lê o expoente. Com `e`, que é
+público, o desvio é inofensivo e o firmware o usa. Com `d`, a exponenciação
+tem de fazer **o mesmo trabalho para todo bit** — é o que a escada de
+Montgomery, que vem com a assinatura, garante.
+
+### O problema da divisão, e a solução de Montgomery
+
+Cada produto modular é uma multiplicação seguida de `mod n`, e `mod n` é o
+resto de uma **divisão** de um número de 4096 bits por um de 2048. Divisão é a
+operação mais cara que existe em hardware: não se faz em paralelo, e cada
+dígito do quociente depende do anterior.
+
+Montgomery (1985) trocou a divisão por `n` por uma divisão por **potência de
+dois**, que em binário é só descartar bits. A ideia é trabalhar com os números
+numa representação deslocada: em vez de `a`, guarda-se `a·R mod n`, com
+`R = 2^2048`. O produto de Montgomery de duas representações calcula
+
+```
+    MontProd(x, y) = x · y · R⁻¹ mod n
+```
+
+e, se `x = a·R` e `y = b·R`, o resultado é `a·b·R` — a representação de `a·b`.
+O fator `R` extra se cancela a cada produto, e o resultado já está pronto para o
+próximo.
+
+O truque está em como se divide por `R` sem errar. O produto `T = x·y` não é
+múltiplo de `R`, mas pode-se somar a ele um múltiplo de `n` que torna os bits
+baixos zero — e somar múltiplo de `n` não muda o valor módulo `n`. O múltiplo
+certo é `m = T · n' mod R`, com `n' = −n⁻¹ mod R`, calculado uma vez por chave:
+
+```
+    T = x · y
+    m = (T mod R) · n'  mod R        (só os bits baixos interessam)
+    u = (T + m · n) / R              (divisão exata: descarta bits)
+    se u ≥ n:  u = u − n             (a "subtração final")
+```
+
+Com números pequenos: `n = 97`, `R = 128`, `a = 20`, `b = 30`. As
+representações são `20·128 mod 97 = 38` e `30·128 mod 97 = 57`;
+`T = 38·57 = 2166`; `n' = 95`; `m = 2166·95 mod 128 = 74`;
+`u = (2166 + 74·97) / 128 = 9344 / 128 = 73`. E de fato
+`20·30·128 mod 97 = 73`: a representação de `a·b`, sem nenhuma divisão por 97.
+
+Entrar na representação custa um produto por `R² mod n`, e sair, um produto
+por `1`. Numa exponenciação de milhares de produtos, as duas conversões são
+irrelevantes.
+
+### Limbs, DSPs e o FIOS
+
+Um número de 2048 bits não cabe em multiplicador nenhum. Ele é cortado em
+**limbs** — 128 pedaços de 16 bits — e o produto vira uma multiplicação de
+escola primária, limb contra limb, como se faz à mão com algarismos. Cada
+multiplicação de 16 × 16 bits cabe num **DSP48E1**, o bloco multiplicador
+dedicado do Artix-7.
+
+A forma ingênua calcula `x·y` inteiro (4096 bits) e só depois reduz. O FIOS
+(*Finely Integrated Operand Scanning*, Koç, Acar e Kaliski, 1996) intercala as
+duas coisas: a cada limb de `x`, multiplica por `y`, soma o múltiplo de `n` que
+zera o limb mais baixo e descarta esse limb. O acumulador nunca passa de
+2048 bits mais um pouco, e a redução não custa uma segunda passada. Dois
+multiplicadores trabalham juntos — um para `x·y`, outro para `m·n` —, e um
+produto de 2048 bits leva cerca de `128²` ciclos: 18 433, medidos, ou 184 µs a
+100 MHz.
+
+O plano original falava em usar "os 90 DSP48E1". O core usa **4**. Paralelizar
+mais encurtaria o produto, mas o gargalo de um HSM didático não é a vazão de
+assinaturas — e cada DSP a mais é área e rota no fabric apertado do XC7A35T.
+
+### Hardware faz o produto, firmware faz a política
+
+O coprocessador faz **uma** coisa: `dst = a · b · R⁻¹ mod n`, sobre oito
+registradores internos de 2048 bits numa Block RAM. Tudo o mais é firmware:
+calcular `n'` e `R² mod n`, percorrer o expoente, montar e conferir o
+enchimento. É a mesma divisão do TRNG na seção 27: o que custa ciclo fica no
+hardware, e o que é decisão fica em C, onde se lê e se testa.
+
+Três propriedades do core são de segurança, não de desempenho:
+
+- **Tempo constante.** O algoritmo de livro faz a subtração final só quando
+  `u ≥ n` — e esse desvio vaza informação sobre os operandos, o que já bastou
+  para recuperar chaves RSA (Walter e Thompson, 2001; Schindler, 2000). Aqui
+  a subtração **sempre** acontece, e um multiplexador escolhe entre `u` e
+  `u − n` na hora de gravar. Todo produto do mesmo tamanho leva o mesmo número
+  de ciclos, e o testbench cobra isso.
+- **Módulo só de escrita.** Na verificação, `n` é público. Na assinatura com
+  CRT, o módulo de cada metade é `p` ou `q` — a chave privada. O registrador do
+  módulo não tem caminho de leitura pelo barramento.
+- **Zeroização.** O `WIPE` global do coprocessador apaga as três memórias do
+  core, interrompendo qualquer produto em curso.
+
+O tamanho do produto é configurável, de 16 a 2048 bits, para que o mesmo core
+sirva às metades de 1024 bits do CRT.
+
+### PKCS#1 v1.5: o que se assina não é o hash
+
+RSA puro é perigosamente maleável: se `s₁` assina `m₁` e `s₂` assina `m₂`,
+então `s₁·s₂` assina `m₁·m₂`. E um hash de 256 bits, elevado a `e`, é um
+número pequeno demais perto de `n`. Por isso o que se assina é o hash
+**embrulhado** num bloco do tamanho de `n` (RFC 8017, seção 9.2):
+
+```
+    EM = 00 01 FF FF ... FF 00 || DigestInfo(SHA-256) || hash
+```
+
+O `DigestInfo` diz qual hash foi usado — sem ele, uma assinatura sobre um hash
+fraco poderia passar por assinatura sobre um forte.
+
+⚠ **A verificação reconstrói o `EM` inteiro e compara, em vez de interpretá-lo.**
+Bleichenbacher (2006) mostrou que verificadores que *liam* o bloco — achavam o
+`00`, pulavam os `FF`, extraíam o hash — aceitavam lixo depois do hash. Com
+`e = 3`, isso deixava forjar assinaturas com uma raiz cúbica, sem chave
+nenhuma. Quem monta o bloco esperado e compara byte a byte não tem parser para
+enganar. A comparação acumula diferenças, como a de MAC da seção 16.1.
+
+### O `R4`, o primeiro comando sem chave nenhuma
+
+`R4` recebe `n`, `e`, o hash e a assinatura, e devolve **um bit**: `00`
+confere, `01` não confere. Só dados públicos entram, e nada do dispositivo
+sai. Fica em `OPERATIONAL` e entra no log, como os demais.
+
+Parece estranho um HSM verificar algo que qualquer computador verifica. A
+razão é a mesma da fronteira inteira: quando a decisão de aceitar uma chave
+importada depende de uma assinatura conferir — que é o que acontece na carga
+remota —, a verificação tem de ser feita **dentro** da fronteira, ou um host
+comprometido diria "conferiu" sobre qualquer coisa.
+
+Uma consequência prática: um pedido `R4` tem mais de 1100 caracteres, e o
+limite de mensagem subiu de 512 para 2048 bytes. Um key block com uma chave
+RSA privada, quando vier, é ainda maior.
+
+### O preço no boot
+
+O POST ganhou o KAT de RSA: verificar uma assinatura oficial do CAVP e
+**recusar** a mesma assinatura com um bit trocado. O vetor tem `e = 0x260445`,
+de 22 bits, e cada verificação custa cerca de 9 ms. O boot passou de 10,19 ms
+para **28,27 ms** — a seção 11 avisou que cada propriedade que o dispositivo
+garante sobre si mesmo cobra milissegundos de todo boot, para sempre.
+
+### O que falta
+
+A metade privada:
+
+- **chave RSA privada como key block sob a LMK**, mantida pelo host como as
+  chaves AES da porta host;
+- **geração de chave** dentro da fronteira, com primos testados por
+  Miller-Rabin;
+- **assinatura com CRT** e escada de Montgomery, em tempo constante;
+- **verificação antes de emitir**, que é a contramedida do Bellcore (seção
+  17.1), somada à dupla execução da fase 6;
+- e só então P-256.
 
 ## 33. Fase 8 — criptografia de pagamento
 

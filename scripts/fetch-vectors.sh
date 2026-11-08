@@ -39,6 +39,10 @@ DRBG_SHA="5f7e5658ebd5b4e6785a7b12fa32333511d2acc2f2d9c5ae1ffa16b699377769"
 CMAC_URL="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/mac/cmactestvectors.zip"
 CMAC_SHA="bdda4edade394c9a2ae74d9cd0921caa120c911a5e735e37abf39d0d5f062be1"
 
+# RSA -- fase 7. Assinatura PKCS#1 v1.5 do FIPS 186-3.
+RSA_URL="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/dss/186-3rsatestvectors.zip"
+RSA_SHA="8405aeb3572a4f98ed4b1a3ccb3f2f49e725462dd28ec4759d6a15d88855d19c"
+
 # X9.143 / TR-31 versao D -- LEIA O MANIFEST ANTES DE CONFIAR NESTE.
 #
 # Nao e vetor do CAVP e nao ha como ser: o CAVP valida ALGORITMO, e
@@ -99,6 +103,7 @@ fetch "$HMAC_URL" "$HMAC_SHA" "$TMP/rfc4231.txt"
 fetch "$DRBG_URL" "$DRBG_SHA" "$TMP/drbgtestvectors.zip"
 fetch "$CMAC_URL" "$CMAC_SHA" "$TMP/cmactestvectors.zip"
 fetch "$TR31_URL" "$TR31_SHA" "$TMP/psec_test_tr31.py"
+fetch "$RSA_URL" "$RSA_SHA" "$TMP/186-3rsatestvectors.zip"
 
 echo "=== extraindo"
 unzip -qo "$TMP/KAT_AES.zip" 'ECB*256.rsp' 'CBC*256.rsp' -d "$VEC/aes/"
@@ -111,6 +116,10 @@ cp "$TMP/rfc4231.txt" "$VEC/hmac/"
 # que este projeto nao usa e nao deve ter a mao.
 mkdir -p "$VEC/cmac"
 unzip -qjo "$TMP/cmactestvectors.zip" 'CMACGenAES256.rsp' -d "$VEC/cmac/"
+
+# RSA: so a geracao PKCS#1 v1.5. O zip tem 4,7 MB com geracao de chave e PSS.
+mkdir -p "$VEC/rsa"
+unzip -qjo "$TMP/186-3rsatestvectors.zip" 'SigGen15_186-3.rsp' -d "$VEC/rsa/"
 
 # X9.143: um vetor so, copiado literalmente da tupla do arquivo de
 # origem. A extracao e mecanica e falha se achar numero diferente de um.

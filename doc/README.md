@@ -90,6 +90,8 @@ indisponibilidade de vetores de teste públicos.
 | [`fase6-notas.md`](fase6-notas.md) | Fase 6 — sensores de ambiente, perda de lock, resposta a violação, glitch de clock, dupla execução e o que isso não protege |
 | [`puf-experimento.md`](puf-experimento.md) | Experimento de RO-PUF da Fase 6 — mede por que um PUF de FPGA é ruim |
 | [`puf_resultados.md`](puf_resultados.md) | O que o RO-PUF mediu nesta placa |
+| [`fase7-notas.md`](fase7-notas.md) | Fase 7 — verificação RSA: produto de Montgomery no CFS, firmware, `R4`, medidas e o que falta |
+| `utilization_fase7.txt`, `timing_fase7.txt` | Recursos e timing com o RSA dentro do SoC |
 | `utilization_fase6.txt`, `timing_fase6.txt` | Recursos e timing com o XADC e a perda de lock |
 | `utilization_fase3.txt`, `timing_fase3.txt` | Recursos e timing com o key store dentro |
 | `utilization_fase1.txt` | Relatório de utilização (linha base de recursos) |

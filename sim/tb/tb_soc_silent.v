@@ -25,11 +25,11 @@ module tb_soc_silent;
 
     // Precisa cobrir o POST INTEIRO, que roda antes de main() acender o
     // LED de atividade: KAT de AES, SHA, HMAC e CTR_DRBG, mais os testes
-    // de partida da fonte de entropia sobre 1024 amostras. Sao alguns
-    // milissegundos de tempo simulado -- irrelevante em hardware, caro
-    // aqui. Encolher esta janela nao acelera nada: so faz o teste reprovar
+    // de partida da fonte de entropia sobre 1024 amostras, e desde a fase 7
+    // duas exponenciacoes RSA de 2048 bits (26,86 ms no total). Irrelevante
+    // em hardware, caro aqui. Encolher esta janela nao acelera nada: so faz o teste reprovar
     // um dispositivo que estava apenas ocupado.
-    localparam real WATCH_NS = 12000000.0;  // 12 ms
+    localparam real WATCH_NS = 32000000.0;  // 32 ms
 
     reg  sys_clk = 1'b0;
     reg  rst_n   = 1'b0;

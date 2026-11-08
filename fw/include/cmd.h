@@ -22,10 +22,10 @@
 #include <stdint.h>
 #include "hsm_status.h"
 
-/* Payload maximo. Dimensionado para o key block TR-31 da fase 3, que e o
- * maior objeto previsto atravessar a fronteira. Dois buffers deste tamanho
- * custam ~1 KB dos 8 KB de DMEM. */
-#define CMD_MAX_PAYLOAD   512u
+/* Payload maximo. Dimensionado para a fase 7: um key block de chave privada
+ * RSA tem cerca de 1,5 KB em texto. Tres buffers deste tamanho custam ~6 KB
+ * dos 16 KB de DMEM. */
+#define CMD_MAX_PAYLOAD   2048u
 
 /* LEN minimo = 1 (so o byte de CMD, payload vazio) */
 #define CMD_MIN_LEN       1u

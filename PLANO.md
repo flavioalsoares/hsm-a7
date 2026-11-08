@@ -555,6 +555,10 @@ nada do que vem antes.
 **Fase 7 — assimétrico.** RSA-2048 por Montgomery nos 90 DSP48E1; P-256 depois.
 Deixar por último: o aprendizado de HSM está nas fases 3 a 5.
 
+*Iniciada em 2026-11-06 (`doc/fase7-notas.md`). Verificação RSA-2048 pronta e
+validada na placa em 2026-11-08: produto de Montgomery no CFS com 4 DSP, KAT do CAVP
+no POST e comando `R4`. Falta a metade privada.*
+
 **Fase 8 — criptografia de pagamento (esboço, decidido em 2026-08-08).**
 Depois que a hierarquia de chaves e a API existirem, é o que falta para o
 projeto encostar de verdade no assunto. Nem tudo é

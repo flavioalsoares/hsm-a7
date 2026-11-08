@@ -18,6 +18,7 @@ CPU->coprocessador está íntegro AGORA, neste boot, neste silício.
 
 Uso:  python3 scripts/mkkat.py
 """
+import hashlib
 import pathlib
 import re
 import sys
@@ -383,6 +384,26 @@ def tr31_vetor():
 
 
 # ---------------------------------------------------------------------
+def rsa_vetor():
+    """Primeiro vetor SHA-256 de 2048 bits do SigGen15.
+
+    Do arquivo vem n, e, Msg e S. O digest e o EM saem deles por PKCS#1 v1.5,
+    e S^e mod n tem de fechar aqui antes de ir para o firmware.
+    """
+    texto = (VEC / "rsa" / "SigGen15_186-3.rsp").read_text()
+    texto = texto.split("[mod = 3072]")[0]
+    n = re.search(r"^n = (\w+)", texto, re.M)[1]
+    e = int(re.search(r"^e = (\w+)", texto, re.M)[1], 16)
+    v = re.search(r"SHAAlg = SHA256\nMsg = (\w+)\nS = (\w+)", texto)
+    digest = hashlib.sha256(bytes.fromhex(v[1])).digest()
+    t = bytes.fromhex("3031300d060960864801650304020105000420") + digest
+    em = b"\0\1" + b"\xff" * (253 - len(t)) + b"\0" + t
+    if pow(int(v[2], 16), e, int(n, 16)) != int.from_bytes(em, "big"):
+        raise SystemExit("SigGen15: vetor nao fecha")
+    return {"n": bytes.fromhex(n), "e": e, "s": bytes.fromhex(v[2]),
+            "em": em, "digest": digest}
+
+
 def main():
     aes = aes_vetores()
     sha = sha_vetores()
@@ -390,6 +411,7 @@ def main():
     cmac = cmac_vetores()
     drbg = drbg_vetores()
     tr31 = tr31_vetor()
+    rsa = rsa_vetor()
 
     L = []
     L.append("/* fw/include/kat_vectors.h -- GERADO, nao editar")
@@ -486,6 +508,10 @@ def main():
     L.append(" *")
     L.append(" * Cobre DESEMBRULHAR. Embrulhar nao tem KAT possivel: o")
     L.append(" * enchimento e aleatorio por norma. */")
+    L.append(f"#define KAT_RSA_E 0x{rsa['e']:08x}u")
+    L.append(carr("kat_rsa_n", rsa["n"]))
+    L.append(carr("kat_rsa_s", rsa["s"]))
+    L.append(carr("kat_rsa_digest", rsa["digest"]))
     L.append(carr("kat_tr31_kbpk", tr31["kbpk"]))
     L.append(carr("kat_tr31_key", tr31["key"]))
     L.append(f"#define KAT_TR31_KEY_LEN {len(tr31['key'])}u")

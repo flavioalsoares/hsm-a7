@@ -241,6 +241,11 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   recusas (`10`, `11`, `12`, `13`), inclusive as do `uso`: KEK que não cifra
   nem autentica, `D0` que não autentica, `M0` que não cifra. Precisa da LMK — o brinquedo aparecendo,
   como no `keycycle`.
+- **`hsmhost.py rsa-verify N E DIGEST S`** é o `R4` (fase 7): verificar uma
+  assinatura RSA-2048 PKCS#1 v1.5. Só dados públicos, sem key block, e a
+  resposta é o código de erro. **`rsa-cavp`** lê os vetores SHA-256 de
+  `vectors/rsa/SigGen15_186-3.rsp` e cobra, para cada um, que a assinatura
+  válida seja aceita e a mesma com um bit trocado, recusada.
 
 ⚠ **Só um processo abre a serial.** Com a ponte rodando, o `hsmtool` não
 consegue falar com o console. É a consequência prática de console e host

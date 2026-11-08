@@ -52,6 +52,13 @@
 //   0x080..0x0BC  SHA_BLOCK[0..15]  w   512 bits, ja preenchido
 //   0x0C0..0x0DC  SHA_DIGEST[0..7]  r   256 bits
 //
+//   0x200  RSA_CTRL    w  [0] START  [6:4] DST  [10:8] A  [14:12] B
+//                         [23:16] LEN em limbs de 16 bits
+//   0x204  RSA_N0P     w  -N^-1 mod 2^16
+//   0x208  RSA_STATUS  r  [0] BUSY
+//   0x20C  RSA_ADDR    w  janela: [10] modulo, [9:7] registrador, [6:0] limb
+//   0x210  RSA_DATA    rw limb na janela; o endereco anda sozinho
+//
 //   0x100  DNA_LO    r   DNA[31:0]
 //   0x104  DNA_HI    r   {7'b0, DNA[56:32]}
 //
@@ -144,6 +151,11 @@ module hsm_cfs (
     // Endereco de palavra. 7 bits = 128 palavras = 512 bytes; o resto dos
     // 64 KB do CFS nao tem registrador fisico.
     wire [6:0] waddr = addr_i[8:2];
+
+    // Pagina do RSA, de 0x200 a 0x3FC. Sem separar, ela cairia em cima dos
+    // registradores acima, porque waddr ignora o bit 9.
+    wire       pg_rsa = addr_i[9];
+    wire       stb_b  = stb_i & ~pg_rsa;
 
     localparam [6:0] A_ID     = 7'h00;   // 0x000
     localparam [6:0] A_STATUS = 7'h01;   // 0x004
@@ -424,7 +436,7 @@ module hsm_cfs (
     reg          snap_busy;
     reg          snap_ready;
 
-    wire snap_req = stb_i & rw_i & (waddr == A_TRNG_CTRL) & wdata_i[1] & ~snap_busy;
+    wire snap_req = stb_b & rw_i & (waddr == A_TRNG_CTRL) & wdata_i[1] & ~snap_busy;
 
     always @(posedge clk_i) begin
         if (!rstn_i) begin
@@ -448,7 +460,7 @@ module hsm_cfs (
             if (ent_byte_valid_i) begin
                 trng_byte     <= ent_byte_i;
                 trng_byte_vld <= 1'b1;
-            end else if (stb_i & ~rw_i & (waddr == A_TRNG_BYTE)) begin
+            end else if (stb_b & ~rw_i & (waddr == A_TRNG_BYTE)) begin
                 trng_byte_vld <= 1'b0;      // a leitura consome
             end
 
@@ -500,7 +512,70 @@ module hsm_cfs (
     wire      wipe_busy = (wipe_st != W_IDLE);
 
     // Um pedido de wipe so e aceito quando nao ha outro em curso.
-    wire wipe_req = stb_i & rw_i & (waddr == A_CTRL) & wdata_i[5] & ~wipe_busy;
+    wire wipe_req = stb_b & rw_i & (waddr == A_CTRL) & wdata_i[5] & ~wipe_busy;
+
+    // ------------------------------------------------------------------
+    // RSA. Dentro da fronteira: rf guarda operandos, e com CRT os primos.
+    // A CPU acessa por janela, com endereco que anda sozinho.
+    // ------------------------------------------------------------------
+    localparam [2:0] R_CTRL = 3'd0, R_N0P = 3'd1, R_STATUS = 3'd2,
+                     R_ADDR = 3'd3, R_DATA = 3'd4;
+
+    wire [2:0]  rsel = addr_i[4:2];
+    wire        rsa_busy;
+    wire [15:0] rsa_rdata;
+    reg         rsa_start;
+    reg  [2:0]  rsa_dst, rsa_a, rsa_b;
+    reg  [7:0]  rsa_len;
+    reg  [15:0] rsa_n0p;
+    reg  [10:0] rsa_addr;
+    reg         rsa_we;
+    reg  [15:0] rsa_wdata;
+
+    wire rsa_sw = stb_i & pg_rsa & rw_i;
+    wire rsa_sr = stb_i & pg_rsa & ~rw_i;
+
+    always @(posedge clk_i) begin
+        rsa_start <= 1'b0;
+        rsa_we    <= 1'b0;
+        if (!rstn_i) begin
+            rsa_addr <= 11'd0;
+            rsa_len  <= 8'd0;
+            rsa_n0p  <= 16'd0;
+        end else begin
+            if (rsa_we)
+                rsa_addr <= rsa_addr + 11'd1;
+            if (rsa_sw) begin
+                case (rsel)
+                    R_CTRL: begin
+                        rsa_start <= wdata_i[0];
+                        rsa_dst   <= wdata_i[6:4];
+                        rsa_a     <= wdata_i[10:8];
+                        rsa_b     <= wdata_i[14:12];
+                        rsa_len   <= wdata_i[23:16];
+                    end
+                    R_N0P:  rsa_n0p  <= wdata_i[15:0];
+                    R_ADDR: rsa_addr <= wdata_i[10:0];
+                    R_DATA: begin
+                        rsa_we    <= 1'b1;
+                        rsa_wdata <= wdata_i[15:0];
+                    end
+                    default: ;
+                endcase
+            end
+            if (rsa_sr && rsel == R_DATA)
+                rsa_addr <= rsa_addr + 11'd1;
+        end
+    end
+
+    rsa_mont u_rsa (
+        .clk_i(clk_i), .rstn_i(rstn_i),
+        .start_i(rsa_start), .wipe_i(wipe_req),
+        .dst_i(rsa_dst), .a_i(rsa_a), .b_i(rsa_b),
+        .len_i(rsa_len), .n0p_i(rsa_n0p), .busy_o(rsa_busy),
+        .host_en_i(rsa_we), .host_we_i(rsa_we), .host_addr_i(rsa_addr),
+        .host_wdata_i(rsa_wdata), .host_rdata_o(rsa_rdata)
+    );
 
     always @(posedge clk_i) begin
         aes_init_wipe <= 1'b0;
@@ -526,8 +601,8 @@ module hsm_cfs (
                         sha_init_wipe <= 1'b1;
                         wipe_st       <= W_SHA;
                     end
-                default:   // W_SHA
-                    if (!sha_active) wipe_st <= W_IDLE;
+                default:   // W_SHA, e espera o RSA, que comecou junto
+                    if (!sha_active && !rsa_busy) wipe_st <= W_IDLE;
             endcase
         end
     end
@@ -557,7 +632,14 @@ module hsm_cfs (
             ack_o   <= stb_i;
             rdata_o <= 32'd0;      // zero fora de um acesso de leitura real
 
-            if (stb_i) begin
+            if (rsa_sr) begin
+                if (rsel == R_STATUS)
+                    rdata_o <= {31'd0, rsa_busy | rsa_start};
+                else if (rsel == R_DATA)
+                    rdata_o <= {16'd0, rsa_rdata};
+            end
+
+            if (stb_b) begin
                 if (rw_i) begin
                     // ---------------- escrita ----------------
                     if (waddr == A_CTRL) begin

@@ -44,7 +44,7 @@ module tb_uart_frame;
     // Tempo para o debounce assentar e o laco principal enxergar o novo
     // nivel. 1000 ciclos de 10 ns = 10 us; 100 us da uma ordem de grandeza
     // de folga sem custar simulacao perceptivel.
-    localparam real BTN_SETTLE_NS = 100000.0;
+    localparam real BTN_SETTLE_NS = 1000000.0;
 
     // Boot do firmware ate estar pronto para receber. Medido com folga:
     // o banner do bootloader comecava em ~690 us, e este firmware faz bem

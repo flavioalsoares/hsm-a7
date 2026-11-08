@@ -252,7 +252,9 @@ module tb_post_tamper;
     end
 
     initial begin
-        #40000000;                       // 40 ms
+        // O POST roda duas vezes: no boot e no SELFTEST. Desde a fase 7
+        // cada um leva ~27 ms, por causa do KAT de RSA.
+        #80000000;                       // 80 ms
         $display("[tb_post_tamper] FAIL -- timeout");
         $display("[tb_post_tamper] FAIL");
         $finish;

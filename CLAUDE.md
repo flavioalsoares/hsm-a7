@@ -160,7 +160,7 @@ contra vetores oficiais, mais os testes de partida da fonte. Falha leva a
 `TAMPERED`, e o dispositivo continua atendendo **só** ao `SELFTEST`. Custo
 medido: **10,19 ms** de boot. A série, toda medida na simulação (o
 `tb_tr31_block` reporta a cada rodada): 5,94 ms ao fim da fase 2 → 8,31 com
-o key block no POST → 9,09 com a prova de zeroização → 9,25 → 10,19 na fase 6. **Cada
+o key block no POST → 9,09 com a prova de zeroização → 9,25 → 10,19 na fase 6 → 28,27 com o RSA na fase 7. **Cada
 propriedade que o dispositivo garante sobre si mesmo cobra milissegundos de
 todo boot, para sempre.**
 
@@ -242,7 +242,8 @@ KBPK.** A KBPK deste dispositivo é a LMK, e a LMK não sai do keystore.
 `tr31_deriva()` existe só para o KAT; um segundo chamador dela no firmware
 é sinal de que a pergunta certa é "por que este código tem a chave mestra?".
 
-⚠ **Os oito bits da máscara do POST acabaram.** `KAT_FALHA_TR31 = 0x80` é o
+⚠ **Os oito bits da máscara do POST acabaram** — e na fase 7 o `SELFTEST` passou a
+devolver dois bytes, para o RSA (`0x100`). Registro da fase 3: `KAT_FALHA_TR31 = 0x80` é o
 último, e o `SELFTEST` devolve a máscara em **um byte** — um nono teste
 sumiria na conversão e o dispositivo reportaria `KAT_OK` sobre um teste que
 reprovou. `fw/include/kat.h` tem um `typedef` que quebra o build em vez
@@ -683,6 +684,36 @@ Mexer nisso só com o usuário presente.
 ⚠ **A licença BASIC do Vivado não cifra bitstream**: quem cifra é
 `scripts/cifra_bitstream.py`. Chave só por `scripts/bbram.tcl`, com destino fixo
 `bbr`, e carga pelo mesmo script: pelo `openFPGALoader` falha com `DEC Error`.
+
+## Fase 7 — assimétrico (em andamento, 2026-11-06)
+
+Tudo em `doc/fase7-notas.md`; a teoria está no manual, seção 32. Feito: a
+**verificação** RSA-2048. Produto de Montgomery no CFS (`rtl/crypto/rsa_mont.v`,
+página `0x200`), exponenciação pública em `fw/src/rsa.c`, KAT no POST e o comando
+ASCII `R4` (n · e · digest · S → `00`/`01`). Falta toda a metade privada: key block
+da chave RSA, geração, assinatura com CRT, verificar antes de emitir, e P-256.
+
+✅ **Validado em hardware 2026-11-08**: `post` com `RSA-2048` verde e
+`hsmhost.py rsa-cavp` com os 10 vetores do CAVP aceitos e recusados com um bit
+trocado. Timing **+0,273 ns**, 0 critical warnings, 8070 LUTs, 7915 FF, BRAM 13,5,
+DSP 4. Suíte: 24 testbenches.
+
+⚠ **O POST passou a 28,27 ms** (duas exponenciações com o `e` de 22 bits do vetor).
+`tb_soc_silent` observa 32 ms e `tb_post_tamper` tem 80 ms: as janelas existem para
+acusar o POST crescendo.
+
+⚠ **`SELFTEST` devolve a máscara em DOIS bytes** desde a fase 7 (RSA = `0x100`), e o
+limite de mensagem é **2048 bytes**. Os botões nos testbenches ficam 1 ms soltos e
+apertados: com 100 µs o firmware, ainda apagando os buffers, não os via soltos.
+
+⚠ **`rsa_publica()` desvia pelos bits de `e`**, que é público. A operação privada não
+pode: escada de Montgomery.
+
+⚠ **A verificação monta o EM esperado e compara inteiro.** Não escrever parser de
+PKCS#1 v1.5 (Bleichenbacher 2006).
+
+⚠ **O produto de Montgomery tem tempo constante**: a subtração final sempre acontece.
+Não trocar por desvio condicional.
 
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 

@@ -521,6 +521,54 @@ module tb_cfs;
     localparam [31:0] TS_RCT_FAIL = 32'h0000_0040;
 
     // Sensores: a leitura chega ao barramento, e nao ha como escrever.
+    // ------------------------------------------------------------------
+    // RSA pela janela, em 0x200. O endereco anda sozinho, a pagina nao cai
+    // em cima dos registradores de baixo, e o WIPE global apaga os operandos.
+    // ------------------------------------------------------------------
+    task t_rsa;
+        reg [31:0] d;
+        integer    k;
+        begin
+            bus_wr(16'h020C, 32'h0000_0080);        // registrador 1, limb 0
+            for (k = 0; k < 4; k = k + 1) bus_wr(16'h0210, 32'hA000 + k);
+            bus_wr(16'h020C, 32'h0000_0080);
+            for (k = 0; k < 4; k = k + 1) begin
+                bus_rd(16'h0210, d);
+                if (d !== 32'hA000 + k) begin
+                    $display("[tb_cfs] FAIL: janela RSA, limb %0d = %h", k, d);
+                    erros = erros + 1;
+                end
+            end
+
+            // 0x208 com a pagina ignorada seria o CTRL, e 0x20 o WIPE.
+            bus_wr(16'h0208, 32'h0000_0020);
+            bus_rd(R_ID, d);
+            if (d !== 32'h48534d31) begin
+                $display("[tb_cfs] FAIL: pagina RSA colidiu com o ID: %h", d);
+                erros = erros + 1;
+            end
+            bus_wr(16'h020C, 32'h0000_0080);
+            bus_rd(16'h0210, d);
+            if (d !== 32'hA000) begin
+                $display("[tb_cfs] FAIL: pagina RSA disparou o WIPE");
+                erros = erros + 1;
+            end
+
+            bus_wr(R_CTRL, C_WIPE);
+            d = S_WIPE_BUSY;
+            while (d & S_WIPE_BUSY) bus_rd(R_STATUS, d);
+            bus_wr(16'h020C, 32'h0000_0080);
+            for (k = 0; k < 4; k = k + 1) begin
+                bus_rd(16'h0210, d);
+                if (d !== 32'd0) begin
+                    $display("[tb_cfs] FAIL: WIPE deixou limb RSA %0d = %h", k, d);
+                    erros = erros + 1;
+                end
+            end
+            $display("[tb_cfs] RSA: janela, pagina e WIPE");
+        end
+    endtask
+
     task t_env;
         reg [31:0] st0, st1, ti, ab;
         begin
@@ -671,6 +719,7 @@ module tb_cfs;
         t_sha;
         t_write_only;
         t_wipe;
+        t_rsa;
         t_trng;
         t_env;
 

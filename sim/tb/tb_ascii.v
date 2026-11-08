@@ -43,7 +43,7 @@ module tb_ascii;
     // Ver tb_uart_frame: clock nominal reduzido so para encolher o divisor
     // do debounce. O clock real continua sendo o de 100 MHz.
     localparam integer TB_CLK_HZ     = 100_000;
-    localparam real    BTN_SETTLE_NS = 100000.0;
+    localparam real    BTN_SETTLE_NS = 1000000.0;
 
     localparam [7:0] CMD_GET_VERSION = 8'h02;
     localparam [7:0] CMD_LMK_LOAD    = 8'h20;

@@ -1049,6 +1049,7 @@ que não foi escrito:
 - **FIPS 140-3** e ISO/IEC 19790 — requisitos de módulo criptográfico
 - **NIST SP 800-90A/B/C** — DRBG, fontes de entropia, construções
 - **ANSI X9.143** (sucessor do TR-31) — key blocks
+- **RFC 8017** (PKCS #1 v2.2) — RSA, e o enchimento de assinatura v1.5
 - **PCI PIN Security Requirements** e **PCI PTS HSM** — de onde vêm dual
   control e split knowledge como exigência
 
@@ -1063,6 +1064,18 @@ que não foi escrito:
 - Kocher, P. — *Timing Attacks* (1996) e, com Jaffe e Jun, *Differential
   Power Analysis* (1999)
 - Piret e Quisquater — análise diferencial de falhas em AES (2003)
+- Schindler, W. — *A Timing Attack against RSA with the Chinese Remainder
+  Theorem* (2000), e Walter, C. e Thompson, S. — *Distinguishing Exponent
+  Digits by Observing Modular Subtractions* (2001) — a subtração final do
+  produto de Montgomery como canal lateral
+- Bleichenbacher, D. — falsificação de assinaturas RSA com `e = 3` contra
+  verificadores que interpretam o enchimento (2006)
+
+### Aritmética
+
+- Montgomery, P. — *Modular Multiplication Without Trial Division* (1985)
+- Koç, Ç., Acar, T. e Kaliski, B. — *Analyzing and Comparing Montgomery
+  Multiplication Algorithms* (1996) — de onde vem o FIOS
 
 ### Livros
 

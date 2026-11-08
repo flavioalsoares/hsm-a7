@@ -27,8 +27,8 @@
 #define ASCII_CAB_LEN       4u
 #define ASCII_MIN_LEN       (ASCII_CAB_LEN + 2u)
 
-/* Dados de C0/C2/M0/M2. O limite sai do frame: 513 bytes, com um key
- * block de 144 caracteres e os dados em hex. */
+/* Dados de C0/C2/M0/M2. Era o limite do frame de 513 bytes, com um key
+ * block de 144 caracteres e os dados em hex, e ficou. */
 #define ASCII_DADOS_MAX     160u
 
 /* Codigos de erro -- doc/fase5-notas.md. */

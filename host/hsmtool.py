@@ -69,7 +69,7 @@ except ImportError:
 BAUD_RATE = 115200
 TIMEOUT_S = 2.0                 # PLANO.md secao 2
 
-MAX_PAYLOAD = 512
+MAX_PAYLOAD = 2048
 MIN_LEN = 1
 MAX_LEN = MAX_PAYLOAD + 1
 
@@ -132,6 +132,7 @@ KAT_BITS = [
     (0x20, "CMAC-AES-256"),
     (0x40, "key store"),
     (0x80, "key block X9.143"),
+    (0x100, "RSA-2048"),
 ]
 
 STATUS_NAMES = {
@@ -530,7 +531,7 @@ def cmd_selftest_dev(client, args):
               % (status, STATUS_NAMES.get(status, "?")))
         return 1
 
-    r = data[0]
+    r = int.from_bytes(data[:2], "little")
     for bit, nome in KAT_BITS:
         print("  %-22s %s" % (nome, "FALHOU" if (r & bit) else "ok"))
 

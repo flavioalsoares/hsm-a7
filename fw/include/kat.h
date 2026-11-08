@@ -69,24 +69,20 @@
 #define KAT_FALHA_CMAC  0x20u
 #define KAT_FALHA_KS    0x40u   /* key store -- teste de funcao critica */
 #define KAT_FALHA_TR31  0x80u   /* key block X9.143 -- funcao critica */
+#define KAT_FALHA_RSA   0x100u  /* operacao publica, vetor do CAVP */
 
 /* União de tudo que o POST sabe reprovar.
  *
  * Existe para a linha abaixo, e ela não é enfeite: o SELFTEST devolve
- * esta máscara em **um byte** (`h_selftest`, fw/src/cmd.c). Os oito bits
- * estão TODOS usados. O nono teste que entrar não caberia, e o efeito
- * seria silencioso -- o bit sumiria na conversão e o dispositivo
- * reportaria `KAT_OK` sobre um teste que reprovou, que é a pior falha
- * possível num POST.
- *
- * Então o build quebra em vez disso. Quem chegar aqui tem duas saídas
- * honestas: alargar o payload do SELFTEST (e o host junto), ou agrupar
- * testes. Nenhuma delas é "tirar um bit". */
+ * esta máscara em **dois bytes** (`h_selftest`, fw/src/cmd.c). Um bit que
+ * não coubesse sumiria na conversão, e o dispositivo reportaria `KAT_OK`
+ * sobre um teste que reprovou, que é a pior falha possível num POST. Então
+ * o build quebra em vez disso. */
 #define KAT_FALHA_TODOS (KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC | \
                          KAT_FALHA_DRBG | KAT_FALHA_TRNG | KAT_FALHA_CMAC | \
-                         KAT_FALHA_KS   | KAT_FALHA_TR31)
+                         KAT_FALHA_KS   | KAT_FALHA_TR31 | KAT_FALHA_RSA)
 
-typedef char kat_mascara_cabe_em_um_byte[(KAT_FALHA_TODOS <= 0xFFu) ? 1 : -1];
+typedef char kat_mascara_cabe_em_dois_bytes[(KAT_FALHA_TODOS <= 0xFFFFu) ? 1 : -1];
 
 /* Roda o POST inteiro. Devolve KAT_OK ou a união dos bits que falharam.
  *

@@ -37,6 +37,17 @@
 #define HSM_SHA_DIGEST_LEN 32u
 #define HSM_DNA_LEN         8u    /* 57 bits uteis, 7 bits de zero a frente */
 
+/* RSA: janela sobre as memorias de rtl/crypto/rsa_mont.v. Numeros em
+ * big-endian, 2 bytes por limb. 'janela' e {modulo, reg, limb}.
+ *
+ * FRONTEIRA: dentro. Com a chave privada, passam primos por aqui. */
+void hsm_cfs_rsa_n0p(uint16_t v);
+void hsm_cfs_rsa_escreve(uint16_t janela, const uint8_t *be, uint32_t limbs);
+void hsm_cfs_rsa_le(uint16_t janela, uint8_t *be, uint32_t limbs);
+
+/* dst = a * b * R^-1 mod N. Devolve -1 se o core nao terminar. */
+int hsm_cfs_rsa_mont(unsigned dst, unsigned a, unsigned b, uint32_t limbs);
+
 /* 1 se o CFS respondeu com o ID esperado. */
 int hsm_cfs_present(void);
 

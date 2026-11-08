@@ -8,6 +8,7 @@
  * está no código, não no vetor".
  */
 #include "kat.h"
+#include "rsa.h"
 #include "kat_vectors.h"
 #include "cmac.h"
 #include "drbg.h"
@@ -19,7 +20,7 @@
 
 static unsigned g_ultimo = KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC |
                            KAT_FALHA_CMAC | KAT_FALHA_DRBG | KAT_FALHA_TRNG |
-                           KAT_FALHA_KS   | KAT_FALHA_TR31;
+                           KAT_FALHA_KS   | KAT_FALHA_TR31 | KAT_FALHA_RSA;
 
 /* Comparação de tempo constante.
  *
@@ -352,6 +353,27 @@ static unsigned kat_keystore(void)
     return falha;
 }
 
+/* Operacao publica contra o CAVP. A assinatura boa tem de passar e a
+ * adulterada nao: uma so das duas passaria com um "sempre aceita". Cada
+ * exponenciacao custa ~9 ms de boot. */
+static unsigned kat_rsa(void)
+{
+    uint8_t  s[RSA_BYTES];
+    uint32_t i;
+
+    if (rsa_verifica(kat_rsa_n, KAT_RSA_E, kat_rsa_digest, kat_rsa_s) != 1) {
+        return KAT_FALHA_RSA;
+    }
+    for (i = 0u; i < RSA_BYTES; i++) {
+        s[i] = kat_rsa_s[i];
+    }
+    s[RSA_BYTES - 1u] ^= 1u;
+    if (rsa_verifica(kat_rsa_n, KAT_RSA_E, kat_rsa_digest, s) != 0) {
+        return KAT_FALHA_RSA;
+    }
+    return 0u;
+}
+
 unsigned kat_post(void)
 {
     unsigned r = 0u;
@@ -375,6 +397,8 @@ unsigned kat_post(void)
     if (tr31_selftest() != 0) {
         r |= KAT_FALHA_TR31;
     }
+
+    r |= kat_rsa();
 
     /* O DRBG do dispositivo só é semeado depois que a fonte passou. Semear
      * a partir de uma fonte reprovada seria produzir chaves com entropia

@@ -20,6 +20,8 @@ Uso:
     hsmhost.py decrypt BLOCO IV DADOS       # C2, hex
     hsmhost.py mac BLOCO DADOS              # M0
     hsmhost.py mac-verify BLOCO MAC DADOS   # M2: o veredito e o codigo
+    hsmhost.py rsa-verify N E DIGEST S      # R4: RSA-2048, PKCS#1 v1.5, SHA-256
+    hsmhost.py rsa-cavp                     # R4 com os vetores do CAVP
     hsmhost.py confere --lmk HEX [-n N]     # o Python conferindo o C
     hsmhost.py selftest                     # codec, sem placa
 
@@ -28,7 +30,9 @@ hsm_ponte.py) ou direto na serial (--serial [--porta PORTA]).
 """
 
 import argparse
+import hashlib
 import os
+import re
 import socket
 import struct
 import sys
@@ -208,6 +212,44 @@ class Host:
                             + dados(d), aceita=(0, 1))
         return erro == 0
 
+    def rsa_verifica(self, n, e, digest, s):
+        """R4: so dados publicos entram, e sai um bit (o codigo de erro)."""
+        campos = (n.to_bytes(256, "big") + e.to_bytes(4, "big") + digest
+                  + s.to_bytes(256, "big"))
+        erro, _ = self.pede("R4", campos.hex().upper().encode(), aceita=(0, 1))
+        return erro == 0
+
+
+def vetores_cavp():
+    """Os vetores SHA-256 de 2048 bits do SigGen15 do CAVP: (n, e, digest, S)."""
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(raiz, "vectors", "rsa", "SigGen15_186-3.rsp")) as f:
+        texto = f.read().split("[mod = 3072]")[0]
+    n = int(re.search(r"^n = (\w+)", texto, re.M)[1], 16)
+    e = int(re.search(r"^e = (\w+)", texto, re.M)[1], 16)
+    bloco = texto.split("SHAAlg = SHA256")[1:]
+    vs = []
+    for b in bloco:
+        msg = bytes.fromhex(re.search(r"^Msg = (\w+)", b, re.M)[1])
+        sig = int(re.search(r"^S = (\w+)", b, re.M)[1], 16)
+        vs.append((n, e, hashlib.sha256(msg).digest(), sig))
+    return vs
+
+
+def rsa_cavp(h):
+    """Cada vetor tem de conferir, e com um bit trocado em S, nao."""
+    vs = vetores_cavp()
+    for i, (n, e, d, sig) in enumerate(vs):
+        if not h.rsa_verifica(n, e, d, sig):
+            print("vetor %d: assinatura valida RECUSADA" % i)
+            return 1
+        if h.rsa_verifica(n, e, d, sig ^ (1 << (i * 97 % 2040))):
+            print("vetor %d: assinatura adulterada ACEITA" % i)
+            return 1
+        print("vetor %d: valida aceita, adulterada recusada" % i)
+    print("%d vetores do CAVP conferidos" % len(vs))
+    return 0
+
 
 # --------------------------------------------------------------------
 # Selftest do codec (sem placa)
@@ -217,6 +259,8 @@ def selftest():
     assert m == b"AB12C0xyz"
     assert resposta_esperada("K0") == "K1"
     assert resposta_esperada("M2") == "M3"
+    assert resposta_esperada("R4") == "R5"
+    assert len(vetores_cavp()) == 10
     assert analisa(b"AB12K100resto", b"AB12", "K0") == (0, b"resto")
     assert analisa(b"AB12M301", b"AB12", "M2") == (1, b"")
     for ruim, motivo in ((b"AB12K1", "curta"), (b"XX12K100", "cabecalho"),
@@ -365,6 +409,10 @@ def main(argv=None):
     p = sub.add_parser("mac"); p.add_argument("bloco"); p.add_argument("dados")
     p = sub.add_parser("mac-verify")
     p.add_argument("bloco"); p.add_argument("mac"); p.add_argument("dados")
+    p = sub.add_parser("rsa-verify")
+    for c in ("n", "e", "digest", "s"):
+        p.add_argument(c)
+    sub.add_parser("rsa-cavp")
     p = sub.add_parser("confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
@@ -406,6 +454,13 @@ def main(argv=None):
                                 bytes.fromhex(a.dados))
             print("MAC confere" if ok else "MAC NAO confere")
             return 0 if ok else 1
+        elif a.cmd == "rsa-verify":
+            ok = h.rsa_verifica(int(a.n, 16), int(a.e, 16),
+                                bytes.fromhex(a.digest), int(a.s, 16))
+            print("assinatura confere" if ok else "assinatura NAO confere")
+            return 0 if ok else 1
+        elif a.cmd == "rsa-cavp":
+            return rsa_cavp(h)
         elif a.cmd == "confere":
             return confere(h, bytes.fromhex(a.lmk), a.n)
     except HostErro as e:

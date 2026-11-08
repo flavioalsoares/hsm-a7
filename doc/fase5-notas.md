@@ -121,6 +121,7 @@ control é para cerimônia, e a cerimônia não passa por aqui.
 | `C2` decifrar | `C3` | key block · IV(32) · dados | dados | **sim** |
 | `M0` gerar MAC | `M1` | key block · dados | MAC(32) | **sim** |
 | `M2` verificar MAC | `M3` | key block · MAC(32) · dados | — | **sim** |
+| `R4` verificar assinatura RSA | `R5` | n(512) · e(8) · digest(64) · S(512) | — | **sim** |
 
 - **`D0`** responde em `UNINITIALIZED`, `AUTHORIZED` e `OPERATIONAL`. O
   estado é um dígito (`0`, `1`, `2`); o KCV é `000000` enquanto a LMK não
