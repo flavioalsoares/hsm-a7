@@ -19,6 +19,10 @@
 #include "kat.h"
 #include "keystore.h"
 #include "state.h"
+#ifdef HSM_TESTE_MR
+#include "kat_mr.h"
+#include "rsa.h"
+#endif
 
 /* PLANO.md secao 2. Nao confundir com os 19200 do bootloader do NEORV32. */
 #define BAUD_RATE  115200u
@@ -221,6 +225,25 @@ int main(void)
 
 #ifdef HSM_DIAG
     neorv32_uart0_puts("[diag] laco de comandos\r\n");
+#endif
+
+#ifdef HSM_TESTE_MR
+    /* Firmware de TESTE (make HSM_TESTE_MR=1): o Miller-Rabin da geracao de
+     * chave contra o KAT de primalidade do CAVP. Ver fw/Makefile. */
+    {
+        static const uint8_t *const casos[KAT_MR_N] = { kat_mr0, kat_mr1, kat_mr2 };
+        static const int esperado[KAT_MR_N] = {
+            KAT_MR0_PRIMO, KAT_MR1_PRIMO, KAT_MR2_PRIMO };
+        int i, r, falhas = 0;
+        for (i = 0; i < (int)KAT_MR_N; i++) {
+            r = rsa_primo_provavel(casos[i]);
+            neorv32_uart0_puts((r == esperado[i]) ? "[mr] ok\r\n" : "[mr] ERRADO\r\n");
+            if (r != esperado[i]) {
+                falhas++;
+            }
+        }
+        neorv32_uart0_puts(falhas ? "[mr] FAIL\r\n" : "[mr] PASS\r\n");
+    }
 #endif
 
     /* Laco principal. Nao ha interrupcao: o caminho de comando e sincrono e

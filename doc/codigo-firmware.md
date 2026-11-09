@@ -113,7 +113,7 @@ handler, resultado no log. Nenhum comando de cerimônia está nela.
 | `sha.c` | SHA-256 de mensagem (o padding do FIPS 180-4 é feito aqui) e HMAC-SHA-256, que hoje só o POST usa (o comando `HMAC` com chave em claro foi removido na fase 3) |
 | `cmac.c` | CMAC-AES-256 (SP 800-38B), com verificação em tempo constante |
 | `drbg.c` | CTR_DRBG com AES-256 (SP 800-90A), semeado pela fonte de entropia do fabric depois dos health tests. Toda chave gerada sai daqui |
-| `kat.c` | o POST: vetores oficiais de AES, SHA, HMAC, CMAC e DRBG, testes de partida da fonte de entropia e testes de função crítica do key store e do key block. Devolve uma máscara de 8 bits, uma por teste, e **os 8 bits acabaram** |
+| `kat.c` | o POST: vetores oficiais de AES, SHA, HMAC, CMAC e DRBG, testes de partida da fonte de entropia e testes de função crítica do key store e do key block. Devolve uma máscara de 16 bits, um bit por teste; o RSA é o nono (`0x100`) |
 
 ### Chaves
 
@@ -139,6 +139,12 @@ handler, resultado no log. Nenhum comando de cerimônia está nela.
 | `ambiente.c` | responde a sensor fora da faixa e a perda de lock: apaga, registra, vai para `TAMPERED`. Chamado no boot, antes de restaurar da flash, e no laço principal |
 | `state.c` | além da máquina de estados, guarda o flag de erro grave (`erro_grave_marca()`, `erro_grave_ativo()`): marcado quando a dupla execução discorda, vale até o próximo boot e não apaga chave nenhuma |
 
+### Fase 7: assimétrico
+
+| Arquivo | O que faz |
+|---|---|
+| `rsa.c` | RSA-2048 sobre o produto de Montgomery do coprocessador. Verificação PKCS#1 v1.5, assinatura por CRT com a escada de Montgomery, e geração de chave (FIPS 186-5, A.1.3). Toda multiplicação modular é do coprocessador; em C ficam soma, subtração, comparação e enchimento. A assinatura é verificada antes de sair |
+
 ## 4. As portas do key store
 
 A API de `keystore.h` é **assimétrica de propósito**, e é o desenho que mais
@@ -156,6 +162,9 @@ vale entender:
 | `keystore_kek_deriva(h, modo, kbek, kbak)` | só as **subchaves derivadas** da KEK do slot, e só se o uso for `K0` e o `modo` permitir | `K4`, `K6` (fase 5) |
 | `keystore_embrulha_kek(h, kbek, kbak, ...)` | **não**: devolve a chave **já embrulhada** sob a KEK, e recusa `'N'` pela mesma `exportavel()` de `keystore_exporta()` | só `K4` |
 | `keystore_embrulha_lmk(h, ...)` | **não**: embrulha sob a LMK, derivando as subchaves por dentro; não é exportar, e não checa `'N'` | só `K6` |
+| `keystore_rsa_abre(bloco, n)` | **não**: abre um key block RSA (`S0`/`R`/`S`) num buffer próprio de `keystore.c`, apagado com o slot efêmero | só `R2` (fase 7) |
+| `keystore_rsa_assina(digest, sig)` | **não**: devolve a assinatura, já verificada com `e` | só `R2` |
+| `keystore_rsa_gera(exp, ...)` | **não**: gera o par, faz o PCT e devolve a chave privada **já embrulhada** sob a LMK, mais o `n` | só `R0` |
 
 Um `keystore_get_key()` genérico transformaria cada checagem em convenção, e
 convenção é o que se esquece no caminho raro. **Se um código novo precisar

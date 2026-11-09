@@ -74,7 +74,12 @@ def main(argv=None):
                           flush=True)
                     break
                 ser.write(cab + msg)
+                # A ponte nao sabe qual comando e lento: o primeiro byte da
+                # resposta pode demorar (o R0 gera um par RSA em segundos).
+                # O resto chega em seguida, no prazo curto de sempre.
+                ser.timeout = 120.0
                 rcab = ser.read(2)
+                ser.timeout = 3.0
                 if len(rcab) != 2:
                     print("ponte: o dispositivo nao respondeu", flush=True)
                     break

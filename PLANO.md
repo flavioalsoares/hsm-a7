@@ -557,7 +557,9 @@ Deixar por último: o aprendizado de HSM está nas fases 3 a 5.
 
 *Iniciada em 2026-11-06 (`doc/fase7-notas.md`). Verificação RSA-2048 pronta e
 validada na placa em 2026-11-08: produto de Montgomery no CFS com 4 DSP, KAT do CAVP
-no POST e comando `R4`. Falta a metade privada.*
+no POST e comando `R4`. Metade privada validada na placa em 2026-11-09: chave
+privada em key block, assinatura por CRT verificada antes de sair, geração de
+chave pela FIPS 186-5 e comandos `R0`/`R2`. Falta o P-256.*
 
 **Fase 8 — criptografia de pagamento (esboço, decidido em 2026-08-08).**
 Depois que a hierarquia de chaves e a API existirem, é o que falta para o

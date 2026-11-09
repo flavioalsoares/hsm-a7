@@ -76,9 +76,11 @@ typedef uint8_t ks_handle_t;
 #define KS_USO_KEK      "K0"   /* Key Encryption Key    */
 #define KS_USO_DADOS    "D0"   /* chave de dados        */
 #define KS_USO_MAC      "M0"   /* chave de MAC          */
+#define KS_USO_ASSINA   "S0"   /* par assimetrico de assinatura -- fase 7 */
 
 #define KS_ALG_AES      'A'
 #define KS_ALG_3DES     'T'    /* aceito no header, NÃO implementado aqui */
+#define KS_ALG_RSA      'R'    /* fase 7: só no key block do host, nunca num slot */
 
 /* Modo de uso -- X9.143. `uso` diz que tipo de chave é, `modo` diz o que
  * ela pode fazer, e os DOIS restringem: cifrar exige uso D0, MAC exige a
@@ -96,6 +98,7 @@ typedef uint8_t ks_handle_t;
 #define KS_MODO_VERIFICA 'V'   /* verificar MAC             */
 #define KS_MODO_MAC      'C'   /* gerar e verificar MAC     */
 #define KS_MODO_NENHUM   'N'   /* nenhuma operação          */
+#define KS_MODO_ASSINA   'S'   /* só assinar -- chave RSA   */
 
 #define KS_EXP_SIM      'E'    /* exportável, só em key block (TR-31/TR-34) */
 #define KS_EXP_NAO      'N'    /* nunca sai, em hipótese nenhuma */
@@ -441,5 +444,23 @@ int keystore_registro_monta(uint8_t *buf, uint32_t max, uint32_t *n);
 /* Restaura LMK e slots de um corpo de registro. Tudo ou nada: em falha
  * o key store fica zerado. Devolve 0 em sucesso. */
 int keystore_registro_carrega(const uint8_t *buf, uint32_t n);
+
+/* Fase 7 -- a chave RSA privada do comando ASCII em curso.
+ *
+ * FRONTEIRA: dentro. Os bytes da chave ficam em keystore.c, como os das
+ * chaves AES. `_abre` desembrulha um key block sob a LMK: 0 se abriu, -1
+ * bloco invalido, -3 bloco valido de outro tipo de chave. `_assina` devolve
+ * o mesmo que rsa_crt_assina(). `_apaga` e chamada pelo despachante ASCII
+ * no fim de todo comando, via keystore_efemera_apaga(). */
+int  keystore_rsa_abre(const char *bloco, uint32_t bloco_n);
+int  keystore_rsa_assina(const uint8_t digest[32], uint8_t sig[256]);
+void keystore_rsa_apaga(void);
+
+/* Gera um par RSA-2048 e o devolve embrulhado sob a LMK (uso S0, 'R', modo
+ * 'S'), com o modulo n. `rascunho` e um buffer de 256 bytes para o teste
+ * de consistencia do par. `max` e o espaco em `saida`. Devolve 0, -1 em
+ * falha, -2 se o par novo nao passou no teste (erro grave marcado). */
+int  keystore_rsa_gera(uint8_t exportabilidade, char *saida, uint32_t max,
+                       uint32_t *saida_n, uint8_t n[256], uint8_t rascunho[256]);
 
 #endif /* KEYSTORE_H */

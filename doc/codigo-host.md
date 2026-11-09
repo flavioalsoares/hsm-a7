@@ -246,6 +246,16 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   resposta é o código de erro. **`rsa-cavp`** lê os vetores SHA-256 de
   `vectors/rsa/SigGen15_186-3.rsp` e cobra, para cada um, que a assinatura
   válida seja aceita e a mesma com um bit trocado, recusada.
+- **`hsmhost.py rsa-gen [--exp E|N|S]`** é o `R0`: o dispositivo gera um par
+  RSA-2048 e devolve o key block da chave privada, o `n` e o `e`. Espera até
+  120 s, porque a busca de primos leva dezenas de segundos.
+- **`hsmhost.py rsa-sign BLOCO DIGEST`** é o `R2`: assina o digest SHA-256 com
+  a chave do bloco e devolve a assinatura.
+- **`hsmhost.py rsa-confere [-n N]`** gera `N` pares com `R0` (padrão 3). Para
+  cada par, assina três digests com `R2`, confere cada assinatura no Python
+  com o `n` e o `e` devolvidos, e confere no `R4`.
+- **`rsa-cavp --lmk LMK`** também embrulha a chave do KeyGen do CAVP sob a LMK
+  e cobra o `R2` contra a assinatura calculada no Python. Precisa da LMK.
 
 ⚠ **Só um processo abre a serial.** Com a ponte rodando, o `hsmtool` não
 consegue falar com o console. É a consequência prática de console e host

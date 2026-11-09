@@ -82,9 +82,22 @@
 #define TR31_BLOCO         16u
 #define TR31_SUBCHAVE_LEN  32u   /* KBEK e KBAK: AES-256, como a LMK */
 
-/* Maior chave que este dispositivo embrulha. AES-256, e so -- igual ao
- * resto do projeto. */
+/* Maior chave AES que este dispositivo embrulha: AES-256. */
 #define TR31_CHAVE_MAX     32u
+
+/* Fase 7: a chave RSA privada de 2048 bits, em layout DESTE projeto -- a
+ * X9.143 define usos e algoritmo para chave assimetrica, mas a codificacao
+ * dela dentro do corpo nao estava acessivel (a norma e paga). Desvio
+ * registrado em doc/fase7-notas.md. Campos big-endian, tamanho fixo:
+ *
+ *     e(4) || p(128) || q(128) || dp(128) || dq(128) || qinv(128)
+ *
+ * n nao vai no bloco: o dispositivo o recalcula como p*q no coprocessador.
+ * So existe com uso S0, algoritmo 'R' e modo 'S'. */
+#define TR31_RSA_CHAVE     644u
+#define TR31_CHAVE_GRANDE  TR31_RSA_CHAVE
+#define TR31_CORPO_GRANDE  656u   /* 2 + 644, arredondado ao bloco */
+#define TR31_ASCII_GRANDE  (TR31_CAB_LEN + 2u * TR31_CORPO_GRANDE + 2u * TR31_MAC_LEN)
 
 /* Corpo em claro: 2 bytes de comprimento + chave, arredondado para cima
  * ao bloco do AES. Para 32 bytes de chave: 34 -> 48. */
@@ -146,6 +159,21 @@ int tr31_desembrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
                      const char *bloco, uint32_t bloco_n,
                      tr31_cab_t *cab,
                      uint8_t chave[TR31_CHAVE_MAX], uint8_t *chave_n);
+
+/* As mesmas duas, para qualquer chave que o formato aceita, inclusive a
+ * RSA. `chave_max` e o tamanho do buffer de quem chama; um bloco com chave
+ * maior e recusado como qualquer outro bloco invalido. */
+int tr31_embrulha_n(const uint8_t kbek[TR31_SUBCHAVE_LEN],
+                    const uint8_t kbak[TR31_SUBCHAVE_LEN],
+                    const tr31_cab_t *cab,
+                    const uint8_t *chave, uint16_t chave_n,
+                    const uint8_t *enchimento, uint8_t enchimento_n,
+                    char *saida, uint32_t *saida_n);
+int tr31_desembrulha_n(const uint8_t kbek[TR31_SUBCHAVE_LEN],
+                       const uint8_t kbak[TR31_SUBCHAVE_LEN],
+                       const char *bloco, uint32_t bloco_n,
+                       tr31_cab_t *cab,
+                       uint8_t *chave, uint16_t chave_max, uint16_t *chave_n);
 
 /* Teste de funcao critica para o POST. Devolve 0 se passou. */
 int tr31_selftest(void);

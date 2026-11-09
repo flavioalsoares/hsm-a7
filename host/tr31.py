@@ -96,9 +96,11 @@ USO_KEK = "K0"
 USO_DADOS = "D0"
 USO_MAC = "M0"
 USO_PIN = "P0"
+USO_ASSINA = "S0"   # fase 7: par RSA de assinatura
 
 ALG_AES = "A"
 ALG_3DES = "T"
+ALG_RSA = "R"
 
 # Modo de uso -- X9.143, em dois grupos que nao se cruzam: cifra e MAC.
 # Tem de casar com fw/include/keystore.h. Se as duas implementacoes
@@ -112,6 +114,14 @@ MODO_GERA = "G"
 MODO_VERIFICA = "V"
 MODO_MAC = "C"
 MODO_NENHUM = "N"
+MODO_ASSINA = "S"
+
+# Fase 7: a chave RSA privada de 2048 bits, em layout DESTE projeto -- a
+# codificacao de chave assimetrica dentro do corpo nao estava acessivel (a
+# norma e paga). Igual a TR31_RSA_CHAVE em fw/include/tr31.h:
+#     e(4) || p(128) || q(128) || dp(128) || dq(128) || qinv(128)
+RSA_CHAVE = 644
+AES_CHAVE_MAX = 32
 
 EXP_SIM = "E"
 EXP_NAO = "N"
@@ -239,7 +249,7 @@ def monta_cabecalho(uso, algoritmo, modo, exportabilidade,
 _HEX_MAIUSCULO = set("0123456789ABCDEF")
 
 
-def _valida_campos(cab):
+def _valida_campos(cab, chave_n):
     """As mesmas recusas de `cab_valido()` em fw/src/tr31.c.
 
     As duas implementacoes sao MAIS ESTRITAS que a norma em dois pontos, e
@@ -255,15 +265,25 @@ def _valida_campos(cab):
         teria aceitado um campo que nao entendeu. E assim que uma
         restricao de uso desaparece sem ninguem notar.
     """
-    if cab["algoritmo"] != ALG_AES:
-        raise Tr31Erro(f"algoritmo {cab['algoritmo']!r}: este projeto so faz AES")
-    if cab["modo"] not in (MODO_CIFRA, MODO_DECIFRA, MODO_AMBOS, MODO_NENHUM,
-                           MODO_GERA, MODO_VERIFICA, MODO_MAC):
-        raise Tr31Erro(f"modo de uso {cab['modo']!r} invalido")
     if cab["exportabilidade"] not in (EXP_SIM, EXP_NAO, EXP_SENSIVEL):
         raise Tr31Erro(f"exportabilidade {cab['exportabilidade']!r} invalida")
     if cab["blocos_opcionais"] != "00":
         raise Tr31Erro("blocos opcionais nao suportados")
+    if cab["algoritmo"] == ALG_RSA:
+        # So chave de assinatura, e so assinar: outro uso ou modo seria uma
+        # chave de assinar autorizada a fazer outra coisa.
+        if cab["uso"] != USO_ASSINA or cab["modo"] != MODO_ASSINA:
+            raise Tr31Erro("chave RSA exige uso S0 e modo S")
+        if chave_n != RSA_CHAVE:
+            raise Tr31Erro(f"chave RSA de {chave_n} bytes, esperado {RSA_CHAVE}")
+        return
+    if cab["algoritmo"] != ALG_AES:
+        raise Tr31Erro(f"algoritmo {cab['algoritmo']!r}: este projeto so faz AES e RSA")
+    if not 0 < chave_n <= AES_CHAVE_MAX:
+        raise Tr31Erro(f"chave AES de {chave_n} bytes")
+    if cab["modo"] not in (MODO_CIFRA, MODO_DECIFRA, MODO_AMBOS, MODO_NENHUM,
+                           MODO_GERA, MODO_VERIFICA, MODO_MAC):
+        raise Tr31Erro(f"modo de uso {cab['modo']!r} invalido")
 
 
 def le_cabecalho(bloco):
@@ -312,11 +332,12 @@ def embrulha(kbpk, chave, uso=USO_DADOS, algoritmo=ALG_AES,
     if len(chave) == 0 or len(chave) > 999:
         raise Tr31Erro("chave de comprimento invalido")
     _valida_campos({
+        "uso": uso,
         "algoritmo": algoritmo,
         "modo": modo,
         "exportabilidade": exportabilidade,
         "blocos_opcionais": "00",
-    })
+    }, len(chave))
 
     kbek, kbak = deriva_subchaves(kbpk)
 
@@ -398,7 +419,7 @@ def desembrulha(kbpk, bloco):
     bits = int.from_bytes(corpo[:2], "big")
     if bits == 0 or bits % 8 != 0 or 2 + bits // 8 > len(corpo):
         raise Tr31Erro("comprimento de chave invalido")
-    _valida_campos(cab)
+    _valida_campos(cab, bits // 8)
 
     return corpo[2:2 + bits // 8], cab
 

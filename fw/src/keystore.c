@@ -9,6 +9,7 @@
 #include "aes_modos.h"
 #include "hsm_cfs.h"
 #include "state.h"
+#include "rsa.h"
 #include "tr31.h"
 #include "wipe.h"
 
@@ -44,6 +45,13 @@ static uint8_t g_lmk_kcv[KS_KCV_LEN];
  * propósito: são chaves com destinos diferentes, e misturar os dois
  * acumuladores seria um caminho para montar uma na região da outra. */
 static uint8_t g_comp[KS_KEY_MAX];
+
+/* Fase 7: a chave RSA privada do comando ASCII em curso. Como o slot
+ * efemero, existe so durante um comando: entra do key block do host, assina
+ * e e apagada pelo despachante no fim de TODO comando. Nunca vai para a
+ * flash, e nunca para um slot -- header_valido() recusa o algoritmo 'R'. */
+static uint8_t g_rsa[TR31_RSA_CHAVE];
+static uint8_t g_rsa_ok;
 static uint8_t g_comp_n;         /* quantos entraram  */
 static uint8_t g_comp_total;     /* quantos foram anunciados */
 
@@ -162,6 +170,8 @@ void keystore_init(void)
     wipe_padrao(g_comp, sizeof g_comp);
     g_comp_n     = 0u;
     g_comp_total = 0u;
+    wipe_padrao(g_rsa, sizeof g_rsa);
+    g_rsa_ok = 0u;
 
     /* A chave expandida do coprocessador tambem e material de chave, e
      * fica fora da DMEM. Zeroizar so a DMEM deixaria a ultima chave usada
@@ -205,6 +215,11 @@ int keystore_prova_zeroizacao(void)
     for (i = 0u; i < (uint32_t)sizeof g_comp; i++) {
         acc |= p[i];
     }
+    p = (const volatile uint8_t *)(const void *)g_rsa;
+    for (i = 0u; i < (uint32_t)sizeof g_rsa; i++) {
+        acc |= p[i];
+    }
+    acc |= g_rsa_ok;
     acc |= g_lmk_comps;
     acc |= g_comp_n;
     acc |= g_comp_total;
@@ -315,6 +330,7 @@ ks_handle_t keystore_efemera(const uint8_t uso[2], uint8_t algoritmo,
 void keystore_efemera_apaga(void)
 {
     (void)keystore_apaga(KS_HANDLE_EFEMERA);
+    keystore_rsa_apaga();
     /* O coprocessador pode ter ficado com a chave expandida. */
     (void)hsm_cfs_wipe();
 }
@@ -764,6 +780,118 @@ int lmk_deriva_kb(uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX])
         return -1;
     }
     return tr31_deriva(g_lmk, kbek, kbak);
+}
+
+/* ------------------------------------------------------------------
+ * Chave RSA do comando ASCII (fase 7)
+ * ------------------------------------------------------------------ */
+
+void keystore_rsa_apaga(void)
+{
+    wipe_padrao(g_rsa, sizeof g_rsa);
+    g_rsa_ok = 0u;
+}
+
+int keystore_rsa_abre(const char *bloco, uint32_t bloco_n)
+{
+    uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    tr31_cab_t cab;
+    uint16_t   n = 0u;
+    int        r = -1;
+
+    keystore_rsa_apaga();
+    if (lmk_deriva_kb(kbek, kbak) != 0) {
+        goto fim;
+    }
+    if (tr31_desembrulha_n(kbek, kbak, bloco, bloco_n, &cab,
+                           g_rsa, (uint16_t)sizeof g_rsa, &n) != 0) {
+        goto fim;
+    }
+    /* Bloco integro, mas de chave simetrica: e a confusao de tipo, e nao
+     * bloco invalido. O tr31.c ja garante que 'R' vem com S0 e modo 'S'. */
+    if (cab.algoritmo != (uint8_t)KS_ALG_RSA) {
+        r = -3;
+        goto fim;
+    }
+    g_rsa_ok = 1u;
+    r = 0;
+fim:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    if (r != 0) {
+        keystore_rsa_apaga();
+    }
+    return r;
+}
+
+int keystore_rsa_gera(uint8_t exportabilidade, char *saida, uint32_t max,
+                      uint32_t *saida_n, uint8_t n[256], uint8_t rascunho[256])
+{
+    uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    uint8_t    enchimento[TR31_BLOCO];
+    tr31_cab_t cab;
+    int        r = -1;
+
+    keystore_rsa_apaga();
+    if ((max < TR31_ASCII_GRANDE) ||
+        ((exportabilidade != KS_EXP_SIM) && (exportabilidade != KS_EXP_NAO) &&
+         (exportabilidade != KS_EXP_SENSIVEL))) {
+        return -1;
+    }
+    if (rsa_gera(g_rsa, n) != 0) {
+        goto fim;
+    }
+    /* Teste de consistencia do par (FIPS 140-3): assinar com a chave nova
+     * -- e rsa_crt_assina() ja verifica com e antes de devolver. Um par que
+     * nao assina nao sai do dispositivo. O digest e o que houver no
+     * rascunho: qualquer valor serve. */
+    r = rsa_crt_assina(g_rsa, rascunho, rascunho);
+    if (r != 0) {
+        if (r == -2) {
+            erro_grave_marca();
+        }
+        goto fim;
+    }
+    r = -1;
+
+    cab.uso[0]          = (uint8_t)'S';
+    cab.uso[1]          = (uint8_t)'0';
+    cab.algoritmo       = (uint8_t)KS_ALG_RSA;
+    cab.modo            = (uint8_t)KS_MODO_ASSINA;
+    cab.versao_chave[0] = (uint8_t)'0';
+    cab.versao_chave[1] = (uint8_t)'0';
+    cab.exportabilidade = exportabilidade;
+    if ((lmk_deriva_kb(kbek, kbak) != 0) ||
+        (drbg_dispositivo_bytes(enchimento, sizeof enchimento) != 0) ||
+        (tr31_embrulha_n(kbek, kbak, &cab, g_rsa, (uint16_t)sizeof g_rsa,
+                         enchimento, (uint8_t)sizeof enchimento,
+                         saida, saida_n) != 0)) {
+        goto fim;
+    }
+    r = 0;
+fim:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(enchimento, sizeof enchimento);
+    keystore_rsa_apaga();
+    return r;
+}
+
+int keystore_rsa_assina(const uint8_t digest[32], uint8_t sig[256])
+{
+    int r;
+
+    if (!g_rsa_ok) {
+        return -1;
+    }
+    /* -2: a assinatura nao passou na verificacao antes de sair. E a mesma
+     * politica da dupla execucao da fase 6 -- nada sai, e o erro grave fica
+     * marcado ate o proximo boot. A chave nao e apagada. */
+    r = rsa_crt_assina(g_rsa, digest, sig);
+    if (r == -2) {
+        erro_grave_marca();
+    }
+    return r;
 }
 
 /* ------------------------------------------------------------------

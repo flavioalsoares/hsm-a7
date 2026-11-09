@@ -131,18 +131,38 @@ int tr31_deriva(const uint8_t kbpk[TR31_SUBCHAVE_LEN],
 /* ---------------------------------------------------------------------
  * Cabecalho
  * ------------------------------------------------------------------- */
-static int cab_valido(const tr31_cab_t *cab)
+
+/* Valida o cabecalho junto com o tamanho da chave: os dois juntos e que
+ * dizem se o bloco faz sentido. Tem de casar com `_valida_campos()` de
+ * host/tr31.py -- se um aceitar e o outro nao, um key block legitimo e
+ * recusado de um lado e aceito do outro. */
+static int cab_valido(const tr31_cab_t *cab, uint32_t chave_n)
 {
+    if (cab->exportabilidade != (uint8_t)KS_EXP_SIM &&
+        cab->exportabilidade != (uint8_t)KS_EXP_NAO &&
+        cab->exportabilidade != (uint8_t)KS_EXP_SENSIVEL) {
+        return 0;
+    }
+    if (cab->algoritmo == (uint8_t)KS_ALG_RSA) {
+        /* Fase 7: chave RSA de assinatura, e so. Outro uso ou modo seria
+         * uma chave de assinar autorizada a fazer outra coisa. */
+        return (cab->uso[0] == (uint8_t)'S') && (cab->uso[1] == (uint8_t)'0') &&
+               (cab->modo == (uint8_t)KS_MODO_ASSINA) &&
+               (chave_n == TR31_RSA_CHAVE);
+    }
     if (cab->algoritmo != (uint8_t)KS_ALG_AES) {
         /* 'T' e valido na norma e NAO neste hardware. Aceitar o byte
          * seria produzir um bloco que promete 3DES a quem for importar. */
         return 0;
     }
-    /* Os sete modos de uso da X9.143, em dois grupos: cifra (E/D/B) e
-     * MAC (G/V/C), mais 'N'. Tem de casar com `header_valido()` do
-     * keystore -- se um aceitar e o outro nao, um key block legitimo
-     * atravessa a importacao e para na instalacao, com o erro apontando
-     * para o lugar errado. */
+    if (chave_n == 0u || chave_n > TR31_CHAVE_MAX) {
+        return 0;
+    }
+    /* Os sete modos de uso da X9.143 para chave simetrica, em dois grupos:
+     * cifra (E/D/B) e MAC (G/V/C), mais 'N'. Tem de casar com
+     * `header_valido()` do keystore -- se um aceitar e o outro nao, um key
+     * block legitimo atravessa a importacao e para na instalacao, com o
+     * erro apontando para o lugar errado. */
     if (cab->modo != (uint8_t)KS_MODO_CIFRA &&
         cab->modo != (uint8_t)KS_MODO_DECIFRA &&
         cab->modo != (uint8_t)KS_MODO_AMBOS &&
@@ -150,11 +170,6 @@ static int cab_valido(const tr31_cab_t *cab)
         cab->modo != (uint8_t)KS_MODO_GERA &&
         cab->modo != (uint8_t)KS_MODO_VERIFICA &&
         cab->modo != (uint8_t)KS_MODO_MAC) {
-        return 0;
-    }
-    if (cab->exportabilidade != (uint8_t)KS_EXP_SIM &&
-        cab->exportabilidade != (uint8_t)KS_EXP_NAO &&
-        cab->exportabilidade != (uint8_t)KS_EXP_SENSIVEL) {
         return 0;
     }
     return 1;
@@ -214,29 +229,34 @@ static uint32_t cab_le(const char *src, tr31_cab_t *cab)
     return total;
 }
 
+/* Cabecalho + corpo em claro, contiguos: e exatamente o que o CMAC
+ * autentica, e o corpo e cifrado e decifrado no lugar. Estatico porque a
+ * chave RSA nao cabe na pilha com folga; apagado no fim de toda chamada.
+ *
+ * FRONTEIRA: dentro. Contem chave em claro enquanto uma funcao roda. */
+static uint8_t g_kb[TR31_CAB_LEN + TR31_CORPO_GRANDE];
+#define CORPO (&g_kb[TR31_CAB_LEN])
+
 /* ---------------------------------------------------------------------
  * Embrulhar
  * ------------------------------------------------------------------- */
-int tr31_embrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
-                  const uint8_t kbak[TR31_SUBCHAVE_LEN],
-                  const tr31_cab_t *cab,
-                  const uint8_t *chave, uint8_t chave_n,
-                  const uint8_t *enchimento, uint8_t enchimento_n,
-                  char *saida, uint32_t *saida_n)
+int tr31_embrulha_n(const uint8_t kbek[TR31_SUBCHAVE_LEN],
+                    const uint8_t kbak[TR31_SUBCHAVE_LEN],
+                    const tr31_cab_t *cab,
+                    const uint8_t *chave, uint16_t chave_n,
+                    const uint8_t *enchimento, uint8_t enchimento_n,
+                    char *saida, uint32_t *saida_n)
 {
-    uint8_t  corpo[TR31_CORPO_MAX];
-    uint8_t  cifrado[TR31_CORPO_MAX];
     uint8_t  mac[TR31_MAC_LEN];
-    uint8_t  autentica[TR31_CAB_LEN + TR31_CORPO_MAX];
     uint32_t corpo_n, falta, total, i;
-    uint16_t bits;
+    uint32_t bits;
     int      r = -1;
 
-    if (chave_n == 0u || chave_n > TR31_CHAVE_MAX || !cab_valido(cab)) {
+    if (!cab_valido(cab, chave_n) || chave_n > TR31_CHAVE_GRANDE) {
         return -1;
     }
 
-    bits    = (uint16_t)(chave_n * 8u);
+    bits    = (uint32_t)chave_n * 8u;
     corpo_n = 2u + (uint32_t)chave_n;
     falta   = ((BLK - (corpo_n % BLK)) % BLK);
 
@@ -244,13 +264,13 @@ int tr31_embrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
         return -1;
     }
 
-    corpo[0] = (uint8_t)(bits >> 8);
-    corpo[1] = (uint8_t)(bits & 0xFFu);
+    CORPO[0] = (uint8_t)(bits >> 8);
+    CORPO[1] = (uint8_t)(bits & 0xFFu);
     for (i = 0u; i < chave_n; i++) {
-        corpo[2u + i] = chave[i];
+        CORPO[2u + i] = chave[i];
     }
     for (i = 0u; i < falta; i++) {
-        corpo[corpo_n + i] = enchimento[i];
+        CORPO[corpo_n + i] = enchimento[i];
     }
     corpo_n += falta;
 
@@ -261,13 +281,10 @@ int tr31_embrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
      * Autenticar o criptograma daria um MAC que nao diz nada sobre a
      * chave que esta la dentro. */
     for (i = 0u; i < TR31_CAB_LEN; i++) {
-        autentica[i] = (uint8_t)saida[i];
-    }
-    for (i = 0u; i < corpo_n; i++) {
-        autentica[TR31_CAB_LEN + i] = corpo[i];
+        g_kb[i] = (uint8_t)saida[i];
     }
 
-    if (cmac_aes256(kbak, autentica, TR31_CAB_LEN + corpo_n, mac) != 0) {
+    if (cmac_aes256(kbak, g_kb, TR31_CAB_LEN + corpo_n, mac) != 0) {
         goto fim;
     }
     /* A chave vai para o coprocessador aqui, e nao dentro do aes_cbc():
@@ -275,21 +292,33 @@ int tr31_embrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
     if (hsm_cfs_aes_key(kbek) != 0) {
         goto fim;
     }
-    if (aes_cbc(mac, corpo, cifrado, corpo_n, 1) != 0) {
+    if (aes_cbc(mac, CORPO, CORPO, corpo_n, 1) != 0) {
         goto fim;
     }
 
-    hex_escreve(&saida[TR31_CAB_LEN], cifrado, corpo_n);
+    hex_escreve(&saida[TR31_CAB_LEN], CORPO, corpo_n);
     hex_escreve(&saida[TR31_CAB_LEN + 2u * corpo_n], mac, TR31_MAC_LEN);
     *saida_n = total;
     r = 0;
 
 fim:
-    wipe(corpo, sizeof corpo);
-    wipe(autentica, sizeof autentica);
-    wipe(cifrado, sizeof cifrado);
+    wipe(g_kb, sizeof g_kb);
     wipe(mac, sizeof mac);
     return r;
+}
+
+int tr31_embrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
+                  const uint8_t kbak[TR31_SUBCHAVE_LEN],
+                  const tr31_cab_t *cab,
+                  const uint8_t *chave, uint8_t chave_n,
+                  const uint8_t *enchimento, uint8_t enchimento_n,
+                  char *saida, uint32_t *saida_n)
+{
+    if (chave_n > TR31_CHAVE_MAX) {
+        return -1;
+    }
+    return tr31_embrulha_n(kbek, kbak, cab, chave, chave_n,
+                           enchimento, enchimento_n, saida, saida_n);
 }
 
 /* ---------------------------------------------------------------------
@@ -299,15 +328,13 @@ fim:
  * qualquer campo do texto decifrado, e devolve o MESMO erro em todos os
  * caminhos de recusa.
  * ------------------------------------------------------------------- */
-int tr31_desembrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
-                     const uint8_t kbak[TR31_SUBCHAVE_LEN],
-                     const char *bloco, uint32_t bloco_n,
-                     tr31_cab_t *cab,
-                     uint8_t chave[TR31_CHAVE_MAX], uint8_t *chave_n)
+int tr31_desembrulha_n(const uint8_t kbek[TR31_SUBCHAVE_LEN],
+                       const uint8_t kbak[TR31_SUBCHAVE_LEN],
+                       const char *bloco, uint32_t bloco_n,
+                       tr31_cab_t *cab,
+                       uint8_t *chave, uint16_t chave_max, uint16_t *chave_n)
 {
-    uint8_t  corpo[TR31_CORPO_MAX];
     uint8_t  mac[TR31_MAC_LEN];
-    uint8_t  autentica[TR31_CAB_LEN + TR31_CORPO_MAX];
     uint32_t declarado, corpo_n, i;
     uint32_t bits;
     int      r = -1;
@@ -315,7 +342,7 @@ int tr31_desembrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
     *chave_n = 0u;
 
     if (bloco_n < TR31_CAB_LEN + 2u * BLK + 2u * TR31_MAC_LEN ||
-        bloco_n > TR31_ASCII_MAX) {
+        bloco_n > TR31_ASCII_GRANDE) {
         goto fim;
     }
 
@@ -328,11 +355,11 @@ int tr31_desembrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
     }
 
     corpo_n = (bloco_n - TR31_CAB_LEN - 2u * TR31_MAC_LEN) / 2u;
-    if (corpo_n == 0u || (corpo_n % BLK) != 0u || corpo_n > TR31_CORPO_MAX) {
+    if (corpo_n == 0u || (corpo_n % BLK) != 0u || corpo_n > TR31_CORPO_GRANDE) {
         goto fim;
     }
 
-    if (hex_le(&bloco[TR31_CAB_LEN], corpo, corpo_n) != 0) {
+    if (hex_le(&bloco[TR31_CAB_LEN], CORPO, corpo_n) != 0) {
         goto fim;
     }
     if (hex_le(&bloco[bloco_n - 2u * TR31_MAC_LEN], mac, TR31_MAC_LEN) != 0) {
@@ -343,49 +370,60 @@ int tr31_desembrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
     if (hsm_cfs_aes_key(kbek) != 0) {
         goto fim;
     }
-    if (aes_cbc(mac, corpo, corpo, corpo_n, 0) != 0) {
+    if (aes_cbc(mac, CORPO, CORPO, corpo_n, 0) != 0) {
         goto fim;
     }
 
     for (i = 0u; i < TR31_CAB_LEN; i++) {
-        autentica[i] = (uint8_t)bloco[i];
-    }
-    for (i = 0u; i < corpo_n; i++) {
-        autentica[TR31_CAB_LEN + i] = corpo[i];
+        g_kb[i] = (uint8_t)bloco[i];
     }
 
     /* Verificacao em tempo constante -- ver cmac.h. */
-    if (cmac_aes256_verifica(kbak, autentica, TR31_CAB_LEN + corpo_n, mac) != 1) {
+    if (cmac_aes256_verifica(kbak, g_kb, TR31_CAB_LEN + corpo_n, mac) != 1) {
         goto fim;
     }
 
     /* So agora o conteudo decifrado merece credito. */
-    bits = ((uint32_t)corpo[0] << 8) | (uint32_t)corpo[1];
+    bits = ((uint32_t)CORPO[0] << 8) | (uint32_t)CORPO[1];
     if ((bits % 8u) != 0u || bits == 0u) {
         goto fim;
     }
-    if ((2u + bits / 8u) > corpo_n || (bits / 8u) > TR31_CHAVE_MAX) {
+    if ((2u + bits / 8u) > corpo_n || (bits / 8u) > chave_max) {
         goto fim;
     }
-    if (!cab_valido(cab)) {
+    if (!cab_valido(cab, bits / 8u)) {
         goto fim;
     }
 
-    *chave_n = (uint8_t)(bits / 8u);
+    *chave_n = (uint16_t)(bits / 8u);
     for (i = 0u; i < *chave_n; i++) {
-        chave[i] = corpo[2u + i];
+        chave[i] = CORPO[2u + i];
     }
     r = 0;
 
 fim:
-    wipe(corpo, sizeof corpo);
-    wipe(autentica, sizeof autentica);
+    wipe(g_kb, sizeof g_kb);
     wipe(mac, sizeof mac);
     if (r != 0) {
-        wipe(chave, TR31_CHAVE_MAX);
+        wipe(chave, chave_max);
         wipe(cab, sizeof *cab);
         *chave_n = 0u;
     }
+    return r;
+}
+
+int tr31_desembrulha(const uint8_t kbek[TR31_SUBCHAVE_LEN],
+                     const uint8_t kbak[TR31_SUBCHAVE_LEN],
+                     const char *bloco, uint32_t bloco_n,
+                     tr31_cab_t *cab,
+                     uint8_t chave[TR31_CHAVE_MAX], uint8_t *chave_n)
+{
+    uint16_t n = 0u;
+    int      r;
+
+    r = tr31_desembrulha_n(kbek, kbak, bloco, bloco_n, cab,
+                           chave, TR31_CHAVE_MAX, &n);
+    *chave_n = (uint8_t)n;
     return r;
 }
 

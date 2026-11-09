@@ -160,7 +160,7 @@ static uint8_t le_bloco(leitor_t *r, const uint8_t **b, uint16_t *bn)
     t.n   = r->n;
     t.pos = (uint16_t)(r->pos + 1u);
     v = le_dec(&t, 4u);
-    if ((v < (int32_t)TR31_CAB_LEN) || (v > (int32_t)TR31_ASCII_MAX)) {
+    if ((v < (int32_t)TR31_CAB_LEN) || (v > (int32_t)TR31_ASCII_GRANDE)) {
         return ASCII_BLOCO_INVAL;
     }
     if ((uint32_t)r->pos + (uint32_t)v > r->n) {
@@ -507,6 +507,103 @@ static uint8_t h_m2(leitor_t *in, escritor_t *out)
     return (v == 1) ? ASCII_OK : ASCII_VERIF_FALHOU;
 }
 
+/* Numeros RSA de R2 e R4: estaticos para nao pesar na pilha. So dados
+ * publicos -- modulo e assinatura. */
+static uint8_t g_rsa_n[RSA_BYTES], g_rsa_s[RSA_BYTES];
+
+/* R0 -- gerar par RSA: exportabilidade(1) -> key block da chave privada
+ *       (sob a LMK) . n(512) . e(8). RSA-2048, e = 65537.
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao, como o K0.
+ *   em laco      pares novos e independentes, cada um so embrulhado. Leva
+ *                segundos: o laco gasta tempo, nao vaza.
+ *   exportacao   como no K0: o bloco volta sob a LMK, e guarda-lo no host
+ *                nao e exportar. 'N' tambem volta como bloco.
+ *   log          sim, antes.
+ *
+ * O par passa por um teste de consistencia (assinar e verificar) antes de
+ * sair. Erro 91 se ele falhar: o erro grave fica marcado.
+ *
+ * FRONTEIRA: dentro. p e q nascem no keystore e saem so embrulhados; o
+ * bloco e escrito direto na resposta. */
+static uint8_t h_r0(leitor_t *in, escritor_t *out)
+{
+    uint32_t bn = 0u;
+    uint8_t  exp;
+    uint8_t  ee[4];
+    int      v;
+
+    if (((uint32_t)in->pos + 1u) > in->n) {
+        return ASCII_MALFORMADA;
+    }
+    exp = in->p[in->pos];
+    in->pos = (uint16_t)(in->pos + 1u);
+    if (fim(in) != ASCII_OK) {
+        return ASCII_MALFORMADA;
+    }
+    if ((uint32_t)out->n + TR31_ASCII_GRANDE + 2u * RSA_BYTES + 8u > out->max) {
+        return ASCII_INTERNO;
+    }
+    v = keystore_rsa_gera(exp, (char *)&out->p[out->n],
+                          (uint32_t)(out->max - out->n), &bn, g_rsa_n, g_rsa_s);
+    if (v == -2) { return ASCII_ERRO_GRAVE; }
+    if (v != 0)  { return (exp == 'E' || exp == 'N' || exp == 'S') ? ASCII_INTERNO
+                                                                  : ASCII_PARAM; }
+    out->n = (uint16_t)(out->n + bn);
+    poe_hex(out, g_rsa_n, RSA_BYTES);
+    ee[0] = (uint8_t)(RSA_E_PADRAO >> 24);
+    ee[1] = (uint8_t)(RSA_E_PADRAO >> 16);
+    ee[2] = (uint8_t)(RSA_E_PADRAO >> 8);
+    ee[3] = (uint8_t)RSA_E_PADRAO;
+    poe_hex(out, ee, 4u);
+    wipe(g_rsa_s, sizeof g_rsa_s);
+    return ASCII_OK;
+}
+
+/* R2 -- assinar com RSA: key block da chave privada (sob a LMK) .
+ *       digest(64) -> S(512). PKCS#1 v1.5 com SHA-256.
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao.
+ *   em laco      e um oraculo de assinatura -- quem tem o bloco assina o
+ *                que quiser, que e o servico. A assinatura e por CRT em
+ *                tempo constante, e verificada antes de sair: uma falha de
+ *                calculo nao entrega a fatoracao de n (Bellcore).
+ *   exportacao   nao se aplica: a chave nao sai, e o bloco ja e do host.
+ *   log          sim, antes.
+ *
+ * Erros: 10 bloco invalido, 11 bloco de outro tipo de chave, 91 a
+ * verificacao reprovou (nada sai, erro grave marcado).
+ *
+ * FRONTEIRA: dentro. A chave abre no keystore e fica la; o despachante a
+ * apaga no fim do comando. */
+static uint8_t h_r2(leitor_t *in, escritor_t *out)
+{
+    const uint8_t *b = 0;
+    uint16_t       bn = 0u;
+    uint8_t        digest[RSA_SHA256_LEN];
+    uint8_t        r;
+    int            v;
+
+    if ((r = le_bloco(in, &b, &bn)) != ASCII_OK)               { return r; }
+    if ((r = le_hex(in, digest, RSA_SHA256_LEN)) != ASCII_OK)  { return r; }
+    if ((r = fim(in)) != ASCII_OK)                             { return r; }
+
+    v = keystore_rsa_abre((const char *)b, bn);
+    if (v == -3) { return ASCII_MODO; }
+    if (v != 0)  { return ASCII_BLOCO_INVAL; }
+
+    v = keystore_rsa_assina(digest, g_rsa_s);
+    if (v == -2) { return ASCII_ERRO_GRAVE; }
+    if (v != 0)  { return ASCII_INTERNO; }
+    poe_hex(out, g_rsa_s, RSA_BYTES);
+    wipe(g_rsa_s, sizeof g_rsa_s);
+    return ASCII_OK;
+}
+
 /* R4 -- verificar assinatura RSA: n(512) . e(8) . digest(64) . S(512).
  *       Assinatura PKCS#1 v1.5 com SHA-256. Erro 01 se nao confere.
  *
@@ -519,7 +616,7 @@ static uint8_t h_m2(leitor_t *in, escritor_t *out)
  */
 static uint8_t h_r4(leitor_t *in, escritor_t *out)
 {
-    static uint8_t n[RSA_BYTES], s[RSA_BYTES];
+    uint8_t       *n = g_rsa_n, *s = g_rsa_s;
     uint8_t        ee[4], digest[RSA_SHA256_LEN];
     uint32_t       e;
     uint8_t        r;
@@ -678,6 +775,8 @@ static const ascii_entry_t g_ascii[] = {
     { 'C', '2', ST_OPER,   h_c2, L },
     { 'M', '0', ST_OPER,   h_m0, L },
     { 'M', '2', ST_OPER,   h_m2, L },
+    { 'R', '0', ST_OPER,   h_r0, L },
+    { 'R', '2', ST_OPER,   h_r2, L },
     { 'R', '4', ST_OPER,   h_r4, L },
 };
 

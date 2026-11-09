@@ -521,6 +521,7 @@ def main():
     L.append("#endif /* KAT_VECTORS_H */")
 
     SAIDA.write_text("\n".join(L) + "\n")
+    mr_vetores()
 
     print(f"-> {SAIDA.relative_to(ROOT)}")
     print(f"   AES  {len(aes)} vetores")
@@ -530,6 +531,45 @@ def main():
     print(f"   DRBG {len(drbg)} vetores")
     print(f"   TR31 1 vetor ({len(tr31['kb'])} caracteres) -- fonte de terceiros")
     print(f"   {SAIDA.stat().st_size} bytes")
+
+
+def mr_vetores():
+    """fw/include/kat_mr.h: candidatos do KAT de primalidade do CAVP
+    (KeyGen_186-3_RandomProbablyPrime3_3_KAT.txt), copiados literalmente.
+
+    So o firmware de TESTE inclui este header (make HSM_TESTE_MR=1): o
+    Miller-Rabin custa uma exponenciacao de 1024 bits por rodada, caro
+    demais para o POST. Tres casos: o p de um resultado P (primo), o p de
+    um F no passo 4.7 e o q de um F no passo 5.8 (compostos)."""
+    texto = (VEC / "rsa" / "KeyGen_186-3_RandomProbablyPrime3_3_KAT.txt"
+             ).read_text(encoding="latin-1")
+    texto = texto.split("[mod = 2048]")[1].split("[mod =")[0]
+    ents = re.findall(r"prandom = (\w+)\s+qrandom = (\w+)\s+Result = (.*)", texto)
+    primo = next(p for p, q, r in ents if r.startswith("P"))
+    comp1 = next(p for p, q, r in ents if r.startswith("F (Step 4.7"))
+    comp2 = next(q for p, q, r in ents
+                 if r.startswith("F (Step 5.8") and int(q, 16) & 1)
+    casos = [(primo, 1, "P: p provavelmente primo"),
+             (comp1, 0, "F, passo 4.7: p composto"),
+             (comp2, 0, "F, passo 5.8: q composto")]
+    L = ["/* fw/include/kat_mr.h -- GERADO por scripts/mkkat.py, nao editar",
+         " *",
+         " * KAT de primalidade do CAVP (FIPS 186-3, primos provaveis). So o",
+         " * firmware de teste (make HSM_TESTE_MR=1) inclui este arquivo.",
+         " */",
+         "#ifndef KAT_MR_H", "#define KAT_MR_H", "", "#include <stdint.h>", ""]
+    for i, (w, esperado, nome) in enumerate(casos):
+        b = bytes.fromhex(w)
+        if len(b) != 128 or not (b[0] & 0x80) or not (b[-1] & 1):
+            raise SystemExit(f"kat_mr: candidato {i} fora do formato")
+        L.append(f"/* {nome} */")
+        L.append(carr(f"kat_mr{i}", b))
+        L.append(f"#define KAT_MR{i}_PRIMO {esperado}")
+        L.append("")
+    L.append(f"#define KAT_MR_N {len(casos)}")
+    L.append("")
+    L.append("#endif")
+    (ROOT / "fw" / "include" / "kat_mr.h").write_text("\n".join(L) + "\n")
 
 
 if __name__ == "__main__":

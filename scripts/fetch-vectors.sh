@@ -117,9 +117,13 @@ cp "$TMP/rfc4231.txt" "$VEC/hmac/"
 mkdir -p "$VEC/cmac"
 unzip -qjo "$TMP/cmactestvectors.zip" 'CMACGenAES256.rsp' -d "$VEC/cmac/"
 
-# RSA: so a geracao PKCS#1 v1.5. O zip tem 4,7 MB com geracao de chave e PSS.
+# RSA: a geracao PKCS#1 v1.5 e as chaves completas (p, q, d) da geracao de
+# chave por primos provaveis, mais o KAT de primalidade dela. O resto do zip
+# (PSS, X9.31, as chaves de 3072) nao e usado.
 mkdir -p "$VEC/rsa"
-unzip -qjo "$TMP/186-3rsatestvectors.zip" 'SigGen15_186-3.rsp' -d "$VEC/rsa/"
+unzip -qjo "$TMP/186-3rsatestvectors.zip" 'SigGen15_186-3.rsp' \
+      'KeyGen_RandomProbablyPrime3_3.rsp' \
+      'KeyGen_186-3_RandomProbablyPrime3_3_KAT.txt' -d "$VEC/rsa/"
 
 # X9.143: um vetor so, copiado literalmente da tupla do arquivo de
 # origem. A extracao e mecanica e falha se achar numero diferente de um.

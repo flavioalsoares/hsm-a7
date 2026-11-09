@@ -59,6 +59,9 @@ module tb_rsa;
     reg [7:0] lmk   [0:31];
 
     reg [7:0] r4 [0:547];      // n, e, digest, S: vetor do CAVP
+    reg [7:0] r2kb  [0:1359];  // key block da chave do KeyGen do CAVP, sob a LMK
+    reg [7:0] r2aes [0:143];   // key block AES D0, sob a mesma LMK
+    reg [7:0] r2v   [0:287];   // digest(32) e a assinatura esperada(256)
 
     always #10 sys_clk = ~sys_clk;
     wire flash_csn, flash_mosi, flash_miso;
@@ -300,7 +303,7 @@ module tb_rsa;
 
     // ------------------------------------------------------------------
     initial begin
-        #1500000000;                    // 1,5 s
+        #1500000000; #1500000000;       // 3 s
         $display("[tb_rsa] FAIL: timeout");
         $display("[tb_rsa] FAIL");
         $finish;
@@ -320,8 +323,59 @@ module tb_rsa;
         end
     endtask
 
+    // R2: key block (o RSA ou o AES) . digest. `troca` != 0 muda um digito
+    // hex do corpo do bloco, que continua hex e passa a nao fechar o MAC.
+    task pede_r2(input integer aes, input integer troca);
+        integer k, nb;
+        reg [7:0] b;
+        begin
+            inicio("R", "2");
+            nb = aes ? 144 : 1360;
+            for (k = 0; k < nb; k = k + 1) begin
+                b = aes ? r2aes[k] : r2kb[k];
+                if (troca && k == 100) b = (b == "0") ? "1" : "0";
+                poe(b);
+            end
+            for (k = 0; k < 32; k = k + 1)
+                poe_hex(r2v[k]);
+            ascii_troca();
+        end
+    endtask
+
+    // A assinatura que voltou tem de ser a esperada, em hex maiusculo.
+    task confere_assinatura;
+        integer k, d;
+        reg [7:0] hi, lo;
+        begin
+            d = 0;
+            if (resp_len != 8 + 512) begin
+                $display("[tb_rsa] FAIL: R2 devolveu %0d bytes, esperado %0d",
+                         resp_len, 8 + 512);
+                errors = errors + 1;
+            end else begin
+                for (k = 0; k < 256; k = k + 1) begin
+                    hi = hexdig(r2v[32 + k][7:4]);
+                    lo = hexdig(r2v[32 + k][3:0]);
+                    if (resp[8 + 2 * k] !== hi || resp[9 + 2 * k] !== lo)
+                        d = d + 1;
+                end
+                if (d != 0) begin
+                    $display("[tb_rsa] FAIL: assinatura difere em %0d bytes", d);
+                    errors = errors + 1;
+                end
+            end
+        end
+    endtask
+
     initial begin
         $display("[tb_rsa] inicio");
+        $readmemh("../vectors/rsa_r2_bloco.hex", r2kb);
+        $readmemh("../vectors/rsa_r2_aes.hex", r2aes);
+        $readmemh("../vectors/rsa_r2.hex", r2v);
+        if (r2kb[0] === 8'hxx || r2aes[0] === 8'hxx || r2v[0] === 8'hxx) begin
+            $display("[tb_rsa] FAIL: vetores do R2 nao carregados");
+            $finish;
+        end
         $readmemh("../vectors/rsa_r4.hex", r4);
         if (r4[0] === 8'hxx) begin
             $display("[tb_rsa] FAIL: vetor nao carregado");
@@ -365,6 +419,20 @@ module tb_rsa;
         poe("A");
         ascii_troca();
         confere("R", "5", 22, "R4 curto");
+
+        // ---- R2: assinar com a chave oficial do KeyGen do CAVP ----------
+        erros_antes = errors;
+        pede_r2(0, 0);
+        confere("R", "3", 0, "R2 assinatura");
+        confere_assinatura();
+        if (errors == erros_antes)
+            $display("[tb_rsa] R2 assinou com a chave do CAVP, por CRT, e a assinatura confere");
+
+        pede_r2(0, 1);
+        confere("R", "3", 10, "R2 bloco adulterado");
+
+        pede_r2(1, 0);
+        confere("R", "3", 11, "R2 com key block AES");
 
         if (errors == 0) $display("[tb_rsa] PASS");
         else             $display("[tb_rsa] FAIL: %0d erro(s)", errors);

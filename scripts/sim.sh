@@ -49,6 +49,14 @@ cd "$WORK"
 # versao do core forca a recompilacao.
 # ---------------------------------------------------------------------
 compile_neorv32() {
+    # Variante do firmware: vazio e a producao. Um testbench pede outra pela
+    # diretiva "sim-firmware: VAR=1" (hoje so o tb_rsa_mr, com HSM_TESTE_MR).
+    # A variante em uso fica anotada em fw/.variante; trocar de variante
+    # recompila tudo (-B), senao objetos de uma entrariam na outra.
+    local variante="${1:-}"
+    local marca="$ROOT/fw/.variante"
+    local atual=""
+    [ -f "$marca" ] && atual="$(cat "$marca")"
     if [ ! -f "$NEORV32/rtl/file_list_soc.f" ]; then
         echo "ERRO: submodulo ausente -- rode 'git submodule update --init --recursive'" >&2
         exit 1
@@ -71,7 +79,9 @@ compile_neorv32() {
     # chegou a ser compilado. Um teste que nunca ve o codigo em teste e
     # pior que teste nenhum.
     local fw_desatualizado=0
-    if [ ! -f "$fw_image" ]; then
+    if [ "$variante" != "$atual" ]; then
+        fw_desatualizado=1
+    elif [ ! -f "$fw_image" ]; then
         fw_desatualizado=1
     else
         local src
@@ -85,12 +95,18 @@ compile_neorv32() {
     fi
 
     if [ "$fw_desatualizado" = "1" ]; then
-        echo "=== firmware desatualizado -- recompilando"
-        if ! make -s -C "$ROOT/fw" image >/dev/null; then
+        echo "=== firmware desatualizado -- recompilando${variante:+ (variante $variante)}"
+        # shellcheck disable=SC2086
+        if ! make -s -B -C "$ROOT/fw" $variante image >/dev/null; then
             echo "ERRO: 'make -C fw image' falhou." >&2
             echo "      Toolchain: gcc-riscv64-unknown-elf + picolibc-riscv64-unknown-elf" >&2
             echo "      Prefixo diferente? make RISCV_PREFIX=... -C fw image" >&2
             exit 1
+        fi
+        if [ -n "$variante" ]; then
+            echo "$variante" > "$marca"
+        else
+            rm -f "$marca"
         fi
     fi
 
@@ -142,6 +158,9 @@ run_one() {
     fi
 
     echo "=== $tb"
+
+    # Firmware: o de producao, ou a variante que o testbench pedir.
+    compile_neorv32 "$(sed -n 's/.*sim-firmware: *//p' "$src" | head -1)"
 
     # wrapper VHDL do projeto (biblioteca padrao, nao 'neorv32')
     if ! xvhdl "$ROOT"/rtl/soc/*.vhd > "${tb}_vhdl.log" 2>&1; then
@@ -209,8 +228,6 @@ run_one() {
     echo "--- $tb: OK"
     return 0
 }
-
-compile_neorv32
 
 if [ $# -ge 1 ]; then
     run_one "$1"

@@ -105,4 +105,16 @@ ifdef HSM_DIAG
 USER_FLAGS += -DHSM_DIAG
 endif
 
+# Build de TESTE do Miller-Rabin -- make HSM_TESTE_MR=1 image
+#
+# Depois do boot, roda o teste de primalidade sobre os candidatos do KAT do
+# CAVP (fw/include/kat_mr.h) e escreve o resultado na UART. Existe porque a
+# geracao de chave nao tem como ser simulada de ponta a ponta (a busca de
+# primos leva segundos), e o Miller-Rabin nao tem comando proprio. NAO E
+# BUILD DE PRODUCAO, pelo mesmo motivo do HSM_DIAG. Quem o usa e o
+# tb_rsa_mr, pela diretiva sim-firmware.
+ifdef HSM_TESTE_MR
+USER_FLAGS += -DHSM_TESTE_MR
+endif
+
 include $(NEORV32_HOME)/sw/common/common.mk

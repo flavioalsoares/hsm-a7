@@ -690,13 +690,35 @@ Mexer nisso só com o usuário presente.
 Tudo em `doc/fase7-notas.md`; a teoria está no manual, seção 32. Feito: a
 **verificação** RSA-2048. Produto de Montgomery no CFS (`rtl/crypto/rsa_mont.v`,
 página `0x200`), exponenciação pública em `fw/src/rsa.c`, KAT no POST e o comando
-ASCII `R4` (n · e · digest · S → `00`/`01`). Falta toda a metade privada: key block
-da chave RSA, geração, assinatura com CRT, verificar antes de emitir, e P-256.
+ASCII `R4` (n · e · digest · S → `00`/`01`). Feita também a **metade privada**: chave
+RSA em key block (`S0`/`R`/`S`, layout próprio), assinatura por CRT com escada de
+Montgomery, verificada antes de sair, geração de chave pela FIPS 186-5, A.1.3, e os
+comandos `R0` (gerar) e `R2` (assinar). Falta o P-256.
 
 ✅ **Validado em hardware 2026-11-08**: `post` com `RSA-2048` verde e
 `hsmhost.py rsa-cavp` com os 10 vetores do CAVP aceitos e recusados com um bit
 trocado. Timing **+0,273 ns**, 0 critical warnings, 8070 LUTs, 7915 FF, BRAM 13,5,
 DSP 4. Suíte: 24 testbenches.
+
+✅ **Metade privada validada em hardware 2026-11-09**: `rsa-confere` gerou três pares
+na placa (21 s a 34 s cada), e o Python conferiu as assinaturas do `R2`. Suíte: 25
+testbenches. IMEM em 30 052 de 32 768 bytes.
+
+⚠ **A assinatura é verificada com `e` antes de sair** (Bellcore). Reprovou: `91`,
+nada sai, erro grave marcado. Não remover: a conferência pega também erro de software.
+
+⚠ **`metade()` em `rsa.c` usa `g_a` e `g_b` como rascunho.** Valor que precisa
+sobreviver a ela fica em `g_sq`.
+
+⚠ **A chave RSA no key block tem layout PRÓPRIO** (decisão do usuário, 2026-11-08):
+`e(4) p q dp dq qinv` (128 cada), 644 bytes, bloco de 1360 caracteres. `n` não entra.
+Mudar exige mexer nos dois parsers (`tr31.c` e `tr31.py`).
+
+⚠ **A geração de ponta a ponta só se prova na placa.** Na simulação ela é provada por
+partes: `tb_rsa_mr` roda o Miller-Rabin no firmware de teste (`HSM_TESTE_MR=1`), e
+`tb_rsa` assina com a chave do KeyGen do CAVP. `sim.sh` escolhe o firmware pela
+diretiva `sim-firmware:` do testbench. Depois de um testbench de variante, recompilar
+a produção (`make -B -C fw image`) antes do Vivado.
 
 ⚠ **O POST passou a 28,27 ms** (duas exponenciações com o `e` de 22 bits do vetor).
 `tb_soc_silent` observa 32 ms e `tb_post_tamper` tem 80 ms: as janelas existem para

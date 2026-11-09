@@ -35,8 +35,10 @@ sha256 72178527ce93500e730bc8eb182b857e583096d652b64ece0879c52ba1df973b
 [RSA PKCS#1 v1.5]  NIST CAVP — FIPS 186-3
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/dss/186-3rsatestvectors.zip
 sha256 8405aeb3572a4f98ed4b1a3ccb3f2f49e725462dd28ec4759d6a15d88855d19c
-extrai SigGen15_186-3.rsp
-uso    fase 7 — exponenciação modular de 2048 bits. Baixado em 2026-11-06.
+extrai SigGen15_186-3.rsp, KeyGen_RandomProbablyPrime3_3.rsp,
+       KeyGen_186-3_RandomProbablyPrime3_3_KAT.txt
+uso    fase 7 — exponenciação modular de 2048 bits (2026-11-06); chave
+       privada oficial para assinar e KAT de primalidade (2026-11-08).
 
 [ANSI X9.143 / TR-31 versão D]  valor conhecido de TERCEIROS
 url    https://raw.githubusercontent.com/knovichikhin/psec/cb315e98d4399207f54da42282654d840fe3bb82/tests/test_tr31.py
@@ -87,6 +89,8 @@ b1b12df719b72e48e2b5d576066733b78807f39f8d338f4d01492af10fb5ef74  drbg/CTR_DRBG_
 72178527ce93500e730bc8eb182b857e583096d652b64ece0879c52ba1df973b  hmac/rfc4231.txt
 6fac36f37360bcf74ffcf4465c18e30d6d5a04cc90885b901fc3130c16060974  sha/SHA256LongMsg.rsp
 75e1cb83994638481808e225b9eb0c1ebd0c232d952ac42b61abce6363be283c  sha/SHA256ShortMsg.rsp
+f0e4a23c88630ab5f35cce8f6ad10b5ced08ae5745c4cccf652aa881a8046292  rsa/KeyGen_186-3_RandomProbablyPrime3_3_KAT.txt
+745abeb4706714f2477c74261c6d55f01bdcf47d5f23dfd3e32312af188ce5bb  rsa/KeyGen_RandomProbablyPrime3_3.rsp
 84eb2584488a1dd960f9c9fbe5366696b7ebe6f13bcfe287e4ee48333341c5ec  rsa/SigGen15_186-3.rsp
 39d78f2653758bfbdc78e6188ddfda134097cd83198cfc9e0105f0684c8ef9ab  tr31/x9143_D_AES256.rsp
 

@@ -31,3 +31,4 @@ __pycache__/
 
 # --- ferramentas de sessao ------------------------------------------
 .claude/
+fw/.variante

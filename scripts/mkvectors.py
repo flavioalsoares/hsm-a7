@@ -217,7 +217,51 @@ def rsa():
     r4 = (n.to_bytes(256, "big") + e.to_bytes(4, "big") +
           hashlib.sha256(bytes.fromhex(v[1])).digest() + bytes.fromhex(v[2]))
     escreve("rsa_r4", ["%02x" % x for x in r4], 2)
+    rsa_r2(prefixo)
     return len(cfg) // 2, total, n0p(n), e
+
+
+def rsa_r2(prefixo):
+    """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
+    embrulhada sob a LMK que o tb_rsa monta na cerimonia.
+
+    A assinatura esperada e conta do Python sobre essa chave -- PKCS#1 v1.5 e
+    deterministico, mas o CAVP nao publica assinatura para esta chave. O que e
+    oficial e a chave; a conta, o tb confere tambem pela verificacao com e.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import tr31
+
+    texto = (VEC / "rsa" / "KeyGen_RandomProbablyPrime3_3.rsp").read_text()
+    texto = texto.split("[mod = 2048]")[1].split("[mod =")[0]
+    m = re.search(r"e = (\w+)\s+p = (\w+)\s+q = (\w+)\s+n = (\w+)\s+d = (\w+)", texto)
+    e, p, q, n, d = (int(x, 16) for x in m.groups())
+    if p * q != n or pow(pow(7, e, n), d, n) != 7:
+        raise SystemExit("KeyGen: chave do CAVP nao fecha em Python")
+    chave = (e.to_bytes(4, "big") + p.to_bytes(128, "big") + q.to_bytes(128, "big")
+             + (d % (p - 1)).to_bytes(128, "big") + (d % (q - 1)).to_bytes(128, "big")
+             + pow(q, -1, p).to_bytes(128, "big"))
+
+    # A LMK do tb_rsa: os tres componentes de la, por XOR.
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    ench = bytes(range(16))          # fixo: o .hex tem de ser reprodutivel
+    bloco = tr31.embrulha(lmk, chave, uso="S0", algoritmo="R", modo="S",
+                          exportabilidade="E", enchimento=ench)
+    aes = tr31.embrulha(lmk, bytes(range(32)), uso="D0", algoritmo="A",
+                        modo="B", exportabilidade="E", enchimento=ench)
+
+    digest = hashlib.sha256(b"hsm-a7 fase 7: R2").digest()
+    t = prefixo + digest
+    em = int.from_bytes(b"\0\1" + b"\xff" * (253 - len(t)) + b"\0" + t, "big")
+    sig = pow(em, d, n)
+    if pow(sig, e, n) != em:
+        raise SystemExit("R2: assinatura de referencia nao verifica")
+
+    escreve("rsa_r2_bloco", ["%02x" % ord(c) for c in bloco], 2)
+    escreve("rsa_r2_aes", ["%02x" % ord(c) for c in aes], 2)
+    escreve("rsa_r2", ["%02x" % x for x in digest + sig.to_bytes(256, "big")], 2)
+    return len(bloco), len(aes)
 
 
 def main():

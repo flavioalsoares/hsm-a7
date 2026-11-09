@@ -21,7 +21,11 @@ Uso:
     hsmhost.py mac BLOCO DADOS              # M0
     hsmhost.py mac-verify BLOCO MAC DADOS   # M2: o veredito e o codigo
     hsmhost.py rsa-verify N E DIGEST S      # R4: RSA-2048, PKCS#1 v1.5, SHA-256
-    hsmhost.py rsa-cavp                     # R4 com os vetores do CAVP
+    hsmhost.py rsa-cavp [--lmk HEX]         # R4 com os vetores do CAVP; com a
+                                            # LMK, tambem R2 com a chave do CAVP
+    hsmhost.py rsa-sign BLOCO DIGEST        # R2: assina com a chave do bloco
+    hsmhost.py rsa-gen [--exp E]            # R0: gera par RSA-2048
+    hsmhost.py rsa-confere [-n N]           # R0 + R2 + R4, conferidos aqui
     hsmhost.py confere --lmk HEX [-n N]     # o Python conferindo o C
     hsmhost.py selftest                     # codec, sem placa
 
@@ -120,6 +124,9 @@ class Tcp:
             buf += c
         return buf
 
+    def espera(self, segundos):
+        self.s.settimeout(segundos)
+
     def troca(self, msg: bytes) -> bytes:
         self.s.sendall(struct.pack(">H", len(msg)) + msg)
         n = struct.unpack(">H", self._le(2))[0]
@@ -138,6 +145,9 @@ class Serial:
             raise RuntimeError("nenhuma porta serial encontrada")
         self.ser = serial.Serial(porta, 115200, timeout=timeout)
         self.ser.reset_input_buffer()
+
+    def espera(self, segundos):
+        self.ser.timeout = segundos
 
     def _le(self, n):
         buf = self.ser.read(n)
@@ -219,6 +229,43 @@ class Host:
         erro, _ = self.pede("R4", campos.hex().upper().encode(), aceita=(0, 1))
         return erro == 0
 
+    def rsa_gera(self, exp="E"):
+        """R0: (key block da chave privada, n, e). Leva segundos: o
+        dispositivo procura dois primos de 1024 bits."""
+        self.t.espera(120.0)
+        try:
+            _, c = self.pede("R0", exp.encode())
+        finally:
+            self.t.espera(5.0)
+        bloco = c[:-520].decode()
+        return bloco, int(c[-520:-8].decode(), 16), int(c[-8:].decode(), 16)
+
+    def rsa_assina(self, bloco, digest):
+        """R2: a chave privada vai no key block sob a LMK; sai S."""
+        _, c = self.pede("R2", bloco.encode() + digest.hex().upper().encode())
+        return int(c[:512].decode(), 16)
+
+
+def chave_cavp():
+    """A primeira chave de 2048 bits do KeyGen do CAVP, no layout do key block
+    (tr31.RSA_CHAVE): e p q dp dq qinv. Devolve (chave, n, e, d)."""
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    caminho = os.path.join(raiz, "vectors", "rsa", "KeyGen_RandomProbablyPrime3_3.rsp")
+    with open(caminho) as f:
+        texto = f.read().split("[mod = 2048]")[1].split("[mod =")[0]
+    m = re.search(r"e = (\w+)\s+p = (\w+)\s+q = (\w+)\s+n = (\w+)\s+d = (\w+)", texto)
+    e, p, q, n, d = (int(x, 16) for x in m.groups())
+    chave = (e.to_bytes(4, "big") + p.to_bytes(128, "big") + q.to_bytes(128, "big")
+             + (d % (p - 1)).to_bytes(128, "big") + (d % (q - 1)).to_bytes(128, "big")
+             + pow(q, -1, p).to_bytes(128, "big"))
+    return chave, n, e, d
+
+
+def em_pkcs1(digest):
+    """O EM de PKCS#1 v1.5 com SHA-256, como inteiro."""
+    t = bytes.fromhex("3031300d060960864801650304020105000420") + digest
+    return int.from_bytes(b"\0\1" + b"\xff" * (253 - len(t)) + b"\0" + t, "big")
+
 
 def vetores_cavp():
     """Os vetores SHA-256 de 2048 bits do SigGen15 do CAVP: (n, e, digest, S)."""
@@ -236,8 +283,46 @@ def vetores_cavp():
     return vs
 
 
-def rsa_cavp(h):
-    """Cada vetor tem de conferir, e com um bit trocado em S, nao."""
+def rsa_confere(h, voltas):
+    """Gera pares no dispositivo e confere cada um daqui, so com n e e: a
+    assinatura do R2 tem de verificar em Python, e o R4 tem de aceita-la.
+    Se p ou q nao fossem primos, a assinatura por CRT nao verificaria."""
+    import time
+    for v in range(voltas):
+        t0 = time.monotonic()
+        bloco, n, e = h.rsa_gera()
+        dt = time.monotonic() - t0
+        if e != 65537 or n.bit_length() != 2048 or n % 2 == 0:
+            print("par %d: n ou e fora do esperado" % v)
+            return 1
+        for i in range(3):
+            digest = hashlib.sha256(b"rsa-confere %d %d" % (v, i)).digest()
+            s = h.rsa_assina(bloco, digest)
+            if pow(s, e, n) != em_pkcs1(digest):
+                print("par %d: assinatura %d NAO verifica" % (v, i))
+                return 1
+            if not h.rsa_verifica(n, e, digest, s):
+                print("par %d: o R4 recusou a propria assinatura" % v)
+                return 1
+        print("par %d: gerado em %.1f s, 3 assinaturas conferidas" % (v, dt))
+    return 0
+
+
+def rsa_cavp(h, lmk=None):
+    """Cada vetor tem de conferir, e com um bit trocado em S, nao. Com a LMK,
+    tambem assina com a chave do CAVP e confere a assinatura aqui."""
+    if lmk is not None:
+        import tr31
+        chave, n, e, d = chave_cavp()
+        bloco = tr31.embrulha(lmk, chave, uso="S0", algoritmo="R", modo="S",
+                              exportabilidade="E")
+        for i in range(3):
+            digest = hashlib.sha256(b"hsm-a7 R2 %d" % i).digest()
+            s = h.rsa_assina(bloco, digest)
+            if s != pow(em_pkcs1(digest), d, n) or pow(s, e, n) != em_pkcs1(digest):
+                print("R2 %d: assinatura ERRADA" % i)
+                return 1
+            print("R2 %d: assinatura com a chave do CAVP confere" % i)
     vs = vetores_cavp()
     for i, (n, e, d, sig) in enumerate(vs):
         if not h.rsa_verifica(n, e, d, sig):
@@ -260,6 +345,9 @@ def selftest():
     assert resposta_esperada("K0") == "K1"
     assert resposta_esperada("M2") == "M3"
     assert resposta_esperada("R4") == "R5"
+    assert resposta_esperada("R2") == "R3"
+    _, n, e, d = chave_cavp()
+    assert pow(pow(em_pkcs1(bytes(32)), d, n), e, n) == em_pkcs1(bytes(32))
     assert len(vetores_cavp()) == 10
     assert analisa(b"AB12K100resto", b"AB12", "K0") == (0, b"resto")
     assert analisa(b"AB12M301", b"AB12", "M2") == (1, b"")
@@ -412,7 +500,11 @@ def main(argv=None):
     p = sub.add_parser("rsa-verify")
     for c in ("n", "e", "digest", "s"):
         p.add_argument(c)
-    sub.add_parser("rsa-cavp")
+    p = sub.add_parser("rsa-cavp")
+    p.add_argument("--lmk", default=None, help="LMK em hex (brinquedo)")
+    p = sub.add_parser("rsa-sign"); p.add_argument("bloco"); p.add_argument("digest")
+    p = sub.add_parser("rsa-gen"); p.add_argument("--exp", default="E", choices=list("ENS"))
+    p = sub.add_parser("rsa-confere"); p.add_argument("-n", type=int, default=3)
     p = sub.add_parser("confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
@@ -460,7 +552,16 @@ def main(argv=None):
             print("assinatura confere" if ok else "assinatura NAO confere")
             return 0 if ok else 1
         elif a.cmd == "rsa-cavp":
-            return rsa_cavp(h)
+            return rsa_cavp(h, bytes.fromhex(a.lmk) if a.lmk else None)
+        elif a.cmd == "rsa-gen":
+            bloco, n, e = h.rsa_gera(a.exp)
+            print(bloco)
+            print("n %0512X" % n, file=sys.stderr)
+            print("e %08X" % e, file=sys.stderr)
+        elif a.cmd == "rsa-confere":
+            return rsa_confere(h, a.n)
+        elif a.cmd == "rsa-sign":
+            print("%0512X" % h.rsa_assina(a.bloco, bytes.fromhex(a.digest)))
         elif a.cmd == "confere":
             return confere(h, bytes.fromhex(a.lmk), a.n)
     except HostErro as e:

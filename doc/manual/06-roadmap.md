@@ -648,9 +648,10 @@ aprendizado de arquitetura de HSM está nas fases 3 a 5. E há um gancho direto
 com a seção 17.1 — implementar RSA-CRT sem verificar a assinatura antes de
 emitir é reproduzir o ataque Bellcore no próprio equipamento.
 
-Até aqui a fase entregou a **verificação** de assinatura RSA-2048: um
-multiplicador modular no fabric, a exponenciação no firmware, o KAT no POST e o
-comando `R4` na porta host. A assinatura, que usa a chave privada, vem depois.
+A fase entregou o RSA-2048 completo: um multiplicador modular no fabric, a
+exponenciação no firmware, a geração de chave, a assinatura por CRT em tempo
+constante, a verificação, o KAT no POST e três comandos na porta host — `R0`,
+`R2` e `R4`.
 As medidas e o estado de cada peça estão em `doc/fase7-notas.md`.
 
 ### Por que um HSM precisa de criptografia assimétrica
@@ -853,18 +854,154 @@ de 22 bits, e cada verificação custa cerca de 9 ms. O boot passou de 10,19 ms
 para **28,27 ms** — a seção 11 avisou que cada propriedade que o dispositivo
 garante sobre si mesmo cobra milissegundos de todo boot, para sempre.
 
+### Assinar: o Teorema Chinês do Resto
+
+Assinar é `s = m^d mod n`, com `d` de 2048 bits: cerca de 3000 produtos de
+2048 bits. Quem tem a chave privada, porém, conhece `p` e `q` — e pode fazer a
+conta **duas vezes pela metade**:
+
+```
+    sp = m^dp mod p        dp = d mod (p−1)
+    sq = m^dq mod q        dq = d mod (q−1)
+    h  = qinv · (sp − sq) mod p      qinv = q⁻¹ mod p
+    s  = sq + h · q
+```
+
+O Teorema Chinês do Resto garante que só existe um número menor que `n` com
+esses dois restos, e a última linha (a recombinação de Garner) o reconstrói.
+Cada metade tem expoente e módulo de 1024 bits, e um produto de 1024 bits custa
+um quarto do de 2048. Duas exponenciações de meio tamanho custam cerca de
+**um quarto** de uma inteira.
+
+Com os números de brinquedo da seção anterior (`p = 61`, `q = 53`,
+`d = 2753`, `m = 65`): `dp = 53`, `dq = 49`, `qinv = 38`; `sp = 39`,
+`sq = 5`, `h = 11` e `s = 5 + 11·53 = 588` — a mesma assinatura de antes.
+
+Por isso a chave privada deste dispositivo **não guarda `d`**: guarda
+`p, q, dp, dq, qinv` e o `e`. E por isso o ataque Bellcore (seção 17.1) é
+assunto desta fase: se uma das metades sair errada, `s` fica certo módulo um
+primo e errado módulo o outro, e `mdc(s^e − m, n)` entrega a fatoração. A
+contramedida está implementada: **toda assinatura é verificada com `e` antes
+de sair**. Se não conferir, nada sai, o comando responde `91` e o erro grave
+fica marcado até o próximo boot, como a dupla execução da Fase 6.
+
+### A escada de Montgomery
+
+O *square-and-multiply* da seção anterior faz um produto a mais em cada bit 1,
+e com `dp` e `dq` isso é o ataque de temporização. A **escada de Montgomery**
+(o nome é do mesmo Montgomery, mas é outra ideia) mantém dois valores, `X` e
+`Y`, sempre com `Y = X · m`, e faz **exatamente um produto e um quadrado por
+bit**:
+
+```
+    bit 0:   Y = X · Y     X = X²
+    bit 1:   X = X · Y     Y = Y²
+```
+
+O bit decide só **quais registradores** entram em cada operação — e o
+coprocessador leva o mesmo número de ciclos qualquer que seja o registrador.
+No firmware, a escolha é feita por máscara, sem `if`. O expoente é percorrido
+inteiro, zeros à esquerda inclusive, então o tempo depende só do tamanho dele.
+
+### Tudo no coprocessador, inclusive o que não é modular
+
+As contas da assinatura que não são exponenciação também vão para o hardware:
+
+- **reduzir `m` módulo `p`**: `m` tem 2048 bits e `p`, 1024. Partindo
+  `m = hi·R + lo`, a representação de Montgomery de `m mod p` é
+  `Mont(hi, R³) + Mont(lo, R²)` — dois produtos e uma soma, sem divisão;
+- **`h · q` e `n = p · q`**, que são produtos comuns de inteiros, usam o
+  módulo `M = 2²⁰⁴⁸ − 1`. Como `R = 2²⁰⁴⁸` é congruente a 1 módulo `M`, o
+  produto de Montgomery `a·b·R⁻¹ mod M` é o próprio `a·b` — e, sendo
+  `a·b < M`, é o inteiro. O mesmo core que faz a exponenciação faz a
+  multiplicação comum.
+
+Em C sobram somas, subtrações, comparações e o enchimento PKCS#1.
+
+### Gerar a chave: procurar primos
+
+Gerar um par RSA é achar dois primos de 1024 bits ao acaso. Não há fórmula
+para isso: sorteia-se um número e testa-se. Perto de `2¹⁰²⁴`, um número ímpar
+ao acaso é primo com probabilidade de cerca de 1 em 355, então a busca leva
+centenas de sorteios.
+
+O dispositivo segue a FIPS 186-5, Apêndice A.1.3 (*primos prováveis*):
+
+1. sorteia 1024 bits do DRBG, liga os dois bits altos (o que garante
+   `p ≥ √2 · 2¹⁰²³`, e portanto `n` com 2048 bits exatos) e o bit baixo;
+2. descarta o candidato se ele for divisível por algum ímpar até 1023 — conta
+   barata, em C, que elimina mais de 80% dos candidatos antes de qualquer
+   exponenciação;
+3. exige `mdc(p − 1, e) = 1`, senão `e` não teria inverso;
+4. aplica o **teste de Miller-Rabin** com 5 bases sorteadas;
+5. para `q`, exige ainda `|p − q| > 2⁹²⁴`: primos próximos demais tornam `n`
+   fatorável pelo método de Fermat.
+
+O **Miller-Rabin** parte do pequeno teorema de Fermat: se `w` é primo, então
+`b^(w−1) ≡ 1 (mod w)`. Escrevendo `w − 1 = 2^a · m`, calcula-se `b^m` e
+eleva-se ao quadrado até `a` vezes. Num primo, a sequência termina em 1, e o
+valor antes do primeiro 1 é sempre `w − 1`. Um composto quase sempre quebra
+essa regra. Exemplo clássico: `561 = 3·11·17` engana o teste de Fermat com
+qualquer base, mas não o de Miller-Rabin. Com `b = 2` e
+`560 = 2⁴ · 35`, a sequência é `263, 166, 67, 1` — chega a 1 sem passar por
+560, e 561 é declarado composto.
+
+Cada rodada deixa passar um composto com probabilidade de no máximo 1/4 (na
+prática, muito menos). A Tabela B.1 da FIPS 186-5 fixa **5 rodadas** para
+primos de 1024 bits, para um erro de 2⁻¹¹², que é a força de segurança do
+RSA-2048. Cada rodada é uma exponenciação de 1024 bits na escada — no
+coprocessador.
+
+Achados `p` e `q`, o resto vem deles:
+
+- `dp = e⁻¹ mod (p − 1)`, calculado sem dividir número grande por número
+  grande: com `k = −(p − 1)⁻¹ mod e`, o número `1 + k(p − 1)` é múltiplo de
+  `e`, e o quociente é `dp`. Como `e = 65537` é pequeno, tudo isso é conta de
+  32 bits;
+- `qinv = q^(p−2) mod p`, pelo pequeno teorema de Fermat — uma exponenciação,
+  na escada, porque `p` é segredo;
+- `n = p · q`, no coprocessador.
+
+Antes de sair, o par novo passa por um **teste de consistência**: o
+dispositivo assina com ele e verifica a assinatura. É exigência da FIPS 140-3
+para geração de chave assimétrica, e pega na hora um primo errado ou um
+`qinv` mal calculado.
+
+### A chave privada no key block
+
+A chave sai como **key block X9.143 sob a LMK** e fica com o host, como as
+chaves AES da porta host (seção 30). O cabeçalho usa os códigos da norma:
+uso `S0` (par assimétrico de assinatura), algoritmo `R` (RSA), modo `S`
+(só assinar). As duas implementações do formato — em C e em Python — recusam
+qualquer outra combinação para `R`.
+
+⚠ **O conteúdo do bloco é um layout deste projeto**, e não da norma: `e`, `p`,
+`q`, `dp`, `dq` e `qinv` em campos fixos, 644 bytes. A X9.143 define os
+códigos de chave assimétrica, mas a forma de codificar a chave dentro do
+bloco não estava acessível — a norma é paga. Se um dia estiver, só esse campo
+muda. O módulo `n` não vai no bloco: o dispositivo o recalcula como `p · q`.
+
+O bloco tem 1360 caracteres, e a chave aberta vive numa área própria do key
+store **só durante o comando** — nunca num slot, nunca na flash. O
+despachante a apaga no fim de todo comando, como faz com o slot efêmero.
+
+### Os comandos
+
+| Pedido | Resposta | Entrada | Saída |
+|---|---|---|---|
+| `R0` gerar par | `R1` | exportabilidade(1) | key block · n(512) · e(8) |
+| `R2` assinar | `R3` | key block · digest(64) | assinatura(512) |
+| `R4` verificar | `R5` | n(512) · e(8) · digest(64) · assinatura(512) | — |
+
+`R2` com um key block AES responde `11`: é a confusão de tipo de chave (seção
+15.1), recusada como nas chaves simétricas. Um bloco adulterado responde `10`,
+o mesmo código de qualquer outro bloco inválido.
+
 ### O que falta
 
-A metade privada:
-
-- **chave RSA privada como key block sob a LMK**, mantida pelo host como as
-  chaves AES da porta host;
-- **geração de chave** dentro da fronteira, com primos testados por
-  Miller-Rabin;
-- **assinatura com CRT** e escada de Montgomery, em tempo constante;
-- **verificação antes de emitir**, que é a contramedida do Bellcore (seção
-  17.1), somada à dupla execução da fase 6;
-- e só então P-256.
+- **P-256**, a curva elíptica, com o mesmo cuidado de tempo constante;
+- o KAT da assinatura no POST, que custaria cerca de 0,2 s a cada boot
+  (decisão pendente).
 
 ## 33. Fase 8 — criptografia de pagamento
 
