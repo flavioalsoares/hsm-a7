@@ -554,9 +554,17 @@ module tb_cfs;
                 erros = erros + 1;
             end
 
+            bus_wr(16'h0204, 32'h0000_BEEF);        // N0P, para o WIPE apagar
             bus_wr(R_CTRL, C_WIPE);
             d = S_WIPE_BUSY;
             while (d & S_WIPE_BUSY) bus_rd(R_STATUS, d);
+            // Registradores de interface: o ultimo limb escrito (A003) e o
+            // n0p. Com CRT, os dois vem da chave privada.
+            if (dut.rsa_wdata !== 16'd0 || dut.rsa_n0p !== 16'd0) begin
+                $display("[tb_cfs] FAIL: WIPE deixou rsa_wdata = %h, rsa_n0p = %h",
+                         dut.rsa_wdata, dut.rsa_n0p);
+                erros = erros + 1;
+            end
             bus_wr(16'h020C, 32'h0000_0080);
             for (k = 0; k < 4; k = k + 1) begin
                 bus_rd(16'h0210, d);

@@ -565,6 +565,19 @@ module hsm_cfs (
             end
             if (rsa_sr && rsel == R_DATA)
                 rsa_addr <= rsa_addr + 11'd1;
+            // O WIPE tambem apaga os registradores de interface do RSA.
+            // rsa_wdata guarda o ultimo limb escrito pela CPU -- com CRT, um
+            // pedaco de p, q, dp, dq ou qinv -- e rsa_n0p guarda
+            // -p^-1 mod 2^16, que vem de um primo da chave.
+            if (wipe_req) begin
+                rsa_wdata <= 16'd0;
+                rsa_n0p   <= 16'd0;
+                rsa_len   <= 8'd0;
+                rsa_addr  <= 11'd0;
+                rsa_dst   <= 3'd0;
+                rsa_a     <= 3'd0;
+                rsa_b     <= 3'd0;
+            end
         end
     end
 

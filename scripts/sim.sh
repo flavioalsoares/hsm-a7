@@ -218,15 +218,44 @@ run_one() {
         cp "$ROOT/sim/stim/nominal.txt" xadc_stim.txt
     fi
 
-    xsim "${tb}_sim" -runall > "${tb}_sim.log" 2>&1 || true
+    # Limite de relogio. Um testbench travado (sem timeout interno, ou com
+    # um laco que nunca chega nele) prenderia a suite para sempre. O padrao
+    # e 6 h, quase o dobro do mais lento medido (tb_tamper, 3 h 15). Um
+    # testbench pede outro limite pela diretiva "sim-timeout: <segundos>";
+    # SIM_TIMEOUT no ambiente vale para todos.
+    local limite
+    limite="$(sed -n 's/.*sim-timeout: *\([0-9][0-9]*\).*/\1/p' "$src" | head -1)"
+    limite="${SIM_TIMEOUT:-${limite:-21600}}"
+
+    local t0 t1 rc=0 res
+    t0="$(date +%s)"
+    timeout "$limite" xsim "${tb}_sim" -runall > "${tb}_sim.log" 2>&1 || rc=$?
+    t1="$(date +%s)"
     grep -E "^\[$tb\]" "${tb}_sim.log" || true
 
-    if ! grep -q "\[$tb\] PASS" "${tb}_sim.log"; then
+    # Criterio do cabecalho: PASS impresso E nenhum FAIL. Ate 2026-11-09 o
+    # script so procurava o PASS; os testbenches so imprimem PASS com zero
+    # erros, mas a regra nao pode depender de cada testbench lembrar disso.
+    if [ "$rc" -eq 124 ]; then
+        res="TIMEOUT"
+        echo "--- $tb: FALHOU -- passou do limite de ${limite} s (log em $WORK/${tb}_sim.log)"
+    elif grep -q "\[$tb\] FAIL" "${tb}_sim.log"; then
+        res="FAIL"
+        echo "--- $tb: FALHOU -- o log tem FAIL (log em $WORK/${tb}_sim.log)"
+    elif ! grep -q "\[$tb\] PASS" "${tb}_sim.log"; then
+        res="FAIL"
         echo "--- $tb: FALHOU (log em $WORK/${tb}_sim.log)"
-        return 1
+    else
+        res="PASS"
+        echo "--- $tb: OK"
     fi
-    echo "--- $tb: OK"
-    return 0
+
+    # Tempo de cada rodada, para acompanhar a suite sem medir a mao.
+    [ -f "$WORK/tempos.csv" ] || echo "data,testbench,segundos,resultado,commit" > "$WORK/tempos.csv"
+    echo "$(date -Iseconds),$tb,$((t1 - t0)),$res,$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo ?)" \
+        >> "$WORK/tempos.csv"
+
+    [ "$res" = "PASS" ]
 }
 
 if [ $# -ge 1 ]; then

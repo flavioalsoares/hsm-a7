@@ -171,8 +171,19 @@ Todos em `OPERATIONAL`, sem dual control. Os números vão em hex.
   interna, `91` o PCT reprovou.
 - **`R2`**: erros `10` bloco inválido, `11` bloco de outro tipo de chave, `91` a
   verificação reprovou.
-- **`R4`**: erro `00` confere, `01` não confere, `16` parâmetro inválido. Só dados
-  públicos entram, e sai um bit.
+- **`R4`**: erro `00` confere, `01` não confere, `16` parâmetro inválido, `91` as
+  duas verificações discordaram (erro grave marcado). Só dados públicos entram, e
+  sai um bit.
+
+⚠ **O `R4` verifica DUAS vezes** (2026-11-09), como tudo o que sai ao host desde a
+fase 6. Um bit é o alvo mais fácil de uma falha induzida: um glitch na comparação
+final trocaria "não confere" por "confere". Só o acordo das duas contas vale; o
+custo é uma exponenciação pública a mais por pedido.
+
+⚠ **O `WIPE` apaga também a interface do RSA** (2026-11-09): `rsa_wdata` (o último
+limb escrito pela CPU, que no CRT é um pedaço da chave), `rsa_n0p` (−p⁻¹ mod 2¹⁶,
+que vem de um primo) e o `n0p` dentro de `rsa_mont.v`. `tb_cfs` e `tb_rsa_mont`
+cobram isso.
 
 `hsmhost.py` (ver `doc/codigo-host.md`):
 

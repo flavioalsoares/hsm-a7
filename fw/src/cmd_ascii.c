@@ -620,7 +620,7 @@ static uint8_t h_r4(leitor_t *in, escritor_t *out)
     uint8_t        ee[4], digest[RSA_SHA256_LEN];
     uint32_t       e;
     uint8_t        r;
-    int            v;
+    int            v, v2;
 
     (void)out;
     if ((r = le_hex(in, n, RSA_BYTES)) != ASCII_OK)            { return r; }
@@ -631,7 +631,17 @@ static uint8_t h_r4(leitor_t *in, escritor_t *out)
 
     e = ((uint32_t)ee[0] << 24) | ((uint32_t)ee[1] << 16) |
         ((uint32_t)ee[2] << 8) | ee[3];
-    v = rsa_verifica(n, e, digest, s);
+    /* Duas contas, como tudo o que sai ao host desde a fase 6. O R4 so
+     * devolve um bit, e um bit e o alvo mais facil de uma falha induzida:
+     * um glitch na comparacao final trocaria "nao confere" por "confere".
+     * As duas execucoes sao completas (exponenciacao e comparacao), e so
+     * o acordo entre elas vale. Discordou: 91 e erro grave marcado. */
+    v  = rsa_verifica(n, e, digest, s);
+    v2 = rsa_verifica(n, e, digest, s);
+    if (v != v2) {
+        erro_grave_marca();
+        return ASCII_ERRO_GRAVE;
+    }
     if (v < 0) {
         return ASCII_PARAM;
     }
