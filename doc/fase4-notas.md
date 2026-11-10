@@ -99,6 +99,7 @@ autoria da decisão.
 - `W#` e `HOLD#` (D02/D03) presos em alto.
 - **IMEM de 16 para 32 KB, DMEM de 8 para 16 KB.** A IMEM estava em 90,7% no
   fim da fase 3, e persistência e log não cabiam.
+- Custo: +83 LUTs e +6 Block RAMs. A folga de timing ficou em +0,258 ns.
 
 Pinos (consultados com `get_package_pins` no Vivado): CS `L12`, MOSI `J13`,
 MISO `J14`, `W#` `K15`, `HOLD#` `K16`.

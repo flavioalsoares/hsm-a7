@@ -1,4 +1,4 @@
-# Parte V — O projeto hsm-a7
+# Parte V — O equipamento hsm-a7
 
 ## 23. Objetivo, plataforma e restrições
 
@@ -38,8 +38,11 @@ instruções do projeto.
 programação única: o erro é um *brick* permanente. Chave de bitstream apenas
 em BBRAM, que é recuperável.
 
-**2. Chaves em claro só em BRAM.** Nunca DDR3, nunca flash sem embrulho,
-nunca um registrador exposto no toplevel.
+**2. Chaves em claro só em BRAM e na região segura da flash.** Nunca DDR3,
+nunca um registrador exposto no toplevel. A região da flash a partir de 4 MB
+faz o papel da memória com bateria de um HSM comercial: a LMK fica nela em
+claro, e as chaves de trabalho, embrulhadas sob a LMK. A seção 27 explica
+por que, e o que isso não protege.
 
 **3. Nada atravessa a fronteira em claro.** Saem apenas key blocks
 embrulhados, KCVs, criptogramas, *handles* e log.
@@ -59,13 +62,13 @@ e um projeto de aprendizado precisa poder voltar atrás. Um produto real faria
 o oposto em ambos os casos, e entender por que os dois caminhos são corretos
 em contextos diferentes é parte do conteúdo.
 
-## 24. Fase 1, peça por peça
+## 24. A plataforma, peça por peça
 
-Esta seção pega cada arquivo escrito e responde: **o que essa peça
+Esta seção pega cada peça da plataforma e responde: **o que essa peça
 corresponde num HSM real?**
 
-Cada uma termina com *o que ainda falta*, porque a distância entre o
-brinquedo e o produto é o conteúdo das fases seguintes.
+Várias terminam com *o que um HSM real tem a mais*. A distância entre este
+equipamento e um produto também é conteúdo.
 
 ### Mapa
 
@@ -111,11 +114,13 @@ não existe borda para registrar nada. Usa o padrão clássico *afirma
 assíncrono / libera síncrono*, justamente para que todo o resto do projeto
 possa usar reset puramente síncrono.
 
-Desde a Fase 6 a perda de lock também fica retida num flip-flop sem reset, e o
-módulo pulsa o `RST` do MMCM sozinho, porque o MMCM não volta a travar sem isso. O
-boot seguinte a encontra, apaga as chaves, vai para `TAMPERED` e registra o
-evento. **Falta** monitorar a frequência ativamente em vez de só reagir à
-perda de lock.
+A perda de lock também fica retida num flip-flop sem reset. O módulo pulsa o
+`RST` do MMCM sozinho, porque o MMCM não volta a travar sem isso. O boot
+seguinte encontra a perda, apaga as chaves, vai para `TAMPERED` e registra o
+evento (seção 29).
+
+**Um HSM real tem a mais:** monitoração ativa da frequência, em vez de só
+reagir à perda de lock.
 
 ### 24.2 `debounce.v` — quando um ressalto vira autorização
 
@@ -127,22 +132,15 @@ precisa refletir intenção humana, não estado elétrico de contato.
 
 Os dois botões escolhidos são o **2º e o 5º** de uma fileira de cinco, cujo
 primeiro é o reset — o par mais afastado disponível, o que dificulta
-pressionar ambos com uma mão só. Mapeamento elétrico e posição física foram
-os dois medidos, em datas diferentes: `SW2` → `M6` e `SW5` → `P6` em
-2026-08-21, com um padrão codificado de pressões; a fileira ser mesmo
-`SW1`…`SW5`, por conferência visual, em 2026-08-26 (`doc/pinout.md`).
+pressionar ambos com uma mão só.
 
-Vale a pena separar as duas medidas, porque a distinção é fácil de perder:
-saber em que **pino** um botão está não diz **onde ele fica na placa**, e é
-a posição que o operador usa. Software nenhum detecta a troca.
-
-**A camada de política acima deste filtro existe** e está na seção 28: os
+**A camada de política acima deste filtro** está na seção 26: os
 dois botões autorizam a cerimônia de carga da chave mestra, e não basta que
 estejam pressionados — cada autorização exige um aperto *novo*. O `debounce`
 garante que o contato parou quieto; a política garante que o operador
 soltou.
 
-**Falta:** autenticação de custodiante (smartcard + PIN) e registro de *quem*
+**Um HSM real tem a mais:** autenticação de custodiante (smartcard + PIN) e registro de *quem*
 autorizou, não só de que houve autorização. Dois botões na mesma placa cabem
 nas duas mãos de uma pessoa — isto prova presença física, não consentimento
 de duas pessoas.
@@ -167,11 +165,12 @@ existir num projeto de estudo. Aqui é o caminho de leitura da **memória do
 processador**, e não precisa. Duas coisas diferentes com o mesmo nome.
 
 Ligados: RV32IMC (`RISCV_ISA_C` + `_M`), contadores base, barrel shifter
-(código criptográfico é pesado em deslocamento), IMEM 16 KB, DMEM 8 KB,
-UART0 com FIFO de 64, temporizador, GPIO de 8 bits.
+(código criptográfico é pesado em deslocamento), IMEM 32 KB, DMEM 16 KB,
+UART0 com FIFO de 64, temporizador, GPIO de 8 bits e o SPI da flash.
 
-**Falta:** PMP (proteção de memória física) para separar privilégio dentro do
-firmware, de modo que um bug no parser não alcance a região da LMK. Fase 3.
+**Um HSM real tem a mais:** PMP (proteção de memória física) para separar
+privilégio dentro do firmware, de modo que um bug no parser não alcance a
+região da LMK. Este equipamento não usa PMP.
 
 ### 24.4 `hsm_top.v` — onde a fronteira fica física
 
@@ -226,9 +225,10 @@ teria de ser afrouxado até deixar de proteger.
 Disponibilidade é requisito num HSM: um módulo que para de responder derruba
 a autorização de transações.
 
-**Falta:** o log antes da execução (o ponto está marcado no código), e tempo
-de resposta constante — hoje um comando recusado responde mais rápido que um
-aceito, e isso é informação.
+O log de auditoria registra cada comando antes da execução (seção 27).
+
+**Um HSM real tem a mais:** tempo de resposta constante. Aqui um comando
+recusado responde mais rápido que um aceito, e isso é informação.
 
 ### 24.6 O CRC32, e por que num HSM real seria um MAC
 
@@ -265,11 +265,9 @@ de cabo.
 
 ### 24.7 `state.c` — a chave de switch
 
-Na Fase 1 este arquivo era só o enum e a consulta: o dispositivo nascia e
-permanecia em `UNINITIALIZED`. Existia assim, com um estado só, porque **a
-tabela de comandos já carregava a máscara de estados permitidos** desde o
-começo — retroajustar verificação de estado em cada handler depois é como se
-esquece um.
+Cada linha da tabela de comandos carrega a **máscara de estados**
+permitidos para aquele comando. O despachante consulta a máscara antes de
+chamar o handler. Nenhum handler verifica estado por conta própria.
 
 ```c
 #define ST_NORMAL  (ST_UNINIT | ST_AUTH | ST_OPER)
@@ -280,42 +278,30 @@ mínimo possível. A única exceção é o `SELFTEST`, e ela é deliberada — s
 ela o operador teria um LED vermelho e nenhuma informação sobre o quê
 reprovou.
 
-**A aposta se pagou na Fase 3**, e vale registrar porque é raro uma decisão
-de infraestrutura cobrar tão pouco depois. Quando a cerimônia de carga da
-chave mestra chegou (seção 28), a máquina de estados ganhou transições
-reais — `UNINITIALIZED` → `AUTHORIZED` → `OPERATIONAL` — e **nenhum handler
-existente precisou de uma linha nova**. Os comandos da Fase 2 que aceitam
-chave em claro no payload têm máscara `ST_UNINIT`; no instante em que existe
-uma chave mestra, eles param de responder sozinhos. Não há código
-desligando nada: a tabela simplesmente não os permite mais.
+A cerimônia de carga da chave mestra (seção 26) move o dispositivo pela
+escada `UNINITIALIZED` → `AUTHORIZED` → `OPERATIONAL`. Cada passo muda o
+conjunto de comandos aceitos sem nenhum código que ligue ou desligue
+comandos: a tabela decide.
 
 É a diferença entre política declarada e política executada. Um `if` dentro
-de cada handler seria a mesma regra escrita dezessete vezes — e dezessete é
-exatamente o número de lugares onde alguém esquece uma.
-
-(Eram treze quando este parágrafo foi escrito. O número subir sozinho, sem
-que nenhuma verificação precisasse ser reescrita, é a própria demonstração
-do argumento.)
+de cada handler seria a mesma regra escrita uma vez por comando — e cada
+cópia é um lugar onde alguém a esquece.
 
 ### 24.8 `wipe.c` — zeroização antes de haver chave
 
 Ponteiro `volatile` mais barreira de memória, pelo motivo explicado na
 seção 12.
 
-Está no lugar mesmo a Fase 1 não movimentando chave nenhuma, e os buffers de
-frame são limpos após cada comando. Motivo: são **esses mesmos buffers** que
-vão carregar componente de LMK e key block na Fase 3.
+Os buffers de frame são limpos após cada comando, porque são eles que
+carregam componente de LMK e key block.
 
-**O hábito se pagou**, e vale registrar como: quando o `ZEROIZE` chegou
-(seção 28), ele não precisou de uma zeroização nova — precisou de uma
-*segunda passada*. `wipe_padrao()` escreve um padrão antes dos zeros, e a
+O `ZEROIZE` usa `wipe_padrao()`, que escreve um padrão antes dos zeros. A
 razão não é a que o folclore de disco magnético sugere: para memória
 estática a passada de zeros é a que conta. A primeira existe porque uma
 zeroização **interrompida** tem de deixar padrão, não meia chave.
 
-E a prova de que apagou não veio de um dump, como este texto previa. Veio de
-duas verificações independentes, e a segunda é a interessante — o KCV.
-Seção 28.
+A prova de que apagou vem de duas verificações independentes, e a segunda é
+a interessante — o KCV. Seção 26.
 
 ### 24.9 Os LEDs, e por que D1 é em hardware
 
@@ -371,8 +357,6 @@ equivalente a marcar as páginas de texto como não-graváveis; aqui é mais
 forte, porque não é uma permissão que alguém pode mudar — é a ausência de
 circuito de escrita.
 
-Também sumiu a boot ROM: a BRAM caiu de 8 tiles para 3,5.
-
 ### 24.11 `tb_soc_silent` — não falar sem ser perguntado
 
 Verifica que o dispositivo não transmite nada pela UART até receber um
@@ -391,8 +375,9 @@ Um teste que passa quando o dispositivo está morto é pior que teste nenhum.
 
 ### 24.12 `hsmtool.py` — o cliente da API
 
-Codec do protocolo, transporte serial, CLI. Em produção isso seria PKCS#11 ou
-um command set ASCII de HSM de pagamento — é o que a Fase 5 constrói.
+Codec do protocolo binário, transporte serial, CLI. É o **console**:
+cerimônia, estado, diagnóstico e log. O cliente das aplicações usa outra
+porta lógica, o command set ASCII da seção 28.
 
 O comentário no topo do arquivo é a regra que o mantém honesto:
 
@@ -418,115 +403,3 @@ E há um aspecto de segurança: **erro intermitente esconde ataque**. Se o
 canal normalmente perde alguns frames, ninguém investiga o dia em que alguém
 está injetando tráfego. Uma taxa de erro de exatamente zero é o que torna
 qualquer erro digno de investigação.
-
-## 25. Resultados medidos
-
-### Recursos e temporização
-
-| Recurso | Só clock/reset | Com o SoC | Com firmware | Disponível |
-|---|---|---|---|---|
-| Slice LUTs | 24 | 2247 | **2240** (10,8%) | 20800 |
-| Flip-flops | 42 | 1633 | **1633** (3,9%) | 41600 |
-| Block RAM | 0 | 8 | **3,5** (7%) | 50 |
-| DSP48E1 | 0 | 0 | **0** | 90 |
-| MMCM | 1 | 1 | 1 | 5 |
-
-Temporização final: **WNS +0,637 ns** em período de 10 ns, sem endpoints
-falhando em 4529. Fmax ≈ 107 MHz para os 100 MHz exigidos.
-
-A margem já caiu duas vezes — de +5,95 ns com só o gerador de clock, para
-+0,898 com o SoC, para +0,637 com o firmware. O caminho crítico está dentro
-da CPU: banco de registradores em BRAM, onze níveis de lógica com sete
-cadeias de carry, de volta ao banco. Os cores de criptografia da Fase 2 são
-datapath separado e não alongam *esse* caminho, mas adicionam
-congestionamento — e roteamento já é 45% do atraso.
-
-> **Nota escrita depois, e vale mais que a previsão.** O parágrafo acima
-> acertou o mecanismo e errou a conclusão. Os cores realmente não alongaram
-> o caminho da CPU — ele continua passando. Mas trouxeram um caminho
-> **próprio**, muito pior: −2,388 ns dentro do SHA-256, contra os +0,637 ns
-> que se estava vigiando. A margem que importava não era a que estava
-> sendo medida.
->
-> A lição é sobre a forma do erro, não sobre o número: vigiar a métrica que
-> se conhece é conforto, e o que quebra costuma vir de onde ainda não há
-> métrica. A história completa está na seção 27.
-
-Firmware: **1652 bytes de código, 1572 de dados não inicializados** — 10% da
-IMEM e 19% da DMEM. A maior parte da bss são os três buffers de frame.
-
-### Critério de aceitação, medido na placa
-
-```
-iteracoes  : 10000 em 44,3 s (226/s)
-erros      : 0
-latencia   : min 3,97   mediana 4,36   p99 4,85   max 6,50 ms
-```
-
-Zero erros de CRC em dez mil iterações, e o pior caso 7,7 vezes abaixo do
-limite de 50 ms. A distribuição é apertada, sem cauda longa — cauda longa
-indicaria contenção ou retentativa escondida.
-
-A latência é dominada pelo USB, não pelo dispositivo: dezesseis bytes a
-115200 baud são 1,4 ms de tempo de linha, e o resto é o temporizador de
-latência do CP2102. Vale lembrar disso antes de "otimizar" o firmware por
-engano.
-
-## 26. Três lições que a Fase 1 ensinou fazendo
-
-Não estavam no plano. Vieram de erros reais.
-
-### Verificação encontra o que revisão não encontra
-
-O testbench do toplevel reprovou a primeira versão com `led=1111x`.
-Registradores sem valor inicial mais reset síncrono deixam uma janela
-indefinida entre a configuração do FPGA e o primeiro clock.
-
-Em hardware a ferramenta teria inicializado implicitamente e nada
-apareceria. Mas a saída em questão é um **indicador visível de estado** — e
-na Fase 3 uma delas é o LED de `TAMPERED`. Depender de comportamento
-implícito da ferramenta para o estado de um indicador de segurança é
-exatamente o tipo de coisa que um avaliador pergunta.
-
-### Cuidado ao "corrigir" um teste que falha
-
-O testbench de boot reprovou esperando `\n` e recebendo `\r\n`. A tentação é
-ajustar a expectativa e seguir.
-
-A conduta correta foi ir verificar na fonte do NEORV32 que o driver realmente
-expande LF em CRLF **antes** de mexer no teste. A diferença entre "corrigi
-uma expectativa errada" e "ajustei o teste ao resultado observado" é
-invisível no diff e enorme na prática — é a mesma disciplina da regra
-inviolável número 5.
-
-**E há o caso inverso, que delimita a regra.** O testbench do toplevel
-conferia que o display de 7 segmentos estava apagado com as linhas de dígito
-em `111`. Passou meses verde. O valor vinha de um parâmetro no código que
-nunca fora medido — um **palpite**, e o palpite estava invertido: o dígito
-habilita com `1`, então desabilitado é `000`.
-
-Corrigir o valor esperado, nesse caso, **não** é enfraquecer o teste. O
-teste conferia contra uma *suposição*; a suposição foi refutada por
-experimento, e o valor esperado passou a ter procedência. A regra proíbe
-ajustar o vetor para o código passar — não proíbe trocar palpite por medida.
-
-O critério prático que separa os dois casos: pergunte de onde veio o valor
-esperado. Se veio de uma norma, de um vetor oficial ou de uma medida, ele
-manda no código. Se veio de alguém supondo, o código e o teste estão
-supondo juntos — e um teste que afirma a mesma suposição do código não
-testa coisa alguma.
-
-### Hardware expõe o que simulação estruturalmente não pode
-
-A ferramenta de host escolhia a primeira porta serial encontrada. Na bancada
-isso é o **adaptador JTAG**, porque o gravador usado é um FT232H que também
-cria porta serial e enumera antes da placa.
-
-O sintoma seria timeout sem explicação, apontando para o firmware quando o
-problema é o cabo. Nenhum teste sem hardware pegaria: o pseudo-terminal usado
-no teste de transporte não tem identificador USB, e o selftest do codec nem
-abre porta.
-
-A lição não é "simulação é insuficiente" — a Fase 1 pegou dois defeitos reais
-em simulação e só um escapou. É saber **qual classe** de defeito cada método
-alcança, e não confundir "os testes passam" com "está correto".

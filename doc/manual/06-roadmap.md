@@ -1,6 +1,10 @@
-# Parte VI — O caminho adiante
+# Parte VI — As funções, fase a fase
 
-## 27. Fase 2 — engines e self-test *(concluída)*
+Esta parte descreve o que cada fase acrescentou ao equipamento, e o conceito
+por trás de cada função. As medidas, os testes e o histórico da construção
+ficam nas notas de fase, em `doc/fase1-notas.md` a `doc/fase7-notas.md`.
+
+## 25. Fase 2 — engines e self-test
 
 **Objetivo:** primitivas corretas e verificáveis. Correção antes de
 desempenho.
@@ -13,7 +17,7 @@ desempenho.
 | TRNG | neoTRNG (do NEORV32) | **no CFS, com health tests em RTL** |
 | CTR_DRBG | firmware | **implementado, no POST** |
 
-### O que já está feito
+### Vetores oficiais
 
 Os vetores KAT foram baixados das fontes oficiais — NIST CAVP para AES e
 SHA, RFC 4231 para HMAC, SP 800-90A para o DRBG — com URL e hash SHA-256 de
@@ -24,13 +28,6 @@ falha, o bug está no código e não no vetor — e essa regra só tem força se
 procedência do vetor for verificável por um terceiro. Um script rebaixa,
 confere hash e reextrai; sobre um repositório limpo, o resultado é byte a
 byte idêntico.
-
-Os dois cores passam:
-
-```
-AES-256   405 vetores × 4 (ECB/CBC, cifra/decifra) = 1620
-SHA-256   65 mensagens, 74 blocos
-```
 
 O AESAVS traz quatro tipos de vetor e todos foram usados, porque cada um
 pega uma classe diferente de defeito: `VarKey` varre cada bit da chave
@@ -44,23 +41,12 @@ SHA recebe blocos de 512 bits já preenchidos, e o *padding* também é de quem
 chama. Testar o core com essas coisas embutidas misturaria falhas de
 naturezas diferentes.
 
-> **O teste encontrou um defeito no próprio teste.** O testbench de SHA
-> reprovou com um sintoma característico: digests corretos, porém deslocados
-> de um — a mensagem 1 devolvia o resultado da 0. Esperar apenas o sinal de
-> "pronto" logo após o comando termina de imediato, porque o núcleo ainda
-> não o baixou, e lê-se o resultado anterior. O testbench de AES passava com
-> o mesmo handshake fraco, por sorte de temporização; recebeu a mesma
-> correção. Teste que passa por sorte é dívida, não aprovação.
-
 ### O coprocessador: o CFS
 
 Os cores entraram pelo **CFS** (*Custom Functions Subsystem*) do NEORV32 —
 um slot de periférico projetado para receber coprocessadores. O arquivo do
 upstream é um template feito para ser jogado fora; a substituição é feita
 trocando qual arquivo o build compila, sem patch e sem tocar no submódulo.
-
-É também por onde o `GET_DNA` finalmente se resolveu, fechando a última
-sobra da Fase 1.
 
 O CFS, e não um barramento externo, por um motivo de arquitetura: o
 coprocessador precisa estar **dentro da fronteira criptográfica** (seção 5),
@@ -85,76 +71,11 @@ dentro do core, não só o registrador visível. O teste correspondente é o que
 separa zeroização de teatro de zeroização — depois do wipe, cifrar sem
 carregar chave nenhuma tem de produzir o resultado sob a chave zero.
 
-> **Um testbench a mais, para uma pergunta diferente.** Os KAT de core provam
-> que o AES está certo. Não provam que o *caminho* entre a CPU e o AES está
-> certo — um core correto atrás de um mapa de registradores com a ordem das
-> palavras invertida produz resultados perfeitamente errados. Por isso os
-> mesmos vetores do NIST são replicados uma segunda vez, agora **através do
-> barramento**. Foi assim que a Fase 1 já tinha aprendido a separar
-> "o módulo funciona" de "o sistema funciona".
+### Health tests: o hardware vê, o firmware decide
 
-### O preço em silício, e o que ele ensinou
-
-Colocar criptografia no fabric custou caro e o custo apareceu onde não se
-esperava.
-
-| | Fase 1 | Com o CFS |
-|---|---|---|
-| Slice LUTs | 2240 (10,8%) | **7035 (33,8%)** |
-| Flip-flops | 1633 (3,9%) | 6235 (15,0%) |
-| Block RAM | 3,5 | 3,5 |
-| DSP48E1 | 0 | 0 |
-
-Área não foi problema — sobra um terço do chip. **Temporização foi.** O
-projeto vinha com +0,637 ns de folga e, com os cores dentro, foi para
-**−2,388 ns**: 58 caminhos falhando, o dispositivo não podia ser gravado.
-
-O diagnóstico veio antes de qualquer conserto, e foi ele que economizou o
-trabalho: dos 58 caminhos, **49 estavam no SHA-256 e 9 no AES**, e o pior do
-AES era −0,087 ns — ruído. Um único bloco respondia por tudo. E dentro dele,
-um único caminho: **oito somas de 32 bits encadeadas num ciclo só**, porque
-a expansão da mensagem e a rodada de compressão dividem o mesmo ciclo.
-
-A correção foi registrar as duas entradas combinacionais da rodada, com um
-detalhe bonito: deslizar a janela da expansão uma rodada mais cedo faz os
-quatro *taps* andarem junto, e a mesma fórmula que produzia `W[t]` passa a
-produzir `W[t+1]`. Sem estágio de pipeline novo, sem ciclo a mais — ainda
-são 64 rodadas por bloco.
-
-```
-+0,637 ns   Fase 1, sem criptografia
-−2,388 ns   com o CFS                         não fecha
-−1,215 ns   com esforço máximo de ferramenta  não fecha
-+0,487 ns   com os dois patches de retimagem  fecha
-```
-
-> **A lição não é retimagem — é o que precisa existir antes de você poder
-> tocar numa implementação criptográfica.**
->
-> Modificar um core de hash é a espécie de coisa que se faz errado em
-> silêncio: o resultado continua parecendo um hash. O que tornou isto
-> aceitável foi a rede de vetores oficiais montada antes — 65 mensagens do
-> SHAVS, rodadas no core e através do barramento. Foi possível **provar**
-> que a modificação não mudou o resultado, sem tocar num vetor e sem
-> relaxar um assert.
->
-> É a mesma razão de o FIPS 140-3 exigir *self-test* (seção 11) e de o
-> projeto ter a regra "se um KAT falha, o bug está no código". Sem isso,
-> mexer ali seria irresponsável — e é exatamente por não ter essa rede que
-> "não invente sua própria criptografia" é um bom conselho.
-
-A modificação entrou como **patch versionado e revisável**, não como fork
-nem reescrita: `third_party/` continua byte a byte igual ao upstream, e o
-diff do que mudou está no repositório, legível, ao lado da justificativa.
-
-### Como a fase terminou, e a surpresa dela
-
-O plano dizia que RCT e APT (seção 10) ficariam em **firmware**. Não dá, e
-descobrir por quê foi a lição da fase: a SP 800-90B exige que os testes
-*contínuos* vejam **toda** amostra, e a fonte produz uma por ciclo de
-100 MHz. A CPU veria uma em mil.
-
-A divisão que sobrou é melhor do que a planejada:
+Os testes RCT e APT (seção 10) se dividem entre hardware e firmware. A
+SP 800-90B exige que os testes *contínuos* vejam **toda** amostra, e a fonte
+produz uma por ciclo de 100 MHz. A CPU veria uma em mil. Por isso:
 
 - **hardware** faz os testes contínuos, amostra a amostra, e congela um
   retrato de 1024 amostras brutas consecutivas;
@@ -162,58 +83,44 @@ A divisão que sobrou é melhor do que a planejada:
   política — reprovou, o dispositivo vai para `TAMPERED`.
 
 Os dois testes acabam implementados **duas vezes, de forma independente**, e
-uma discordância entre eles denuncia erro de interpretação da norma. Não foi
-custo: foi a verificação saindo de graça.
+uma discordância entre eles denuncia erro de interpretação da norma.
 
-**Cuidado térmico registrado no plano, e respeitado:** meia dúzia de anéis
+**Cuidado térmico:** meia dúzia de anéis
 osciladores, não centenas. Array grande gera calor e ruído de alimentação
 localizados sem ganho de entropia.
 
-O **POST** (seção 11) roda antes de aceitar qualquer comando. Ao fim da Fase
-2 ele cobria AES-256, SHA-256, HMAC-SHA-256, CMAC-AES-256, CTR_DRBG, os
-testes de partida da fonte e o key store — todos contra vetores oficiais —
-a um custo de **5,94 ms** de boot.
+O **POST** (seção 11) roda antes de aceitar qualquer comando. Ele cobre
+AES-256, SHA-256, HMAC-SHA-256, CTR_DRBG, os testes de partida da fonte,
+CMAC-AES-256, o key store, o key block X9.143 e o RSA-2048 — todos contra
+vetores oficiais ou de procedência registrada.
 
 Falha leva a `TAMPERED`, e o dispositivo passa a atender **só** ao
 `SELFTEST`, que é o único jeito de o operador saber *o que* reprovou em vez
 de olhar um LED vermelho.
 
-> **O POST cresceu depois, e o número acima é o da Fase 2.** A Fase 3
-> acrescentou o key block X9.143 e a prova de zeroização; são oito testes, e
-> o boot passou a custar cerca de **9 ms**. A série está em
-> `doc/fase3-notas.md`, e vale menos pelo número do que pela forma: cada
-> propriedade que o dispositivo passa a garantir sobre si mesmo cobra
-> milissegundos de todo boot, para sempre.
+Cada propriedade que o dispositivo garante sobre si mesmo cobra
+milissegundos de todo boot, para sempre. O POST deste equipamento leva
+cerca de 28 ms.
 
-Da fase sobrou apenas `dieharder -a`, que não está instalado na máquina de
-trabalho — e que é sanidade estatística, não validação de gerador.
-
-## 28. Fase 3 — hierarquia de chaves *(em andamento)*
+## 26. Fase 3 — hierarquia de chaves
 
 O coração do projeto, e onde os conceitos das Partes II e III viram código.
 
-- ✅ **Key store** com os campos do cabeçalho TR-31 modelados desde o início —
-  refatorar isso depois é doloroso porque o MAC cobre o cabeçalho inteiro.
-- ✅ **Cerimônia de LMK** com três componentes XOR, KCV a cada passo, e dual
+- **Key store** com os campos do cabeçalho TR-31 modelados desde o início —
+  o MAC cobre o cabeçalho inteiro, então os campos não podem mudar depois.
+- **Cerimônia de LMK** com três componentes XOR, KCV a cada passo, e dual
   control exigindo os dois botões.
-- ✅ **Máquina de estados** com o display de 7 segmentos soletrando
+- **Máquina de estados** com o display de 7 segmentos soletrando
   `Uni` / `Aut` / `OPE` / `tPr`, mais o ponto decimal confirmando o dual
   control.
-- ✅ **Key blocks ANSI X9.143 (TR-31 versão D)**: KBEK e KBAK derivadas por
+- **Key blocks ANSI X9.143 (TR-31 versão D)**: KBEK e KBAK derivadas por
   CMAC, corpo em AES-CBC, autenticação por CMAC sobre cabeçalho e corpo —
   escritos **duas vezes**, em C e em Python.
-- ✅ **Zeroize** com prova — e a prova não vem de dump.
-- ✅ **Comandos de chave**: gerar dentro da fronteira, exportar embrulhado,
-  reimportar, consultar metadados. **Nenhum deles exige dual control**, e a
-  razão está mais abaixo.
-- **Apagar um slot isolado** — a função existe no firmware, o comando não.
-  Só apareceu quando se tentou *usar* o dispositivo em laço, e não quando se
-  planejou a fase.
-- **Usar chave por handle** — os comandos de AES e HMAC da Fase 2 recebem a
-  chave no pedido e, com chave mestra carregada, param de responder
-  sozinhos. As versões por handle ainda não existem.
-- **Log de auditoria** gravado antes da execução, em flash, com contador
-  monotônico.
+- **Zeroize** com prova — e a prova não vem de dump.
+- **Comandos de chave**: gerar dentro da fronteira, exportar embrulhado,
+  reimportar, consultar metadados, apagar um slot, cifrar e gerar MAC com a
+  chave referida por handle, e formar chave de trabalho por componentes.
+  Só o último exige dual control, e a razão está mais abaixo.
 
 ### A cerimônia, e o que o dual control prova
 
@@ -235,25 +142,11 @@ dispositivo vai a `AUTHORIZED` e o comando de carregar deixa de existir —
 não há caminho para trocar a chave mestra por cima da existente. Ativou, vai
 a `OPERATIONAL` e o comando de ativar some. Descer exige apagar.
 
-O efeito colateral mais instrutivo é o que **desaparece**: em `OPERATIONAL`
-os comandos da Fase 2 que recebem chave em claro no payload param de
-responder. Nenhuma linha de código os desliga — a máscara de estados deles
-diz `UNINITIALIZED`, e o dispositivo simplesmente não está mais lá.
+### O painel
 
-### O painel, e uma pergunta de bancada que virou projeto
-
-A cerimônia nasceu completa e **inoperável**: a ferramenta mandava "segure
-SW2 e SW5", e o operador não tinha como saber quais eram. Rótulo minúsculo,
-no meio de um procedimento, num par que o próprio projeto ainda não tinha
-confirmado.
-
-O conserto óbvio — descrever os botões por posição em vez de por rótulo —
-resolveu metade. A outra metade veio de perguntar quem *deveria* responder
-isso, e a resposta é o dispositivo. O display de 7 segmentos estava ocioso
-desde a Fase 1, com a pinagem verificada e nada para exibir.
-
-Agora ele soletra o estado, e o **ponto decimal acende enquanto o dual
-control está satisfeito**. O operador aperta e vê o dispositivo concordar,
+Durante a cerimônia, o operador precisa saber se o dispositivo vê os dois
+botões. O display de 7 segmentos responde. Ele soletra o estado, e o
+**ponto decimal acende enquanto o dual control está satisfeito**. O operador aperta e vê o dispositivo concordar,
 antes de gastar o comando. É a diferença entre uma autorização que se
 descobre pelo erro e uma que se confirma pelo gesto.
 
@@ -265,13 +158,6 @@ Duas notas de projeto:
 - O `default` do decodificador é `tPr`, não `Uni` nem apagado. Estado
   corrompido tem de aparecer como comprometido — falhar para o lado seguro
   vale também para o painel.
-
-E há uma medida que faltava e ninguém tinha notado que faltava. A
-verificação de 2026-08-09 desenhou `222` nos três dígitos ao mesmo tempo, o
-que confirma polaridade e mapeamento de segmento — e **não distingue ordem**:
-três dígitos iguais são iguais em qualquer ordem. O experimento *parecia* ter
-coberto o display inteiro. Fechou desenhando `123`, com a varredura vindo do
-host, três comandos em laço.
 
 ### O key block, e a pergunta que ele responde
 
@@ -384,10 +270,10 @@ E há um detalhe que a máquina de estados resolve de graça: apagar em
 embora, que era o pedido; o veredito fica, porque um HSM que se cura de
 tamper não detectou tamper nenhum.
 
-### Os comandos de chave, e por que nenhum pede dois dedos
+### Os comandos de chave, e por que quase nenhum pede dois dedos
 
 Depois da cerimônia vem o trabalho: gerar uma chave, exportá-la embrulhada,
-reimportá-la, consultar o que ela é. Quatro comandos, e **nenhum deles exige
+reimportá-la, consultar o que ela é, usá-la. **Nenhum desses comandos exige
 dual control** — o que contraria a intuição o suficiente para valer o
 parágrafo.
 
@@ -398,7 +284,7 @@ inteiro. Exigir dois dedos ali não aumentaria segurança nenhuma — garantiria
 apenas que ninguém usa o equipamento. E um controle que impede o uso legítimo
 é desligado no primeiro dia ruim, junto com os que serviam para alguma coisa.
 
-O que protege esses quatro é estrutural, não humano:
+O que protege esses comandos é estrutural, não humano:
 
 - a chave **nunca sai em claro** — sai embrulhada num key block, e quem
   recebe não sabe abrir;
@@ -411,12 +297,14 @@ A última linha é a diferença entre uma regra e uma promessa. Se houvesse
 duas formas de obter os bytes, a verificação viraria convenção — e convenção
 é o que se esquece no caminho raro.
 
-**O contraste que fecha a Parte II.** Na Fase 2, o comando de cifrar recebia
-a chave *no pedido*, vinda do host. Na Fase 3 o host escolhe os **metadados**
-e nunca vê o material. Os dois não podem coexistir num dispositivo com chave
-de verdade — e não coexistem, sem uma linha de código desligando nada: a
-máscara de estados dos comandos antigos diz `UNINITIALIZED`, e no instante
-em que existe uma chave mestra eles somem.
+A exceção é **formar uma chave de trabalho por componentes**. É a cerimônia
+de LMK um nível abaixo: cada custodiante carrega a sua parte, e por isso ela
+exige os dois botões, como a cerimônia.
+
+**O contraste que fecha a Parte II.** Um comando que recebe a chave *no
+pedido* faz material de chave atravessar a fronteira na entrada. Aqui o host
+escolhe os **metadados** e nunca vê o material. Nenhum comando deste
+equipamento aceita chave em claro.
 
 E uma decisão que só parece detalhe: **toda recusa de importação devolve o
 mesmo código**. Bloco malformado, hexadecimal inválido, MAC errado e
@@ -426,49 +314,22 @@ informação. Dizer em qual etapa a validação parou é o oráculo de padding d
 seção 15, com outra roupa: o atacante não precisa da chave, precisa que a
 vítima seja prestativa.
 
-### Uma lição de ferramenta, que valeu mais que o comando
+### Console e host na mesma porta
 
-As duas sabotagens deliberadas do mecanismo de apagar — quebrar o código de
-propósito para ver se o teste reprova — **passaram**. Não porque o teste
-fosse fraco: porque o script de simulação não recompilava o firmware. Ele
-conferia que a imagem existia e seguia adiante, então o testbench validava
-o binário anterior.
+Num HSM de verdade o componente entra por teclado local ou cartão do
+custodiante, **nunca pela mesma porta por onde o host fala**. Aqui o console
+e o host são protocolos diferentes na mesma UART (seção 28), e o componente
+passa pela máquina do host. O dual control impede *carregar*; não impede
+*observar*. É a maior distância entre este projeto e o modelo — e está
+escrita, não escondida.
 
-Um teste que nunca vê o código em teste é pior que teste nenhum, e essa
-classe de falha não aparece em revisão de código — só aparece quando se
-tenta, de propósito, fazer o teste falhar.
+## 27. Fase 4 — armazenamento não-volátil
 
-É a razão de a disciplina de sabotagem existir. Ela não confirma que o
-código está certo; ela confirma que o **teste está ligado**.
+Um HSM comercial desliga e volta *online* com a chave mestra, as chaves de
+trabalho e o estado. Este equipamento faz o mesmo: a cerimônia só é
+necessária na primeira vez e depois de um `ZEROIZE`.
 
-E a honestidade que fecha a seção: num HSM de verdade o componente entra por
-teclado local ou cartão do custodiante, **nunca pela mesma porta por onde o
-host fala**. Aqui a porta é uma só, e o componente atravessa o link em claro.
-É a maior distância entre este projeto e o modelo — e está escrita, não
-escondida.
-
-O critério de aceitação que mais importa:
-
-> Captura da UART durante toda a suíte não contém nenhum byte de chave em
-> claro — `grep` automatizado contra as chaves conhecidas do teste.
-
-É a fronteira criptográfica deixando de ser afirmação e virando medida
-(seção 5).
-
-Outros critérios: gerar chave, exportar em TR-31, reimportar e usar em AES
-com resultado idêntico; parser Python e firmware C concordando em 100 blocos
-aleatórios; alterar um bit do cabeçalho ou do corpo invalidando o MAC; e
-chave marcada como não exportável não saindo **por caminho nenhum**.
-
-## 29. Fase 4 — armazenamento não-volátil *(em andamento)*
-
-Até a Fase 3, desligar a placa apagava tudo: a LMK, as chaves e o estado.
-Cada sessão de bancada começava digitando três componentes de 64 caracteres.
-Um HSM comercial não se comporta assim. Ele desliga e volta *online* com a
-chave mestra e as chaves de trabalho, e é esse comportamento que a Fase 4
-reproduz.
-
-### A decisão que a fase tomou, e por que ela é fraca de propósito
+### A memória segura, e por que ela é fraca de propósito
 
 Num HSM comercial, a LMK sobrevive ao desligamento numa **memória mantida
 por bateria, dentro de um invólucro com detecção de violação** (§18.2). Abrir
@@ -481,7 +342,7 @@ a embrulha teria de ficar guardada em algum lugar, e esse lugar seria a mesma
 flash.
 
 Então, por ser um projeto **educacional** e diante dessa **limitação de
-hardware**, a decisão (do autor, em 2026-10-15) foi:
+hardware**, a decisão do autor foi:
 
 > A região da flash SPI a partir de 4 MB é **tratada como memória segura**.
 > A LMK é guardada nela em claro; as chaves de trabalho, embrulhadas sob a
@@ -492,13 +353,11 @@ proteção física não fica: quem tiver um gravador SPI lê a LMK. A diferença
 está escrita em `doc/fase4-notas.md`, em vez de disfarçada por um esquema que
 pareceria proteger e não protegeria.
 
-### O que entrou
+### O que existe
 
 - **Hardware.** O SPI do NEORV32 fala com a mesma flash que guarda o
   bitstream. O clock passa pela primitiva `STARTUPE2`, a única forma de a
-  lógica do usuário alcançar o pino de clock de configuração. As memórias do
-  processador dobraram (32 KB de código, 16 KB de dados). Custo: +83 LUTs,
-  +6 Block RAMs, e a folga de timing ficou praticamente igual (+0,258 ns).
+  lógica do usuário alcançar o pino de clock de configuração.
 - **A guarda do bitstream.** O driver recusa apagar ou gravar abaixo de
   4 MB, num lugar só, por onde toda escrita passa.
 - **O registro persistente**, com a LMK, o estado e os slots, em **duas
@@ -506,24 +365,24 @@ pareceria proteger e não protegeria.
   meio deixa a outra intacta. No boot vale a mais nova cujo CRC confere.
 - **Chave anunciada é chave guardada.** Se a flash falhar, `GEN_KEY` e
   parentes desfazem o slot e devolvem `STORE_FAIL`.
-- **O log de auditoria**, finalmente (§5 do plano). Cada comando é
+- **O log de auditoria.** Cada comando é
   registrado **antes** de executar, com o resultado "pendente"; depois só o
   byte de resultado é programado por cima. Um registro que ficou pendente é
   um comando que começou e não terminou. E se o log não puder ser gravado, o
   comando não executa. A exceção é o `ZEROIZE`.
 
-### O que ficou de fora, de propósito
+### Anti-rollback: fora, de propósito
 
-O plano previa um **contador anti-rollback**. O problema é real: quem
+Um HSM real tem um **contador anti-rollback**. O problema é real: quem
 restaurar uma imagem antiga da flash ressuscita uma chave apagada. Mas a
 defesa exige um contador monotônico **fora** da flash, que a placa não tem, e
 um contador dentro dela seria restaurado junto com o resto. A limitação está
 documentada, não mitigada. É um dos pontos onde HSMs reais gastam esforço
 desproporcional, e aqui fica como lição, não como código.
 
-## 30. Fase 5 — API de host *(em andamento)*
+## 28. Fase 5 — API de host
 
-**Decidida em favor de um command set ASCII** no estilo dos HSM de
+A porta host usa um **command set ASCII** no estilo dos HSM de
 pagamento — código de comando de dois caracteres, código de resposta igual
 ao comando mais um, erros numéricos, campos posicionais — e não de um
 subconjunto de PKCS#11 como biblioteca compartilhada.
@@ -539,7 +398,7 @@ de vazar material de chave**. Depois de ter lido a seção 15, escrever a API
 com a pergunta "o que isto vaza em laço?" na cabeça é uma experiência
 diferente.
 
-### As três decisões com que a fase começou
+### Três decisões de arquitetura
 
 **Quem interpreta o ASCII é o dispositivo.** No computador fica só uma ponte
 que liga um socket TCP à UART e repassa os bytes sem entendê-los. A outra
@@ -569,14 +428,14 @@ delas, e é por isso que a LMK é a única chave que ele precisa guardar. A
 frase "sem estado" do parágrafo anterior quer dizer exatamente isto: o estado
 existe, mas mora do lado do cliente, embrulhado.
 
-### O que já entrou
+### Os comandos
 
-Nove comandos, com códigos deste projeto (da categoria vem só a forma geral):
+Nove comandos simétricos, com códigos deste projeto (da categoria vem só a forma geral):
 diagnóstico, gerar chave, conferir um key block, exportar e importar sob uma
 chave de troca, cifrar e decifrar em AES-CBC, gerar e verificar CMAC. A chave de cada comando é aberta num slot
 **efêmero** do key store — o mesmo código de sempre faz a checagem de modo de
-uso — e apagada ao fim do comando, em qualquer desfecho. O apêndice B tem o
-formato.
+uso — e apagada ao fim do comando, em qualquer desfecho. Os comandos de RSA
+estão na seção 30. O apêndice B tem o formato.
 
 ### Trocar chave com outra instituição
 
@@ -618,7 +477,7 @@ O cabeçalho atravessa intacto: uso, modo e exportabilidade continuam os que
 a chave tinha na origem. O roteiro com os comandos está em
 `doc/fase5-notas.md`.
 
-## 31. Fase 6 — tamper e ataques
+## 29. Fase 6 — tamper e ataques
 
 Duas metades.
 
@@ -629,26 +488,22 @@ Ver `doc/fase6-notas.md`, que diz também o que ela não protege.
 
 **Ataque:** atacar o próprio HSM. Glitch de clock num bitstream separado,
 observar o resultado sair errado, e então implementar contramedidas — dupla
-execução, verificação de resultado (seção 17.4). Enquanto a Fase 7 não existe, o
-alvo é o AES e o MAC, e não a assinatura.
+execução, verificação de resultado (seção 17.4). O alvo é o AES e o MAC. Tudo
+o que sai ao host é calculado duas vezes, e discordância vira erro grave.
 
 Também: bitstream encriptado com chave em BBRAM, como confidencialidade de
-firmware. O mecanismo foi provado na placa, e a produção segue sem cifra, por
-decisão explicada na seção 18.5. E o experimento de RO-PUF, documentado à parte, que mede na própria
+firmware. O mecanismo existe, e a produção segue sem cifra, por decisão
+explicada na seção 18.5. E o experimento de RO-PUF, documentado à parte, que mede na própria
 placa **por que** um PUF de FPGA é ruim e por que o corretor de erros é
 obrigatório.
 
-Esta é a fase mais divertida e a mais instrutiva: construir, quebrar,
-reforçar.
+## 30. Fase 7 — assimétrico
 
-## 32. Fase 7 — assimétrico *(em andamento)*
-
-RSA-2048 primeiro, P-256 depois. Deixado por último de propósito: o
-aprendizado de arquitetura de HSM está nas fases 3 a 5. E há um gancho direto
-com a seção 17.1 — implementar RSA-CRT sem verificar a assinatura antes de
+RSA-2048 primeiro, P-256 depois. O aprendizado de arquitetura de HSM está
+nas fases 3 a 5. Mas há um gancho direto com a seção 17.1 — implementar RSA-CRT sem verificar a assinatura antes de
 emitir é reproduzir o ataque Bellcore no próprio equipamento.
 
-A fase entregou o RSA-2048 completo: um multiplicador modular no fabric, a
+O equipamento tem o RSA-2048 completo: um multiplicador modular no fabric, a
 exponenciação no firmware, a geração de chave, a assinatura por CRT em tempo
 constante, a verificação, o KAT no POST e três comandos na porta host — `R0`,
 `R2` e `R4`.
@@ -656,9 +511,9 @@ As medidas e o estado de cada peça estão em `doc/fase7-notas.md`.
 
 ### Por que um HSM precisa de criptografia assimétrica
 
-Tudo o que o dispositivo fazia até a fase 6 é **simétrico**: quem cifra e quem
+As funções das seções 25 a 29 são **simétricas**: quem cifra e quem
 decifra têm a mesma chave. Isso funciona dentro de uma instituição, e entre
-duas só depois de elas já terem uma chave em comum — foi o que a KEK da seção 30
+duas só depois de elas já terem uma chave em comum — foi o que a KEK da seção 28
 resolveu, por componentes levados em mãos.
 
 A criptografia assimétrica separa a chave em duas metades. A **privada** fica
@@ -777,11 +632,10 @@ duas coisas: a cada limb de `x`, multiplica por `y`, soma o múltiplo de `n` que
 zera o limb mais baixo e descarta esse limb. O acumulador nunca passa de
 2048 bits mais um pouco, e a redução não custa uma segunda passada. Dois
 multiplicadores trabalham juntos — um para `x·y`, outro para `m·n` —, e um
-produto de 2048 bits leva cerca de `128²` ciclos: 18 433, medidos, ou 184 µs a
+produto de 2048 bits leva cerca de `128²` ciclos: 18 433, ou 184 µs a
 100 MHz.
 
-O plano original falava em usar "os 90 DSP48E1". O core usa **4**. Paralelizar
-mais encurtaria o produto, mas o gargalo de um HSM didático não é a vazão de
+O core usa **4** dos 90 DSP48E1. Paralelizar mais encurtaria o produto, mas o gargalo de um HSM didático não é a vazão de
 assinaturas — e cada DSP a mais é área e rota no fabric apertado do XC7A35T.
 
 ### Hardware faz o produto, firmware faz a política
@@ -789,7 +643,7 @@ assinaturas — e cada DSP a mais é área e rota no fabric apertado do XC7A35T.
 O coprocessador faz **uma** coisa: `dst = a · b · R⁻¹ mod n`, sobre oito
 registradores internos de 2048 bits numa Block RAM. Tudo o mais é firmware:
 calcular `n'` e `R² mod n`, percorrer o expoente, montar e conferir o
-enchimento. É a mesma divisão do TRNG na seção 27: o que custa ciclo fica no
+enchimento. É a mesma divisão do TRNG na seção 25: o que custa ciclo fica no
 hardware, e o que é decisão fica em C, onde se lê e se testa.
 
 Três propriedades do core são de segurança, não de desempenho:
@@ -842,17 +696,17 @@ importada depende de uma assinatura conferir — que é o que acontece na carga
 remota —, a verificação tem de ser feita **dentro** da fronteira, ou um host
 comprometido diria "conferiu" sobre qualquer coisa.
 
-Uma consequência prática: um pedido `R4` tem mais de 1100 caracteres, e o
-limite de mensagem subiu de 512 para 2048 bytes. Um key block com uma chave
-RSA privada, quando vier, é ainda maior.
+Como todo resultado que sai ao host, a verificação roda duas vezes, e
+discordância responde `91` (seção 29). Um pedido `R4` tem mais de 1100
+caracteres, e o limite de mensagem é de 2048 bytes.
 
 ### O preço no boot
 
-O POST ganhou o KAT de RSA: verificar uma assinatura oficial do CAVP e
+O POST tem o KAT de RSA: verificar uma assinatura oficial do CAVP e
 **recusar** a mesma assinatura com um bit trocado. O vetor tem `e = 0x260445`,
-de 22 bits, e cada verificação custa cerca de 9 ms. O boot passou de 10,19 ms
-para **28,27 ms** — a seção 11 avisou que cada propriedade que o dispositivo
-garante sobre si mesmo cobra milissegundos de todo boot, para sempre.
+de 22 bits, e cada verificação custa cerca de 9 ms. É a regra da seção 11:
+cada propriedade que o dispositivo garante sobre si mesmo cobra milissegundos
+de todo boot, para sempre.
 
 ### Assinar: o Teorema Chinês do Resto
 
@@ -881,7 +735,7 @@ Por isso a chave privada deste dispositivo **não guarda `d`**: guarda
 `p, q, dp, dq, qinv` e o `e`. E por isso o ataque Bellcore (seção 17.1) é
 assunto desta fase: se uma das metades sair errada, `s` fica certo módulo um
 primo e errado módulo o outro, e `mdc(s^e − m, n)` entrega a fatoração. A
-contramedida está implementada: **toda assinatura é verificada com `e` antes
+contramedida: **toda assinatura é verificada com `e` antes
 de sair**. Se não conferir, nada sai, o comando responde `91` e o erro grave
 fica marcado até o próximo boot, como a dupla execução da Fase 6.
 
@@ -970,7 +824,7 @@ para geração de chave assimétrica, e pega na hora um primo errado ou um
 ### A chave privada no key block
 
 A chave sai como **key block X9.143 sob a LMK** e fica com o host, como as
-chaves AES da porta host (seção 30). O cabeçalho usa os códigos da norma:
+chaves AES da porta host (seção 28). O cabeçalho usa os códigos da norma:
 uso `S0` (par assimétrico de assinatura), algoritmo `R` (RSA), modo `S`
 (só assinar). As duas implementações do formato — em C e em Python — recusam
 qualquer outra combinação para `R`.
@@ -1003,10 +857,10 @@ o mesmo código de qualquer outro bloco inválido.
 - o KAT da assinatura no POST, que custaria cerca de 0,2 s a cada boot
   (decisão pendente).
 
-## 33. Fase 8 — criptografia de pagamento
+## 31. Fase 8 — criptografia de pagamento
 
-Acrescentada ao plano em 2026-08-08, quando o modelo de referência do projeto
-passou a ser a categoria dos HSMs de pagamento. É a última porque depende de
+O modelo de referência do projeto é a categoria dos HSMs de pagamento. Esta
+fase é a última porque depende de
 tudo o que vem antes: sem hierarquia de chaves (Fase 3) e sem API de serviço
 (Fase 5), não há onde encaixar um comando de tradução de PIN.
 
@@ -1022,11 +876,11 @@ dos vetores**:
   é exatamente o que ela proíbe.
 
 O melhor item da lista é o **ataque de tabela de decimalização** (seção
-37.3), e por um motivo que vale registrar: ele não precisa de 3DES nem de
+35.3), e por um motivo que vale registrar: ele não precisa de 3DES nem de
 vetor de bandeira nenhuma. O ataque é sobre a **API**, não sobre a cifra, e
 reproduz inteiro num esquema nosso com AES.
 
-## 34. Ordem de trabalho, e a regra que a sustenta
+## 32. Ordem de trabalho, e a regra que a sustenta
 
 Uma regra vale para todas as fases:
 
@@ -1036,7 +890,3 @@ Depurar criptografia por UART, no hardware, sem visibilidade interna, é a
 forma mais lenta possível de descobrir que faltou um byte no preenchimento.
 Um erro de enquadramento em simulação custa segundos; o mesmo erro na bancada
 custa uma tarde e várias hipóteses erradas.
-
-A Fase 1 já demonstrou o retorno: dois defeitos reais foram pegos em
-simulação, e o único que escapou até o hardware foi o único que a simulação
-estruturalmente não podia ver.

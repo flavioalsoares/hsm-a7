@@ -127,8 +127,8 @@ SW2↔SW5: três posições de distância numa fileira de cinco.
 
 Esta nota existe porque a afirmação errada — "os extremos" — chegou a
 circular no manual como se fosse fato. Ela era plausível, era quase
-verdadeira, e ninguém a mediu. É o mesmo defeito que a §26 do manual ensina
-a evitar, cometido no arquivo que existe justamente para registrar
+verdadeira, e ninguém a mediu. É o mesmo defeito de "um teste que afirmava um
+palpite" (`doc/bancada.md`), cometido no arquivo que existe justamente para registrar
 procedência.
 
 `LMK_LOAD_COMPONENT` exige os dois simultaneamente (PLANO §4) — o ponto

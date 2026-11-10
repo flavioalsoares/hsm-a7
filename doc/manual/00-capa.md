@@ -16,35 +16,21 @@ FPGA Artix-7.
 
 O documento tem duas metades que se encontram no meio. As Partes I a IV
 explicam **como um HSM funciona e por quê**, independentemente deste projeto:
-arquitetura, ameaças, ataques históricos e certificação. A Parte V explica
-**o que foi construído** e liga cada peça de código ao conceito
-correspondente. A Parte VI é o roteiro do que falta. A Parte VII trata do
-domínio para o qual o projeto passou a apontar: **criptografia de
-pagamento** — PIN blocks, tradução de PIN, verificação por PVV e 3624,
-DUKPT — e diz, sem rodeio, o que deste domínio é ensinável aqui e o que
-não é.
+arquitetura, ameaças, ataques históricos e certificação. A Parte V descreve
+**a plataforma do equipamento** e liga cada peça ao conceito correspondente.
+A Parte VI descreve **as funções que cada fase acrescentou**: primitivas e
+autoteste, hierarquia de chaves, armazenamento e log, API de host, resposta
+a violação e criptografia assimétrica. A Parte VII trata do domínio para o
+qual o projeto aponta: **criptografia de pagamento** — PIN blocks, tradução
+de PIN, verificação por PVV e 3624, DUKPT — e diz, sem rodeio, o que deste
+domínio é ensinável aqui e o que não é.
 
-Estado na data desta edição: **Fases 1 e 2 completas e validadas em
-hardware** — AES-256, SHA-256, HMAC, CMAC, TRNG com health tests da
-SP 800-90B e CTR_DRBG, todos verificados contra vetores oficiais do NIST e
-do IETF, com POST rodando a cada boot e levando o dispositivo a `TAMPERED`
-se reprovar.
-
-**Fase 3 em andamento, e adiantada:** o key store em BRAM existe, com 16
-slots modelados nos campos do cabeçalho X9.143 e a chave mestra em região
-separada; a **cerimônia de carga** também — três componentes por XOR, KCV
-conferido a cada passo e dual control exigindo dois botões físicos, com a
-escada `UNINITIALIZED → AUTHORIZED → OPERATIONAL`.
-
-E o que faltava quando esta linha foi escrita pela primeira vez já não
-falta: o **key block ANSI X9.143**, implementado duas vezes — em C dentro do
-dispositivo e em Python no host, sobre bibliotecas diferentes, para que as
-duas discordem quando alguém ler a norma errado; o **zeroize**, que apaga e
-*prova* que apagou; e os **comandos que manipulam chave** — gerar, exportar
-embrulhado, reimportar, consultar metadados.
-
-Falta apagar um slot isolado (a função existe, o comando não), usar chave
-por handle, e o log de auditoria. O apêndice E.7 lista isso sem rodeios.
+O equipamento tem AES-256, SHA-256, HMAC, CMAC, TRNG com health tests da
+SP 800-90B, CTR_DRBG e RSA-2048, todos conferidos contra vetores no
+autoteste de cada boot. Tem também key store, cerimônia de LMK com dual
+control, key blocks X9.143, zeroização com prova, armazenamento persistente,
+log de auditoria, porta host ASCII e resposta a violação. O histórico da
+construção e as medidas ficam nas notas de fase, fora deste manual.
 
 Quem quer só entender o assunto pode parar na Parte IV — ou seguir para a
 VII, se o interesse for pagamento. Quem quer reproduzir o trabalho começa na
@@ -58,8 +44,8 @@ inteira: ligar, autoteste, cerimônia, ativação e o trabalho com chaves.
 
 **AVISO — este dispositivo não é um HSM**
 
-Não há PUF, malha antitamper, sensores físicos, gerador de números
-aleatórios certificado, nem qualquer validação FIPS, PCI ou Common Criteria.
+Não há PUF, malha antitamper, invólucro com detecção de violação, gerador
+de números aleatórios certificado, nem qualquer validação FIPS, PCI ou Common Criteria.
 As chaves ficam numa BRAM que qualquer um com o bitstream pode inspecionar
 em simulação.
 

@@ -32,15 +32,15 @@ semeado por entropia física, especificado na SP 800-90A.
 
 **CVV / CVC** — três dígitos derivados de PAN, validade e código de serviço
 sob um par de chaves. Inerentemente 3DES, e por isso fora do alcance deste
-projeto (seção 39).
+projeto (seção 37).
 
 **Decimalização** — mapear os dígitos hexadecimais que uma cifra produz
 para dígitos decimais, para formar um PIN. A tabela que faz esse mapeamento
-foi a origem do ataque de Bond e Zieliński (seções 15.2 e 36.3).
+foi a origem do ataque de Bond e Zieliński (seções 15.2 e 35.3).
 
 **DUKPT** — *Derived Unique Key Per Transaction*. Esquema em que cada
 transação usa uma chave distinta derivada de uma BDK, identificada por um
-KSN. Duas normas: X9.24-1 (TDES, legado) e X9.24-3 (AES). Seção 37.
+KSN. Duas normas: X9.24-1 (TDES, legado) e X9.24-3 (AES). Seção 36.
 
 **eFUSE** — memória de programação única do FPGA. **Proibida neste
 projeto**: erro vira brick permanente.
@@ -62,7 +62,7 @@ zeros com a chave. Permite verificar sem revelar.
 
 **KSN** — *Key Serial Number*. Identificador do dispositivo mais o contador
 de transação, enviado junto com cada transação DUKPT. Com ele e a BDK, o HSM
-rederiva a chave usada. Seção 37.
+rederiva a chave usada. Seção 36.
 
 **KEK** — *Key Encryption Key*. Chave cuja função é proteger outras chaves.
 
@@ -74,14 +74,14 @@ clocks. Aqui, 50 → 100 MHz.
 
 **PAN** — *Primary Account Number*. O número do cartão. Entra na formação
 do PIN block para amarrar o PIN à conta. **Nunca usar um PAN real neste
-projeto** (seção 39.4).
+projeto** (seção 37.4).
 
 **PIN block** — formato que combina PIN e número da conta para transporte.
-Os formatos da ISO 9564 e suas fraquezas estão na seção 35; os ataques
+Os formatos da ISO 9564 e suas fraquezas estão na seção 33; os ataques
 clássicos, na 15.3.
 
 **PVV** — *PIN Verification Value*. Quatro dígitos derivados de PAN e PIN
-sob uma chave PVK, guardados pelo emissor no lugar do PIN. Seção 36.1.
+sob uma chave PVK, guardados pelo emissor no lugar do PIN. Seção 35.1.
 
 **PMP** — *Physical Memory Protection*. Mecanismo RISC-V de restrição de
 acesso à memória por região.
@@ -103,7 +103,7 @@ Ver seção 18.1.
 
 **Tradução de PIN** — decifrar um PIN block sob uma chave e recifrá-lo sob
 outra, sem que o PIN saia da fronteira. É o comando mais perigoso de um HSM
-de pagamento, porque é um oráculo por construção. Seção 35.
+de pagamento, porque é um oráculo por construção. Seção 34.
 
 **TR-31** — formato de key block da indústria de pagamentos, hoje ANSI
 X9.143. É o formato adotado por este projeto (seção 8).
@@ -144,7 +144,7 @@ resposta  LEN(2) | STATUS(1) | PAYLOAD | CRC32(4)
 | `0x03` | `GET_DNA` | vazio | 8 bytes: identidade do die, 57 bits big-endian |
 
 O `GET_DNA` ficou respondendo `NOT_IMPLEMENTED` durante toda a Fase 1 e só
-fechou com o CFS da Fase 2 (seção 27) — o `DNA_PORT` é primitiva Xilinx e
+fechou com o CFS da Fase 2 (seção 25) — o `DNA_PORT` é primitiva Xilinx e
 precisava de um caminho até a CPU. O valor **não é segredo**: qualquer um com
 um cabo JTAG lê o mesmo número, e ele nunca muda. Serve para identificar a
 placa em log e inventário. Derivar chave dele é um erro clássico, porque
@@ -291,7 +291,7 @@ sobreviver ao comprometimento.
 
 O `0x20` e o `0x26` exigem **dual control**: os dois botões pressionados no
 instante em que o frame chega, e um aperto *novo* a cada autorização (seção
-28). São os únicos comandos do projeto cuja autorização não está no link do
+26). São os únicos comandos do projeto cuja autorização não está no link do
 host — o que é o ponto inteiro deles.
 
 O KCV que o `0x20` devolve é o do **componente**, não o da LMK acumulada. O
@@ -490,9 +490,9 @@ e discriminadores de falha em `doc/bancada.md`.
 
 ⚠ **`sim.sh` recompila o firmware quando o C está mais novo que a imagem.**
 Até isso existir, editar C e simular validava o **binário anterior** — e o
-modo como isso foi descoberto está na seção 28: uma sabotagem deliberada do
-código passou na simulação, porque o código sabotado nunca chegou a ser
-compilado.
+modo como isso foi descoberto está em `doc/fase3-notas.md`: uma sabotagem
+deliberada do código passou na simulação, porque o código sabotado nunca
+chegou a ser compilado.
 
 ### Política de código de terceiros
 
@@ -671,7 +671,7 @@ e não há observador remoto para quem a informação seja novidade.
 E exige um aperto
 **novo**: entre um componente e o seguinte, os dois têm de ser vistos
 **soltos**. Segurar os dois durante a cerimônia inteira carrega **um**
-componente, não três (seção 28).
+componente, não três (seção 26).
 
 ```bash
 python3 host/hsmtool.py lmk-status
@@ -1024,7 +1024,7 @@ que não foi escrito:
 - **A LMK sobrevive ao desligamento, mas não está protegida.** Desde a
   Fase 4 ela fica na flash, que o projeto *trata* como memória segura. Quem
   tiver um gravador SPI a lê. É uma decisão didática diante do hardware
-  disponível, explicada no §29.
+  disponível, explicada no §27.
 - **Não há anti-rollback.** Regravar a flash com uma imagem antiga faz uma
   chave apagada voltar, e o dispositivo não percebe.
 - **Não há exportação em formato legado.** Só em key block X9.143. Por
@@ -1032,9 +1032,6 @@ que não foi escrito:
   norma, `'S'` é o valor *mais permissivo*, que libera também formatos
   legados (criptograma simétrico, embrulho RSA). Como eles não existem
   aqui, `'S'` e `'E'` liberam o mesmo caminho.
-- **A exportação não é qualificada.** Aqui o campo é praticamente booleano e
-  a chave que embrulha é sempre a mestra. No modelo comercial se diz sob
-  *qual* chave a exportação pode acontecer, e para qual zona.
 - **O log de auditoria detecta corrupção, não adulteração.** O CRC de cada
   registro pega um bit trocado por acidente; quem editar a flash de
   propósito recalcula o CRC.

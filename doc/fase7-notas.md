@@ -1,7 +1,7 @@
 # Fase 7: criptografia assimétrica
 
 A teoria — RSA, exponenciação, produto de Montgomery, FIOS, tempo constante,
-PKCS#1 v1.5 — está no manual, seção 32. Aqui ficam as peças, as medidas e o que
+PKCS#1 v1.5 — está no manual, seção 30. Aqui ficam as peças, as medidas e o que
 falta.
 
 ## Estado
@@ -89,7 +89,7 @@ e o bit só escolhe os registradores, por máscara.
 
 ## Assinatura com CRT
 
-A teoria está no manual, seção 32. As contas, todas no coprocessador:
+A teoria está no manual, seção 30. As contas, todas no coprocessador:
 
 1. `em mod p`: `em = hi·R + lo`, com `R = 2^1024`. A forma de Montgomery de `em` é
    `Mont(hi, R³) + Mont(lo, R²) mod p`. Não há divisão.

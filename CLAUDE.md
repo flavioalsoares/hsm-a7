@@ -689,7 +689,7 @@ Mexer nisso só com o usuário presente.
 
 ## Fase 7 — assimétrico (em andamento, 2026-11-06)
 
-Tudo em `doc/fase7-notas.md`; a teoria está no manual, seção 32. Feito: a
+Tudo em `doc/fase7-notas.md`; a teoria está no manual, seção 30. Feito: a
 **verificação** RSA-2048. Produto de Montgomery no CFS (`rtl/crypto/rsa_mont.v`,
 página `0x200`), exponenciação pública em `fw/src/rsa.c`, KAT no POST e o comando
 ASCII `R4` (n · e · digest · S → `00`/`01`). Feita também a **metade privada**: chave
