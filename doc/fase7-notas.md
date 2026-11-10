@@ -133,7 +133,7 @@ revela. O tempo não diz nada sobre o primo aceito: cada candidato é sorteado d
 
 | Medida na placa | Valor |
 |---|---|
-| Geração de um par | 21 s a 34 s (três amostras) |
+| Geração de um par | 13 s a 44 s (seis amostras) |
 
 ## A chave privada no key block
 
@@ -171,8 +171,19 @@ Todos em `OPERATIONAL`, sem dual control. Os números vão em hex.
   interna, `91` o PCT reprovou.
 - **`R2`**: erros `10` bloco inválido, `11` bloco de outro tipo de chave, `91` a
   verificação reprovou.
-- **`R4`**: erro `00` confere, `01` não confere, `16` parâmetro inválido. Só dados
-  públicos entram, e sai um bit.
+- **`R4`**: erro `00` confere, `01` não confere, `16` parâmetro inválido, `91` as
+  duas verificações discordaram (erro grave marcado). Só dados públicos entram, e
+  sai um bit.
+
+⚠ **O `R4` verifica DUAS vezes** (2026-11-09), como tudo o que sai ao host desde a
+fase 6. Um bit é o alvo mais fácil de uma falha induzida: um glitch na comparação
+final trocaria "não confere" por "confere". Só o acordo das duas contas vale; o
+custo é uma exponenciação pública a mais por pedido.
+
+⚠ **O `WIPE` apaga também a interface do RSA** (2026-11-09): `rsa_wdata` (o último
+limb escrito pela CPU, que no CRT é um pedaço da chave), `rsa_n0p` (−p⁻¹ mod 2¹⁶,
+que vem de um primo) e o `n0p` dentro de `rsa_mont.v`. `tb_cfs` e `tb_rsa_mont`
+cobram isso.
 
 `hsmhost.py` (ver `doc/codigo-host.md`):
 
@@ -205,8 +216,8 @@ Build completo, com o RSA dentro do SoC. Arquivado em `utilization_fase7.txt` e
 
 | | Fase 6 | Fase 7 |
 |---|---|---|
-| Folga | +0,471 ns | +0,273 ns |
-| LUTs | 7699 | 8070 |
+| Folga | +0,471 ns | +0,337 ns |
+| LUTs | 7699 | 8079 |
 | FF | 7698 | 7915 |
 | BRAM | 13 | 13,5 |
 | DSP | 0 | 4 |
@@ -233,9 +244,12 @@ Miller-Rabin no `tb_rsa_mr`, a assinatura com uma chave oficial no `tb_rsa`. O p
 completo é provado na placa pelo `rsa-confere`.
 
 ⚠ **`sim.sh` escolhe o firmware pela diretiva `sim-firmware:`** no testbench. Trocar
-de variante recompila tudo (`make -B`) e anota a variante em `fw/.variante`. Depois de
-um testbench de variante, o firmware em `fw/` é o de teste: recompilar a produção
-(`make -B -C fw image`) antes do build do Vivado.
+de variante recompila tudo (`make -B`) e anota a variante em `fw/.variante`. O
+testbench de variante roda sozinho, e o `sim.sh` restaura a produção em seguida.
+
+⚠ **A suíte roda 3 testbenches por vez** (`SIM_JOBS`), cada um em `build/sim/<tb>/`.
+O histórico de durações fica em `build/sim/tempos.csv`, e a suíte começa pelos mais
+longos.
 
 ⚠ **Nos testbenches, os botões ficam soltos e apertados por 1 ms.** Depois de cada
 resposta o firmware apaga os buffers de 2048 bytes, e com 100 µs ele não via os

@@ -2,6 +2,14 @@
 #
 # Simulacao de um testbench. Uso: scripts/sim.sh tb_clk_rst
 #                                 scripts/sim.sh            (roda todos)
+#                                 scripts/sim.sh tb_a tb_b  (estes, em paralelo)
+#
+# Sem argumento, ou com mais de um, roda SIM_JOBS testbenches ao mesmo tempo (padrao 3). O xsim
+# usa um core por simulacao; o limite pratico e a memoria. Cada testbench
+# tem o proprio diretorio, build/sim/<tb>/, com a propria biblioteca 'work';
+# so a biblioteca 'neorv32' (NEORV32 + firmware + CFS) e compartilhada, e e
+# compilada uma vez antes de comecar. O testbench que pede outra variante
+# de firmware roda sozinho, no fim, e a producao e restaurada depois dele.
 #
 # Usa o xsim do Vivado, nao o iverilog, por dois motivos: o MMCME2_BASE e
 # primitiva Xilinx (precisa das unisims) e o NEORV32 e VHDL (mixed-language).
@@ -40,6 +48,10 @@ if [ -d "$ROOT/vectors/aes" ]; then
 fi
 
 cd "$WORK"
+
+# Os testbenches leem os vetores por "../vectors/", relativo ao diretorio
+# de trabalho. Com um diretorio por testbench, ../vectors e build/sim/vectors.
+ln -sfn "$ROOT/build/vectors" "$WORK/vectors"
 
 # ---------------------------------------------------------------------
 # NEORV32 -> biblioteca 'neorv32', compilada uma vez e cacheada.
@@ -148,7 +160,12 @@ compile_neorv32() {
 }
 
 # ---------------------------------------------------------------------
-run_one() {
+variante_de() {
+    sed -n 's/.*sim-firmware: *//p' "$ROOT/sim/tb/$1.v" | head -1
+}
+
+# Roda num subshell: o cd para o diretorio do testbench nao vaza.
+run_one() (
     local tb="$1"
     local src="$ROOT/sim/tb/$tb.v"
 
@@ -159,8 +176,18 @@ run_one() {
 
     echo "=== $tb"
 
-    # Firmware: o de producao, ou a variante que o testbench pedir.
-    compile_neorv32 "$(sed -n 's/.*sim-firmware: *//p' "$src" | head -1)"
+    # Firmware: o de producao, ou a variante que o testbench pedir. Na suite
+    # em paralelo a biblioteca ja foi preparada, e ninguem pode recompila-la
+    # com outros testbenches rodando.
+    if [ -z "${SIM_LIB_PRONTA:-}" ]; then
+        compile_neorv32 "$(variante_de "$tb")"
+    fi
+
+    # Diretorio proprio. A biblioteca 'neorv32' vem do diretorio comum.
+    local dir="$WORK/$tb"
+    mkdir -p "$dir/xsim.dir"
+    ln -sfn "$WORK/xsim.dir/neorv32" "$dir/xsim.dir/neorv32"
+    cd "$dir"
 
     # wrapper VHDL do projeto (biblioteca padrao, nao 'neorv32')
     if ! xvhdl "$ROOT"/rtl/soc/*.vhd > "${tb}_vhdl.log" 2>&1; then
@@ -218,33 +245,142 @@ run_one() {
         cp "$ROOT/sim/stim/nominal.txt" xadc_stim.txt
     fi
 
-    xsim "${tb}_sim" -runall > "${tb}_sim.log" 2>&1 || true
+    # Limite de relogio. Um testbench travado (sem timeout interno, ou com
+    # um laco que nunca chega nele) prenderia a suite para sempre. O padrao
+    # e 6 h, quase o dobro do mais lento medido (tb_tamper, 3 h 15). Um
+    # testbench pede outro limite pela diretiva "sim-timeout: <segundos>";
+    # SIM_TIMEOUT no ambiente vale para todos.
+    local limite
+    limite="$(sed -n 's/.*sim-timeout: *\([0-9][0-9]*\).*/\1/p' "$src" | head -1)"
+    limite="${SIM_TIMEOUT:-${limite:-21600}}"
+
+    local t0 t1 rc=0 res
+    t0="$(date +%s)"
+    timeout "$limite" xsim "${tb}_sim" -runall > "${tb}_sim.log" 2>&1 || rc=$?
+    t1="$(date +%s)"
     grep -E "^\[$tb\]" "${tb}_sim.log" || true
 
-    if ! grep -q "\[$tb\] PASS" "${tb}_sim.log"; then
-        echo "--- $tb: FALHOU (log em $WORK/${tb}_sim.log)"
-        return 1
+    # Criterio do cabecalho: PASS impresso E nenhum FAIL. Ate 2026-11-09 o
+    # script so procurava o PASS; os testbenches so imprimem PASS com zero
+    # erros, mas a regra nao pode depender de cada testbench lembrar disso.
+    if [ "$rc" -eq 124 ]; then
+        res="TIMEOUT"
+        echo "--- $tb: FALHOU -- passou do limite de ${limite} s (log em $dir/${tb}_sim.log)"
+    elif grep -q "\[$tb\] FAIL" "${tb}_sim.log"; then
+        res="FAIL"
+        echo "--- $tb: FALHOU -- o log tem FAIL (log em $dir/${tb}_sim.log)"
+    elif ! grep -q "\[$tb\] PASS" "${tb}_sim.log"; then
+        res="FAIL"
+        echo "--- $tb: FALHOU (log em $dir/${tb}_sim.log)"
+    else
+        res="PASS"
+        echo "--- $tb: OK"
     fi
-    echo "--- $tb: OK"
-    return 0
+
+    # Tempo de cada rodada, para acompanhar a suite sem medir a mao.
+    [ -f "$WORK/tempos.csv" ] || echo "data,testbench,segundos,resultado,commit" > "$WORK/tempos.csv"
+    echo "$(date -Iseconds),$tb,$((t1 - t0)),$res,$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo ?)" \
+        >> "$WORK/tempos.csv"
+
+    [ "$res" = "PASS" ]
+)
+
+# Testbench de variante: roda e depois devolve fw/ e a biblioteca a
+# producao. Sem isso o build do Vivado pegaria o firmware de teste.
+run_variante() {
+    local rc=0
+    run_one "$1" || rc=$?
+    echo "=== restaurando o firmware de producao"
+    compile_neorv32 ""
+    return "$rc"
 }
 
-if [ $# -ge 1 ]; then
-    run_one "$1"
+if [ $# -eq 1 ]; then
+    if [ -n "$(variante_de "$1")" ]; then
+        run_variante "$1"
+    else
+        run_one "$1"
+    fi
     exit $?
 fi
 
-# sem argumento: roda todos os testbenches implementados
-fails=0
-for src in "$ROOT"/sim/tb/tb_*.v; do
+# ---------------------------------------------------------------------
+# A suite (ou os testbenches pedidos), SIM_JOBS por vez.
+# ---------------------------------------------------------------------
+JOBS="${SIM_JOBS:-3}"
+
+# Ultima duracao medida, em segundos. Sem medida conta como a mais longa,
+# para comecar cedo.
+duracao() {
+    local d=""
+    [ -f "$WORK/tempos.csv" ] && \
+        d="$(awk -F, -v t="$1" '$2 == t { d = $3 } END { print d }' "$WORK/tempos.csv")"
+    echo "${d:-999999}"
+}
+
+producao=() variantes=()
+if [ $# -gt 1 ]; then
+    fontes=()
+    for tb in "$@"; do fontes+=("$ROOT/sim/tb/$tb.v"); done
+else
+    fontes=("$ROOT"/sim/tb/tb_*.v)
+fi
+for src in "${fontes[@]}"; do
     tb="$(basename "$src" .v)"
+    [ -f "$src" ] || { echo "ERRO: $src nao existe" >&2; exit 1; }
     if grep -q "NAO IMPLEMENTADO" "$src"; then
         echo "=== $tb: pulado (ainda nao implementado)"
         continue
     fi
-    run_one "$tb" || fails=$((fails + 1))
+    if [ -n "$(variante_de "$tb")" ]; then
+        variantes+=("$tb")
+    else
+        producao+=("$tb")
+    fi
 done
 
+# Os mais longos primeiro: o total fica perto do mais longo sozinho.
+mapfile -t ordem < <(for tb in "${producao[@]}"; do echo "$(duracao "$tb") $tb"; done \
+                     | sort -rn | cut -d' ' -f2)
+
+compile_neorv32 ""
+export SIM_LIB_PRONTA=1
+
+echo "=== ${#ordem[@]} testbenches, $JOBS por vez; saida de cada um em $WORK/<tb>.saida"
+inicio="$(date +%s)"
+rodando=0
+for tb in "${ordem[@]}"; do
+    if [ "$rodando" -ge "$JOBS" ]; then
+        wait -n || true
+        rodando=$((rodando - 1))
+    fi
+    (
+        t0="$(date +%s)"
+        rc=0
+        run_one "$tb" > "$WORK/$tb.saida" 2>&1 || rc=$?
+        echo "$rc" > "$WORK/$tb.rc"
+        r="OK"; [ "$rc" -eq 0 ] || r="FALHOU"
+        echo "--- $(date +%H:%M) $tb: $r ($(( ($(date +%s) - t0) / 60 )) min)"
+    ) &
+    rodando=$((rodando + 1))
+done
+wait
+unset SIM_LIB_PRONTA
+
+fails=0
+for tb in "${ordem[@]}"; do
+    if [ "$(cat "$WORK/$tb.rc" 2>/dev/null || echo 1)" != "0" ]; then
+        fails=$((fails + 1))
+        echo "=== $tb falhou:"
+        cat "$WORK/$tb.saida"
+    fi
+done
+
+for tb in "${variantes[@]}"; do
+    run_variante "$tb" || fails=$((fails + 1))
+done
+
+echo "=== suite: $(( ($(date +%s) - inicio) / 60 )) min"
 if [ "$fails" -gt 0 ]; then
     echo "=== $fails testbench(es) falharam"
     exit 1

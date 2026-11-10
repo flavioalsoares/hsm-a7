@@ -261,6 +261,7 @@ module rsa_mont (
                 bi <= 16'd0;  a0 <= 16'd0;  t0 <= 16'd0;  u <= 16'd0;
                 m <= 16'd0;  mul1 <= 32'd0;  mfull <= 32'd0;
                 tl <= 16'd0;  c <= 20'd0;  br <= 1'b0;  ge <= 1'b0;
+                n0p <= 16'd0;   // -p^-1 mod 2^16 no CRT: vem de um primo
                 if (j == 11'd1023)
                     estado <= S_IDLE;
                 else

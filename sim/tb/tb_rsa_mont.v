@@ -190,6 +190,11 @@ module tb_rsa_mont;
             $display("[tb_rsa_mont] FAIL: wipe deixou %0d limbs", dif);
             erros = erros + 1;
         end
+        // n0p = -N^-1 mod 2^16. Com CRT, N e um primo da chave.
+        if (dut.n0p !== 16'd0) begin
+            $display("[tb_rsa_mont] FAIL: wipe deixou n0p = %h", dut.n0p);
+            erros = erros + 1;
+        end
 
         if (erros == 0) $display("[tb_rsa_mont] PASS");
         else            $display("[tb_rsa_mont] FAIL: %0d erros", erros);
