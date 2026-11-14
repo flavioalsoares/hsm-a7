@@ -19,6 +19,8 @@
  */
 #include "cmd_ascii.h"
 #include "rsa.h"
+#include "ecc.h"
+#include "kat.h"
 #include "aes_modos.h"
 #include "audit_log.h"
 #include "cmac.h"
@@ -507,6 +509,22 @@ static uint8_t h_m2(leitor_t *in, escritor_t *out)
     return (v == 1) ? ASCII_OK : ASCII_VERIF_FALHOU;
 }
 
+/* Autoteste de primeiro uso (kat.h), antes de um comando de assinatura
+ * RSA ou de ECDSA. Reprovou: o mesmo destino de um POST reprovado -- a
+ * BRAM e apagada e o dispositivo vai para TAMPERED. O comando responde 91.
+ *
+ * Roda ANTES de abrir qualquer key block: o autoteste termina apagando o
+ * coprocessador. */
+static uint8_t primeiro_uso(unsigned qual)
+{
+    if (kat_primeiro_uso(qual) == 0) {
+        return ASCII_OK;
+    }
+    (void)keystore_zeroiza_tudo();
+    state_set(HSM_TAMPERED);
+    return ASCII_ERRO_GRAVE;
+}
+
 /* Numeros RSA de R2 e R4: estaticos para nao pesar na pilha. So dados
  * publicos -- modulo e assinatura. */
 static uint8_t g_rsa_n[RSA_BYTES], g_rsa_s[RSA_BYTES];
@@ -545,6 +563,9 @@ static uint8_t h_r0(leitor_t *in, escritor_t *out)
     }
     if ((uint32_t)out->n + TR31_ASCII_GRANDE + 2u * RSA_BYTES + 8u > out->max) {
         return ASCII_INTERNO;
+    }
+    if (primeiro_uso(KAT_FALHA_RSA_ASSINA) != ASCII_OK) {
+        return ASCII_ERRO_GRAVE;
     }
     v = keystore_rsa_gera(exp, (char *)&out->p[out->n],
                           (uint32_t)(out->max - out->n), &bn, g_rsa_n, g_rsa_s);
@@ -591,6 +612,7 @@ static uint8_t h_r2(leitor_t *in, escritor_t *out)
     if ((r = le_bloco(in, &b, &bn)) != ASCII_OK)               { return r; }
     if ((r = le_hex(in, digest, RSA_SHA256_LEN)) != ASCII_OK)  { return r; }
     if ((r = fim(in)) != ASCII_OK)                             { return r; }
+    if ((r = primeiro_uso(KAT_FALHA_RSA_ASSINA)) != ASCII_OK)  { return r; }
 
     v = keystore_rsa_abre((const char *)b, bn);
     if (v == -3) { return ASCII_MODO; }
@@ -638,6 +660,132 @@ static uint8_t h_r4(leitor_t *in, escritor_t *out)
      * o acordo entre elas vale. Discordou: 91 e erro grave marcado. */
     v  = rsa_verifica(n, e, digest, s);
     v2 = rsa_verifica(n, e, digest, s);
+    if (v != v2) {
+        erro_grave_marca();
+        return ASCII_ERRO_GRAVE;
+    }
+    if (v < 0) {
+        return ASCII_PARAM;
+    }
+    return (v == 1) ? ASCII_OK : ASCII_VERIF_FALHOU;
+}
+
+/* E0 -- gerar par de ECDSA P-256: exportabilidade(1) -> key block da
+ *       chave privada (sob a LMK) . Qx(64) . Qy(64)
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao, como o K0 e o R0.
+ *   em laco      cada chamada gasta entropia e devolve um par novo. A
+ *                chave privada so sai embrulhada; a publica e publica.
+ *   exportacao   o campo vai para o cabecalho do bloco, autenticado.
+ *   log          sim, antes.
+ *
+ * A chave privada e sorteada por rejeicao (FIPS 186-5, A.2.2), e o par
+ * assina e verifica antes de sair. Erro 91 se esse teste reprovar.
+ *
+ * FRONTEIRA: dentro. A chave nasce e e embrulhada no keystore. */
+static uint8_t h_e0(leitor_t *in, escritor_t *out)
+{
+    uint32_t bn = 0u;
+    uint8_t  exp;
+    uint8_t  q[EC_PUB];
+    int      v;
+
+    if (((uint32_t)in->pos + 1u) > in->n) {
+        return ASCII_MALFORMADA;
+    }
+    exp = in->p[in->pos];
+    in->pos = (uint16_t)(in->pos + 1u);
+    if (fim(in) != ASCII_OK) {
+        return ASCII_MALFORMADA;
+    }
+    if ((uint32_t)out->n + TR31_ASCII_EC + 2u * EC_PUB > out->max) {
+        return ASCII_INTERNO;
+    }
+    if (primeiro_uso(KAT_FALHA_ECDSA) != ASCII_OK) {
+        return ASCII_ERRO_GRAVE;
+    }
+    v = keystore_ec_gera(exp, (char *)&out->p[out->n],
+                         (uint32_t)(out->max - out->n), &bn, q);
+    if (v == -2) { return ASCII_ERRO_GRAVE; }
+    if (v != 0)  { return (exp == 'E' || exp == 'N' || exp == 'S') ? ASCII_INTERNO
+                                                                  : ASCII_PARAM; }
+    out->n = (uint16_t)(out->n + bn);
+    poe_hex(out, q, EC_PUB);
+    return ASCII_OK;
+}
+
+/* E2 -- assinar com ECDSA P-256: key block da chave privada (sob a LMK) .
+ *       digest(64) -> r(64) . s(64)
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao.
+ *   em laco      e um oraculo de assinatura, que e o servico. O numero
+ *                secreto k de cada assinatura sai do DRBG e nunca se
+ *                repete; a multiplicacao de ponto tem tempo constante. A
+ *                assinatura e verificada antes de sair.
+ *   exportacao   nao se aplica: a chave nao sai, e o bloco ja e do host.
+ *   log          sim, antes.
+ *
+ * Erros: 10 bloco invalido, 11 bloco de outro tipo de chave, 91 a
+ * verificacao reprovou (nada sai, erro grave marcado).
+ *
+ * FRONTEIRA: dentro. A chave abre no keystore e fica la; o despachante a
+ * apaga no fim do comando. */
+static uint8_t h_e2(leitor_t *in, escritor_t *out)
+{
+    const uint8_t *b = 0;
+    uint16_t       bn = 0u;
+    uint8_t        digest[EC_BYTES], sig[EC_SIG];
+    uint8_t        r;
+    int            v;
+
+    if ((r = le_bloco(in, &b, &bn)) != ASCII_OK)          { return r; }
+    if ((r = le_hex(in, digest, EC_BYTES)) != ASCII_OK)   { return r; }
+    if ((r = fim(in)) != ASCII_OK)                        { return r; }
+    if ((r = primeiro_uso(KAT_FALHA_ECDSA)) != ASCII_OK)  { return r; }
+
+    v = keystore_ec_abre((const char *)b, bn);
+    if (v == -3) { return ASCII_MODO; }
+    if (v != 0)  { return ASCII_BLOCO_INVAL; }
+
+    v = keystore_ec_assina(digest, sig);
+    if (v == -2) { return ASCII_ERRO_GRAVE; }
+    if (v != 0)  { return ASCII_INTERNO; }
+    poe_hex(out, sig, EC_SIG);
+    return ASCII_OK;
+}
+
+/* E4 -- verificar assinatura ECDSA P-256: Qx(64) . Qy(64) . digest(64) .
+ *       r(64) . s(64). Erro 01 se nao confere, 16 se a chave publica nao
+ *       e um ponto da curva.
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao, e nao usa chave nenhuma do dispositivo.
+ *   em laco      so dados publicos entram, e sai um bit.
+ *   exportacao   nao se aplica.
+ *   log          sim, antes de executar, como o R4.
+ */
+static uint8_t h_e4(leitor_t *in, escritor_t *out)
+{
+    uint8_t q[EC_PUB], digest[EC_BYTES], sig[EC_SIG];
+    uint8_t r;
+    int     v, v2;
+
+    (void)out;
+    if ((r = le_hex(in, q, EC_PUB)) != ASCII_OK)          { return r; }
+    if ((r = le_hex(in, digest, EC_BYTES)) != ASCII_OK)   { return r; }
+    if ((r = le_hex(in, sig, EC_SIG)) != ASCII_OK)        { return r; }
+    if ((r = fim(in)) != ASCII_OK)                        { return r; }
+    if ((r = primeiro_uso(KAT_FALHA_ECDSA)) != ASCII_OK)  { return r; }
+
+    /* Duas contas completas, como no R4: um bit e o alvo mais facil de
+     * uma falha induzida. Discordou: 91 e erro grave marcado. */
+    v  = ecdsa_verifica(q, digest, sig);
+    v2 = ecdsa_verifica(q, digest, sig);
     if (v != v2) {
         erro_grave_marca();
         return ASCII_ERRO_GRAVE;
@@ -788,6 +936,9 @@ static const ascii_entry_t g_ascii[] = {
     { 'R', '0', ST_OPER,   h_r0, L },
     { 'R', '2', ST_OPER,   h_r2, L },
     { 'R', '4', ST_OPER,   h_r4, L },
+    { 'E', '0', ST_OPER,   h_e0, L },
+    { 'E', '2', ST_OPER,   h_e2, L },
+    { 'E', '4', ST_OPER,   h_e4, L },
 };
 
 #undef L

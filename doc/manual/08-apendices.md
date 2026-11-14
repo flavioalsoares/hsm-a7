@@ -160,7 +160,7 @@ pode ter.
 | `0x12` | `SHA256` | mensagem | digest(32) |
 | `0x13` | `HMAC` | klen(1) ‖ chave ‖ mensagem | mac(32) |
 | `0x14` | `RANDOM` | n(2), máximo 256 | n bytes do CTR_DRBG |
-| `0x15` | `SELFTEST` | vazio | máscara de falhas(1) |
+| `0x15` | `SELFTEST` | vazio | máscara de falhas(2) |
 
 ⚠ **`AES_ENC`, `AES_DEC` e `HMAC` recebem a chave em claro no payload**, e
 por isso só respondem em `UNINITIALIZED`. Não é convenção: é a máscara de
@@ -353,6 +353,12 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `C2` | `C3` | key block ‖ IV(32) ‖ dados | dados | `OPERATIONAL` |
 | `M0` | `M1` | key block ‖ dados | MAC(32) | `OPERATIONAL` |
 | `M2` | `M3` | key block ‖ MAC(32) ‖ dados | — (o veredito é o erro) | `OPERATIONAL` |
+| `R0` | `R1` | exportabilidade(1) | key block ‖ n(512) ‖ e(8) | `OPERATIONAL` |
+| `R2` | `R3` | key block ‖ digest(64) | assinatura(512) | `OPERATIONAL` |
+| `R4` | `R5` | n(512) ‖ e(8) ‖ digest(64) ‖ assinatura(512) | — (o veredito é o erro) | `OPERATIONAL` |
+| `E0` | `E1` | exportabilidade(1) | key block ‖ Qx(64) ‖ Qy(64) | `OPERATIONAL` |
+| `E2` | `E3` | key block ‖ digest(64) | r(64) ‖ s(64) | `OPERATIONAL` |
+| `E4` | `E5` | Qx(64) ‖ Qy(64) ‖ digest(64) ‖ r(64) ‖ s(64) | — (o veredito é o erro) | `OPERATIONAL` |
 
 Erros: `00` sem erro · `01` verificação falhou · `10` key block inválido ·
 `11` o uso ou o modo do bloco não permite · `12` chave não exportável · `13` o
@@ -360,6 +366,9 @@ bloco de proteção não é KEK · `15` dados inválidos · `16` parâmetro
 inválido · `20` estado não permite · `21` comando desconhecido · `22`
 mensagem malformada · `27` falha no log · `90` erro interno · `91` erro grave. Os códigos de
 comando e de erro são deste projeto.
+
+Os comandos `R` são de RSA-2048 e os `E`, de ECDSA sobre a curva P-256. O
+digest é SHA-256, calculado pelo host. A seção 30 explica os dois.
 
 `K4` e `K6` trocam chave com outra instituição sob uma **KEK** — chave de
 uso `K0` que as duas têm, formada por componentes no console

@@ -43,6 +43,10 @@ CMAC_SHA="bdda4edade394c9a2ae74d9cd0921caa120c911a5e735e37abf39d0d5f062be1"
 RSA_URL="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/dss/186-3rsatestvectors.zip"
 RSA_SHA="8405aeb3572a4f98ed4b1a3ccb3f2f49e725462dd28ec4759d6a15d88855d19c"
 
+# ECDSA -- fase 7. Curva P-256 com SHA-256, do FIPS 186-4.
+ECDSA_URL="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/dss/186-4ecdsatestvectors.zip"
+ECDSA_SHA="fe47cc92b4cee418236125c9ffbcd9bb01c8c34e74a4ba195d954bcb72824752"
+
 # X9.143 / TR-31 versao D -- LEIA O MANIFEST ANTES DE CONFIAR NESTE.
 #
 # Nao e vetor do CAVP e nao ha como ser: o CAVP valida ALGORITMO, e
@@ -94,7 +98,7 @@ fetch() {
     fi
 }
 
-mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31}
+mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa}
 
 echo "=== baixando"
 fetch "$AES_URL"  "$AES_SHA"  "$TMP/KAT_AES.zip"
@@ -104,6 +108,7 @@ fetch "$DRBG_URL" "$DRBG_SHA" "$TMP/drbgtestvectors.zip"
 fetch "$CMAC_URL" "$CMAC_SHA" "$TMP/cmactestvectors.zip"
 fetch "$TR31_URL" "$TR31_SHA" "$TMP/psec_test_tr31.py"
 fetch "$RSA_URL" "$RSA_SHA" "$TMP/186-3rsatestvectors.zip"
+fetch "$ECDSA_URL" "$ECDSA_SHA" "$TMP/186-4ecdsatestvectors.zip"
 
 echo "=== extraindo"
 unzip -qo "$TMP/KAT_AES.zip" 'ECB*256.rsp' 'CBC*256.rsp' -d "$VEC/aes/"
@@ -117,13 +122,26 @@ cp "$TMP/rfc4231.txt" "$VEC/hmac/"
 mkdir -p "$VEC/cmac"
 unzip -qjo "$TMP/cmactestvectors.zip" 'CMACGenAES256.rsp' -d "$VEC/cmac/"
 
-# RSA: a geracao PKCS#1 v1.5 e as chaves completas (p, q, d) da geracao de
+# RSA: SigGen15 vem duas vezes -- o .txt e o .rsp mais o expoente privado d,
+# que o KAT de assinatura precisa. A geracao PKCS#1 v1.5 e as chaves completas (p, q, d) da geracao de
 # chave por primos provaveis, mais o KAT de primalidade dela. O resto do zip
 # (PSS, X9.31, as chaves de 3072) nao e usado.
 mkdir -p "$VEC/rsa"
 unzip -qjo "$TMP/186-3rsatestvectors.zip" 'SigGen15_186-3.rsp' \
+      'SigGen15_186-3.txt' \
       'KeyGen_RandomProbablyPrime3_3.rsp' \
       'KeyGen_186-3_RandomProbablyPrime3_3_KAT.txt' -d "$VEC/rsa/"
+
+# ECDSA: so a curva P-256 e, onde ha hash, o SHA-256. O zip tem 15 curvas e
+# 5 hashes. SigGen.txt e o que traz `d` e `k`; o .rsp so tem a chave publica.
+mkdir -p "$VEC/ecdsa" "$TMP/ecdsa"
+unzip -qjo "$TMP/186-4ecdsatestvectors.zip" \
+      '186-4ecdsatestvectors/KeyPair.rsp' '186-4ecdsatestvectors/PKV.rsp' \
+      '186-4ecdsatestvectors/SigGen.txt' '186-4ecdsatestvectors/SigVer.rsp' \
+      -d "$TMP/ecdsa/"
+for f in KeyPair.rsp PKV.rsp SigGen.txt SigVer.rsp; do
+    python3 "$ROOT/scripts/_filtra_ecdsa.py" "$TMP/ecdsa/$f" "$VEC/ecdsa/${f%.*}_P256.${f##*.}"
+done
 
 # X9.143: um vetor so, copiado literalmente da tupla do arquivo de
 # origem. A extracao e mecanica e falha se achar numero diferente de um.

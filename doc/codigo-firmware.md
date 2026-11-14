@@ -143,6 +143,10 @@ handler, resultado no log. Nenhum comando de cerimônia está nela.
 
 | Arquivo | O que faz |
 |---|---|
+| `ecc.c` | ECDSA sobre a curva P-256, no mesmo coprocessador, com 256 bits. Multiplicação de ponto pela escada de Montgomery com Z comum, em tempo constante; assinatura com `k` do DRBG, verificada com `Q` antes de sair; verificação com validação da chave pública; geração de chave (FIPS 186-5, A.2.2). Os elementos do corpo ficam em C, em palavras de 32 bits |
+| `mont.c` | o coprocessador de Montgomery visto do firmware: `mont_prepara()` programa o módulo e deixa `R²` e 1 nos registradores; `mont_escada()` é a exponenciação em tempo constante. Usado pelo RSA e pelo ECDSA |
+| `bn.c` | aritmética de números grandes em bytes: soma, subtração, comparação e as versões modulares em tempo constante |
+| `fw/teste/ecc_nativo.c` | **não é firmware**: liga `ecc.c`, `mont.c` e `bn.c` a um modelo em C do coprocessador, para o PC. Quem o usa é `host/test_ecc.py` |
 | `rsa.c` | RSA-2048 sobre o produto de Montgomery do coprocessador. Verificação PKCS#1 v1.5, assinatura por CRT com a escada de Montgomery, e geração de chave (FIPS 186-5, A.1.3). Toda multiplicação modular é do coprocessador; em C ficam soma, subtração, comparação e enchimento. A assinatura é verificada antes de sair |
 
 ## 4. As portas do key store
@@ -165,6 +169,9 @@ vale entender:
 | `keystore_rsa_abre(bloco, n)` | **não**: abre um key block RSA (`S0`/`R`/`S`) num buffer próprio de `keystore.c`, apagado com o slot efêmero | só `R2` (fase 7) |
 | `keystore_rsa_assina(digest, sig)` | **não**: devolve a assinatura, já verificada com `e` | só `R2` |
 | `keystore_rsa_gera(exp, ...)` | **não**: gera o par, faz o PCT e devolve a chave privada **já embrulhada** sob a LMK, mais o `n` | só `R0` |
+| `keystore_ec_abre(bloco, n)` | **não**: abre um key block de ECDSA (`S0`/`E`/`S`) na mesma área da chave RSA | só `E2` |
+| `keystore_ec_assina(digest, sig)` | **não**: devolve `r` e `s`, já verificados com `Q` | só `E2` |
+| `keystore_ec_gera(exp, ...)` | **não**: gera o par, assina e verifica com ele, e devolve a chave privada **já embrulhada** sob a LMK, mais `Q` | só `E0` |
 
 Um `keystore_get_key()` genérico transformaria cada checagem em convenção, e
 convenção é o que se esquece no caminho raro. **Se um código novo precisar

@@ -95,6 +95,17 @@
  * n nao vai no bloco: o dispositivo o recalcula como p*q no coprocessador.
  * So existe com uso S0, algoritmo 'R' e modo 'S'. */
 #define TR31_RSA_CHAVE     644u
+
+/* Fase 7: a chave privada de ECDSA P-256, tambem em layout DESTE projeto,
+ * pelo mesmo motivo. Campos big-endian, 32 bytes cada:
+ *
+ *     d || Qx || Qy
+ *
+ * A chave publica vai junto para a assinatura ser verificada antes de
+ * sair, sem recalcular Q = d*G a cada comando. So existe com uso S0,
+ * algoritmo 'E' e modo 'S'. */
+#define TR31_EC_CHAVE      96u
+#define TR31_ASCII_EC      (TR31_CAB_LEN + 2u * 112u + 2u * TR31_MAC_LEN)
 #define TR31_CHAVE_GRANDE  TR31_RSA_CHAVE
 #define TR31_CORPO_GRANDE  656u   /* 2 + 644, arredondado ao bloco */
 #define TR31_ASCII_GRANDE  (TR31_CAB_LEN + 2u * TR31_CORPO_GRANDE + 2u * TR31_MAC_LEN)

@@ -257,6 +257,25 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
 - **`rsa-cavp --lmk LMK`** também embrulha a chave do KeyGen do CAVP sob a LMK
   e cobra o `R2` contra a assinatura calculada no Python. Precisa da LMK.
 
+- **`hsmhost.py ecdsa-gen`**, **`ecdsa-sign BLOCO DIGEST`** e
+  **`ecdsa-verify QX QY DIGEST R S`** são o `E0`, o `E2` e o `E4`: ECDSA sobre
+  a curva P-256.
+- **`hsmhost.py ecdsa-confere [-n N]`** gera `N` pares com `E0`. Para cada
+  par, assina três digests com `E2`, confere cada assinatura no Python só com
+  a chave pública, cobra que o `r` não se repita, e confere no `E4` que a
+  assinatura vale e que a adulterada não vale.
+- **`hsmhost.py ecdsa-cavp`** roda no `E4` os vetores de SigVer e de PKV do
+  CAVP. Com `--lmk LMK`, embrulha chaves do SigGen do CAVP sob a LMK e cobra
+  o `E2`.
+- A conferência de ECDSA no `hsmhost.py` é feita com inteiros do Python
+  (`ec_soma`, `ec_mult`, `ecdsa_confere_py`). É a segunda implementação, e não
+  usa nada do firmware.
+- **`host/test_ecc.py`** não fala com a placa. Ele compila o `ecc.c` do
+  firmware com `gcc`, liga a um modelo em C do coprocessador e roda os 52
+  vetores de P-256 do CAVP, os escalares de borda e os casos de exceção.
+  Precisa de `gcc`; com a biblioteca `cryptography`, faz também a conferência
+  cruzada.
+
 ⚠ **Só um processo abre a serial.** Com a ponte rodando, o `hsmtool` não
 consegue falar com o console. É a consequência prática de console e host
 dividirem a UART; para a cerimônia, pare a ponte.

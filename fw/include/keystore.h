@@ -81,6 +81,7 @@ typedef uint8_t ks_handle_t;
 #define KS_ALG_AES      'A'
 #define KS_ALG_3DES     'T'    /* aceito no header, NÃO implementado aqui */
 #define KS_ALG_RSA      'R'    /* fase 7: só no key block do host, nunca num slot */
+#define KS_ALG_EC       'E'    /* fase 7: curva elíptica (P-256), idem */
 
 /* Modo de uso -- X9.143. `uso` diz que tipo de chave é, `modo` diz o que
  * ela pode fazer, e os DOIS restringem: cifrar exige uso D0, MAC exige a
@@ -462,5 +463,18 @@ void keystore_rsa_apaga(void);
  * falha, -2 se o par novo nao passou no teste (erro grave marcado). */
 int  keystore_rsa_gera(uint8_t exportabilidade, char *saida, uint32_t max,
                        uint32_t *saida_n, uint8_t n[256], uint8_t rascunho[256]);
+
+/* Fase 7 -- a chave privada de ECDSA P-256 do comando ASCII em curso.
+ * Ocupa a mesma area da chave RSA: um comando abre uma ou outra, e
+ * keystore_rsa_apaga() apaga as duas. Os retornos sao os das funcoes de
+ * RSA: `_abre` 0, -1 ou -3; `_assina`, o de ecdsa_assina(). */
+int  keystore_ec_abre(const char *bloco, uint32_t bloco_n);
+int  keystore_ec_assina(const uint8_t digest[32], uint8_t sig[64]);
+
+/* Gera um par P-256 e o devolve embrulhado sob a LMK (uso S0, 'E', modo
+ * 'S'), com a chave publica Qx || Qy. Devolve 0, -1 em falha, -2 se o par
+ * novo nao passou no teste de consistencia (erro grave marcado). */
+int  keystore_ec_gera(uint8_t exportabilidade, char *saida, uint32_t max,
+                      uint32_t *saida_n, uint8_t q[64]);
 
 #endif /* KEYSTORE_H */

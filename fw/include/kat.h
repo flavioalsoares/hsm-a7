@@ -70,6 +70,8 @@
 #define KAT_FALHA_KS    0x40u   /* key store -- teste de funcao critica */
 #define KAT_FALHA_TR31  0x80u   /* key block X9.143 -- funcao critica */
 #define KAT_FALHA_RSA   0x100u  /* operacao publica, vetor do CAVP */
+#define KAT_FALHA_RSA_ASSINA 0x200u  /* assinatura por CRT -- 1o uso */
+#define KAT_FALHA_ECDSA      0x400u  /* ECDSA P-256 -- 1o uso */
 
 /* União de tudo que o POST sabe reprovar.
  *
@@ -80,7 +82,8 @@
  * o build quebra em vez disso. */
 #define KAT_FALHA_TODOS (KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC | \
                          KAT_FALHA_DRBG | KAT_FALHA_TRNG | KAT_FALHA_CMAC | \
-                         KAT_FALHA_KS   | KAT_FALHA_TR31 | KAT_FALHA_RSA)
+                         KAT_FALHA_KS   | KAT_FALHA_TR31 | KAT_FALHA_RSA | \
+                         KAT_FALHA_RSA_ASSINA | KAT_FALHA_ECDSA)
 
 typedef char kat_mascara_cabe_em_dois_bytes[(KAT_FALHA_TODOS <= 0xFFFFu) ? 1 : -1];
 
@@ -93,5 +96,19 @@ unsigned kat_post(void);
 
 /* Último resultado, para o comando SELFTEST e para o log. */
 unsigned kat_ultimo(void);
+
+/* Autotestes de PRIMEIRO USO (fase 7).
+ *
+ * A assinatura RSA e o ECDSA nao sao testados no boot: os dois KATs
+ * custam cerca de 0,2 s cada. Rodam antes do primeiro uso do algoritmo
+ * depois de cada boot -- a FIPS 140-3 chama isso de autoteste condicional
+ * de algoritmo, e o permite. `qual` e KAT_FALHA_RSA_ASSINA ou
+ * KAT_FALHA_ECDSA.
+ *
+ * Devolve 0 se o teste ja passou neste boot ou passou agora, e -1 se
+ * reprovou (agora ou antes). Reprovou: o bit fica na mascara que o
+ * kat_post() devolve, e quem chamou leva o dispositivo a TAMPERED, como
+ * um POST reprovado. kat_post() NAO roda estes testes. */
+int kat_primeiro_uso(unsigned qual);
 
 #endif /* KAT_H */

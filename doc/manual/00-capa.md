@@ -26,8 +26,8 @@ de PIN, verificação por PVV e 3624, DUKPT — e diz, sem rodeio, o que deste
 domínio é ensinável aqui e o que não é.
 
 O equipamento tem AES-256, SHA-256, HMAC, CMAC, TRNG com health tests da
-SP 800-90B, CTR_DRBG e RSA-2048, todos conferidos contra vetores no
-autoteste de cada boot. Tem também key store, cerimônia de LMK com dual
+SP 800-90B, CTR_DRBG, RSA-2048 e ECDSA P-256, todos conferidos contra vetores em
+autoteste, no boot ou antes do primeiro uso. Tem também key store, cerimônia de LMK com dual
 control, key blocks X9.143, zeroização com prova, armazenamento persistente,
 log de auditoria, porta host ASCII e resposta a violação. O histórico da
 construção e as medidas ficam nas notas de fase, fora deste manual.

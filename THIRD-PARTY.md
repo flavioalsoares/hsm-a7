@@ -27,6 +27,18 @@ licença permissiva que este projeto adote. Todas exigem preservar o aviso de
 copyright — o que a estrutura de submódulo faz sozinha, já que os arquivos
 `LICENSE` originais vêm junto.
 
+### Código reescrito a partir de terceiros
+
+| Arquivo | Origem | Licença |
+|---|---|---|
+| `fw/src/ecc.c`, as funções de ponto | `github.com/kmackay/micro-ecc` | BSD-2-Clause |
+
+As funções de ponto do ECDSA seguem, fórmula a fórmula, as da micro-ecc. Elas
+foram reescritas para o coprocessador de Montgomery deste projeto, de memória
+e sem o código da biblioteca à mão; não há arquivo dela no repositório. O
+aviso de copyright (Kenneth MacKay, 2014) e o texto da licença estão no
+cabeçalho de `fw/src/ecc.c`.
+
 ### Modificações
 
 Duas, ambas no `sha256`, ambas de temporização, ambas em `patches/`:
@@ -60,6 +72,8 @@ para implementar:
 | CTR_DRBG | SP 800-90A | livre |
 | Health tests RCT/APT | SP 800-90B | livre |
 | Key blocks TR-31 / X9.143 | ANSI | norma; implementar não tem encargo |
+| RSA, PKCS#1 v1.5 | RFC 8017, FIPS 186-5 | a patente do RSA expirou em 2000 |
+| ECDSA sobre a curva P-256 | FIPS 186-5, SP 800-186 | livre; a escada de Montgomery com Z comum vem de artigo publicado (Rivain, 2011) |
 
 E os que aparecem **só na documentação**, sem implementação aqui:
 

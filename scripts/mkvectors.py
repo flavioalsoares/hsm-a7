@@ -221,6 +221,60 @@ def rsa():
     return len(cfg) // 2, total, n0p(n), e
 
 
+def ecdsa():
+    """Vetores do tb_ecdsa, todos do CAVP (vectors/ecdsa/), copiados.
+
+    E4: o SEGUNDO vetor "P" do SigVer -- nenhum SigVer e usado no autoteste
+    do firmware, que usa o SigGen --, o primeiro "F (3 - S changed)" e a
+    primeira chave "F (2 - Point not on curve)" do PKV.
+    E2: a chave do SEGUNDO vetor do SigGen (o primeiro e o do autoteste),
+    embrulhada sob a LMK do tb. O digest e o da mensagem do vetor.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import tr31
+
+    def casos(nome):
+        saida, atual = [], {}
+        for linha in (VEC / "ecdsa" / nome).read_text().splitlines():
+            m = re.match(r"^(\w+) = (.*)$", linha.strip())
+            if m:
+                atual[m[1]] = m[2].strip()
+            elif atual:
+                saida.append(atual)
+                atual = {}
+        if atual:
+            saida.append(atual)
+        return [c for c in saida if "Qx" in c]
+
+    def b32(c, *nomes):
+        return b"".join(bytes.fromhex(c[n].zfill(64)) for n in nomes)
+
+    def e4(c):
+        digest = hashlib.sha256(bytes.fromhex(c["Msg"])).digest()
+        return b32(c, "Qx", "Qy") + digest + b32(c, "R", "S")
+
+    ver = casos("SigVer_P256.rsp")
+    p = [c for c in ver if c["Result"].startswith("P")][1]
+    f = next(c for c in ver if c["Result"].startswith("F (3"))
+    k = next(c for c in casos("PKV_P256.rsp")
+             if c["Result"].startswith("F (2") and len(c["Qx"]) <= 64)
+    escreve("ecdsa_e4_p", ["%02x" % x for x in e4(p)], 2)
+    escreve("ecdsa_e4_f", ["%02x" % x for x in e4(f)], 2)
+    escreve("ecdsa_e4_pkv", ["%02x" % x for x in
+                             b32(k, "Qx", "Qy") + bytes(31) + b"\x01" + bytes(63) + b"\x01"], 2)
+
+    g = casos("SigGen_P256.txt")[1]
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    bloco = tr31.embrulha(lmk, b32(g, "d", "Qx", "Qy"), uso="S0", algoritmo="E",
+                          modo="S", exportabilidade="E", enchimento=bytes(range(16)))
+    if len(bloco) != 272:
+        raise SystemExit("ECDSA: key block de %d caracteres" % len(bloco))
+    digest = hashlib.sha256(bytes.fromhex(g["Msg"])).digest()
+    escreve("ecdsa_e2_bloco", ["%02x" % ord(c) for c in bloco], 2)
+    escreve("ecdsa_e2", ["%02x" % x for x in digest + b32(g, "Qx", "Qy")], 2)
+
+
 def rsa_r2(prefixo):
     """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
     embrulhada sob a LMK que o tb_rsa monta na cerimonia.
@@ -272,6 +326,7 @@ def main():
     n_cbc, _ = aes("CBC")
     n_sha = sha256_padded()
     n_rsa_mont, n_rsa_kat, rsa_n0p, rsa_e = rsa()
+    ecdsa()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.

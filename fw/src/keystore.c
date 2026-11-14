@@ -10,6 +10,7 @@
 #include "hsm_cfs.h"
 #include "state.h"
 #include "rsa.h"
+#include "ecc.h"
 #include "tr31.h"
 #include "wipe.h"
 
@@ -51,7 +52,9 @@ static uint8_t g_comp[KS_KEY_MAX];
  * e e apagada pelo despachante no fim de TODO comando. Nunca vai para a
  * flash, e nunca para um slot -- header_valido() recusa o algoritmo 'R'. */
 static uint8_t g_rsa[TR31_RSA_CHAVE];
-static uint8_t g_rsa_ok;
+static uint8_t g_rsa_ok;         /* 0 vazia, ou o algoritmo: 'R' ou 'E'. A
+                                  * chave de ECDSA ocupa os 96 primeiros
+                                  * bytes da mesma area. */
 static uint8_t g_comp_n;         /* quantos entraram  */
 static uint8_t g_comp_total;     /* quantos foram anunciados */
 
@@ -792,7 +795,8 @@ void keystore_rsa_apaga(void)
     g_rsa_ok = 0u;
 }
 
-int keystore_rsa_abre(const char *bloco, uint32_t bloco_n)
+/* Abre na area da chave assimetrica um key block do algoritmo `alg`. */
+static int assim_abre(const char *bloco, uint32_t bloco_n, uint8_t alg)
 {
     uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
     tr31_cab_t cab;
@@ -808,12 +812,13 @@ int keystore_rsa_abre(const char *bloco, uint32_t bloco_n)
         goto fim;
     }
     /* Bloco integro, mas de chave simetrica: e a confusao de tipo, e nao
-     * bloco invalido. O tr31.c ja garante que 'R' vem com S0 e modo 'S'. */
-    if (cab.algoritmo != (uint8_t)KS_ALG_RSA) {
+     * bloco invalido. Vale tambem entre RSA e ECDSA. O tr31.c ja garante
+     * que 'R' e 'E' vem com S0, modo 'S' e o tamanho certo. */
+    if (cab.algoritmo != alg) {
         r = -3;
         goto fim;
     }
-    g_rsa_ok = 1u;
+    g_rsa_ok = alg;
     r = 0;
 fim:
     wipe(kbek, sizeof kbek);
@@ -822,6 +827,16 @@ fim:
         keystore_rsa_apaga();
     }
     return r;
+}
+
+int keystore_rsa_abre(const char *bloco, uint32_t bloco_n)
+{
+    return assim_abre(bloco, bloco_n, (uint8_t)KS_ALG_RSA);
+}
+
+int keystore_ec_abre(const char *bloco, uint32_t bloco_n)
+{
+    return assim_abre(bloco, bloco_n, (uint8_t)KS_ALG_EC);
 }
 
 int keystore_rsa_gera(uint8_t exportabilidade, char *saida, uint32_t max,
@@ -881,7 +896,7 @@ int keystore_rsa_assina(const uint8_t digest[32], uint8_t sig[256])
 {
     int r;
 
-    if (!g_rsa_ok) {
+    if (g_rsa_ok != (uint8_t)KS_ALG_RSA) {
         return -1;
     }
     /* -2: a assinatura nao passou na verificacao antes de sair. E a mesma
@@ -891,6 +906,79 @@ int keystore_rsa_assina(const uint8_t digest[32], uint8_t sig[256])
     if (r == -2) {
         erro_grave_marca();
     }
+    return r;
+}
+
+int keystore_ec_assina(const uint8_t digest[32], uint8_t sig[64])
+{
+    int r;
+
+    if (g_rsa_ok != (uint8_t)KS_ALG_EC) {
+        return -1;
+    }
+    /* -2: mesma politica da assinatura RSA. */
+    r = ecdsa_assina(g_rsa, digest, sig);
+    if (r == -2) {
+        erro_grave_marca();
+    }
+    return r;
+}
+
+int keystore_ec_gera(uint8_t exportabilidade, char *saida, uint32_t max,
+                     uint32_t *saida_n, uint8_t q[64])
+{
+    uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    uint8_t    enchimento[TR31_BLOCO];
+    uint8_t    sig[EC_SIG];
+    tr31_cab_t cab;
+    uint32_t   i;
+    int        r = -1;
+
+    keystore_rsa_apaga();
+    if ((max < TR31_ASCII_EC) ||
+        ((exportabilidade != KS_EXP_SIM) && (exportabilidade != KS_EXP_NAO) &&
+         (exportabilidade != KS_EXP_SENSIVEL))) {
+        return -1;
+    }
+    if (ecdsa_gera(g_rsa) != 0) {
+        goto fim;
+    }
+    /* Teste de consistencia do par (FIPS 140-3): assinar com a chave nova
+     * -- e ecdsa_assina() ja verifica com Q antes de devolver. O digest e
+     * a propria chave publica: qualquer valor serve. */
+    r = ecdsa_assina(g_rsa, &g_rsa[EC_BYTES], sig);
+    if (r != 0) {
+        if (r == -2) {
+            erro_grave_marca();
+        }
+        goto fim;
+    }
+    r = -1;
+
+    cab.uso[0]          = (uint8_t)'S';
+    cab.uso[1]          = (uint8_t)'0';
+    cab.algoritmo       = (uint8_t)KS_ALG_EC;
+    cab.modo            = (uint8_t)KS_MODO_ASSINA;
+    cab.versao_chave[0] = (uint8_t)'0';
+    cab.versao_chave[1] = (uint8_t)'0';
+    cab.exportabilidade = exportabilidade;
+    if ((lmk_deriva_kb(kbek, kbak) != 0) ||
+        (drbg_dispositivo_bytes(enchimento, sizeof enchimento) != 0) ||
+        (tr31_embrulha_n(kbek, kbak, &cab, g_rsa, (uint16_t)TR31_EC_CHAVE,
+                         enchimento, (uint8_t)sizeof enchimento,
+                         saida, saida_n) != 0)) {
+        goto fim;
+    }
+    for (i = 0u; i < EC_PUB; i++) {
+        q[i] = g_rsa[EC_BYTES + i];
+    }
+    r = 0;
+fim:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(enchimento, sizeof enchimento);
+    wipe(sig, sizeof sig);
+    keystore_rsa_apaga();
     return r;
 }
 

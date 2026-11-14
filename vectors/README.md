@@ -18,6 +18,10 @@ oficiais, com hash registrado em `MANIFEST.txt`.
 | `sha/` | NIST CAVP (SHAVS) | SHA-256, mensagens curtas e longas |
 | `hmac/` | IETF RFC 4231 | HMAC-SHA-256 |
 | `drbg/` | NIST CAVP (SP 800-90A) | CTR_DRBG com AES-256 |
+| `cmac/` | NIST CAVP (CMACVS) | CMAC-AES-256 |
+| `rsa/` | NIST CAVP (FIPS 186-3) | RSA-2048 PKCS#1 v1.5, chaves e primalidade |
+| `ecdsa/` | NIST CAVP (FIPS 186-4) | ECDSA P-256 com SHA-256: par de chaves, validação de chave pública, assinar e verificar |
+| `tr31/` | terceiros (ver `MANIFEST.txt`) | key block X9.143 versão D |
 
 ### Os quatro tipos de vetor do AESAVS
 

@@ -45,6 +45,13 @@ void hsm_cfs_rsa_n0p(uint16_t v);
 void hsm_cfs_rsa_escreve(uint16_t janela, const uint8_t *be, uint32_t limbs);
 void hsm_cfs_rsa_le(uint16_t janela, uint8_t *be, uint32_t limbs);
 
+/* As mesmas janelas, com o numero em palavras de 32 bits, a menos
+ * significativa primeiro. Cada palavra sao dois limbs. E a forma que o
+ * ECDSA usa: ele troca operandos com o core a cada produto, e a conversao
+ * de bytes custaria mais que o produto. */
+void hsm_cfs_rsa_escreve_w(uint16_t janela, const uint32_t *w, uint32_t palavras);
+void hsm_cfs_rsa_le_w(uint16_t janela, uint32_t *w, uint32_t palavras);
+
 /* dst = a * b * R^-1 mod N. Devolve -1 se o core nao terminar. */
 int hsm_cfs_rsa_mont(unsigned dst, unsigned a, unsigned b, uint32_t limbs);
 

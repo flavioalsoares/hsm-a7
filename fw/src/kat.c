@@ -9,6 +9,7 @@
  */
 #include "kat.h"
 #include "rsa.h"
+#include "ecc.h"
 #include "kat_vectors.h"
 #include "cmac.h"
 #include "drbg.h"
@@ -374,6 +375,85 @@ static unsigned kat_rsa(void)
     return 0u;
 }
 
+/* ---------------------------------------------------------------------
+ * Autotestes de primeiro uso. Ver kat.h.
+ * ------------------------------------------------------------------- */
+static unsigned g_uso_feito, g_uso_falha;
+
+/* Assinatura RSA por CRT contra o CAVP. PKCS#1 v1.5 e deterministico: a
+ * assinatura tem de ser, byte a byte, o S do vetor. A chave em p e q sai
+ * do n, e, d do vetor em scripts/mkkat.py. */
+static unsigned kat_rsa_assina(void)
+{
+    uint8_t  s[RSA_BYTES];
+    uint32_t i;
+    uint8_t  d = 0u;
+    unsigned falha = 0u;
+
+    if (rsa_crt_assina(kat_rsa_chave, kat_rsa_digest, s) != 0) {
+        falha = KAT_FALHA_RSA_ASSINA;
+    } else {
+        for (i = 0u; i < RSA_BYTES; i++) {
+            d |= (uint8_t)(s[i] ^ kat_rsa_s[i]);
+        }
+        if (d != 0u) {
+            falha = KAT_FALHA_RSA_ASSINA;
+        }
+    }
+    wipe(s, sizeof s);
+    return falha;
+}
+
+/* ECDSA P-256 contra o CAVP: assinar com o k do vetor tem de dar o r e o
+ * s do vetor; a verificacao tem de aceitar essa assinatura e recusar a
+ * mesma com um bit trocado. */
+static unsigned kat_ecdsa(void)
+{
+    uint8_t  sig[EC_SIG];
+    uint32_t i;
+    uint8_t  d = 0u;
+    unsigned falha = 0u;
+
+    if (ecdsa_assina_k(kat_ec_d, kat_ec_digest, kat_ec_k, sig) != 0) {
+        falha = KAT_FALHA_ECDSA;
+    } else {
+        for (i = 0u; i < EC_SIG; i++) {
+            d |= (uint8_t)(sig[i] ^ kat_ec_rs[i]);
+        }
+        if (d != 0u) {
+            falha = KAT_FALHA_ECDSA;
+        }
+    }
+    if (ecdsa_verifica(kat_ec_q, kat_ec_digest, kat_ec_rs) != 1) {
+        falha = KAT_FALHA_ECDSA;
+    }
+    for (i = 0u; i < EC_SIG; i++) {
+        sig[i] = kat_ec_rs[i];
+    }
+    sig[EC_SIG - 1u] ^= 1u;
+    if (ecdsa_verifica(kat_ec_q, kat_ec_digest, sig) != 0) {
+        falha = KAT_FALHA_ECDSA;
+    }
+    wipe(sig, sizeof sig);
+    return falha;
+}
+
+int kat_primeiro_uso(unsigned qual)
+{
+    if ((g_uso_feito & qual) == 0u) {
+        g_uso_feito |= qual;
+        if (qual == KAT_FALHA_RSA_ASSINA) {
+            g_uso_falha |= kat_rsa_assina();
+        } else if (qual == KAT_FALHA_ECDSA) {
+            g_uso_falha |= kat_ecdsa();
+        } else {
+            g_uso_falha |= qual;
+        }
+        g_ultimo |= g_uso_falha;
+    }
+    return ((g_uso_falha & qual) != 0u) ? -1 : 0;
+}
+
 unsigned kat_post(void)
 {
     unsigned r = 0u;
@@ -413,6 +493,10 @@ unsigned kat_post(void)
      * do último vetor de AES ainda está no aes_key_mem. Limpar antes de
      * operar não é zelo, é higiene de fronteira. */
     (void)hsm_cfs_wipe();
+
+    /* Um autoteste de primeiro uso que reprovou neste boot continua
+     * reprovado: o POST nao o refaz, e nao pode apaga-lo. */
+    r |= g_uso_falha;
 
     g_ultimo = r;
     return r;

@@ -695,7 +695,10 @@ página `0x200`), exponenciação pública em `fw/src/rsa.c`, KAT no POST e o co
 ASCII `R4` (n · e · digest · S → `00`/`01`). Feita também a **metade privada**: chave
 RSA em key block (`S0`/`R`/`S`, layout próprio), assinatura por CRT com escada de
 Montgomery, verificada antes de sair, geração de chave pela FIPS 186-5, A.1.3, e os
-comandos `R0` (gerar) e `R2` (assinar). Falta o P-256.
+comandos `R0` (gerar) e `R2` (assinar). Feito o **ECDSA P-256** (2026-11-14):
+`fw/src/ecc.c` sobre o mesmo coprocessador, com `len` = 16; chave em key block
+(`S0`/`E`/`S`, `d Qx Qy`, 96 bytes); comandos `E0` (gerar), `E2` (assinar) e `E4`
+(verificar). ECDH ficou fora, por decisão do usuário.
 
 ✅ **Validado em hardware 2026-11-08**: `post` com `RSA-2048` verde e
 `hsmhost.py rsa-cavp` com os 10 vetores do CAVP aceitos e recusados com um bit
@@ -706,6 +709,37 @@ DSP 4. Suíte: 24 testbenches.
 ✅ **Metade privada validada em hardware 2026-11-09**: `rsa-confere` gerou três pares
 na placa (13 s a 44 s cada, em seis amostras), e o Python conferiu as assinaturas do `R2`. Suíte: 25
 testbenches. IMEM em 30 052 de 32 768 bytes.
+
+✅ **ECDSA validado em hardware 2026-11-14**: `ecdsa-cavp` com 15 vetores de SigVer
+e 12 de PKV, e `ecdsa-confere` com 20 pares e 60 assinaturas. `E0` em 0,53 s. Timing
+**+0,369 ns**, 0 critical warnings, 8078 LUTs, 7915 FF, **BRAM 21,5**, DSP 4. Suíte:
+26 testbenches, 11 h 07; o `tb_ecdsa` leva 8 h 46 e é o mais lento.
+
+⚠ **A IMEM tem 64 KB** (decisão do usuário, 2026-11-13); o firmware ocupa 37 668
+bytes. A DMEM segue em 16 KB, e sobram cerca de 2,4 KB para a pilha: buffer novo
+grande vai para `static`, com conta.
+
+⚠ **Os KATs da assinatura RSA e do ECDSA rodam no PRIMEIRO USO, não no boot**
+(decisão do usuário, 2026-11-13; FIPS 140-3 permite). `kat_primeiro_uso()` é chamada
+pelos handlers `R0`/`R2` e `E0`/`E2`/`E4`. Falha: zeroiza, `TAMPERED`, `91`. Pôr um
+deles no POST custa cerca de 31 min de simulação por 0,2 s, em cada testbench do SoC.
+
+⚠ **O `k` do ECDSA sai do DRBG a cada assinatura, por rejeição, e nunca se repete.**
+`ecdsa_assina_k()` recebe o `k` de fora e existe só para o KAT. Um segundo chamador
+dela é defeito: `k` repetido ou previsível entrega a chave privada.
+
+⚠ **A escada de ponto não serve para os escalares 1, n−1 e n−2**, e a soma da
+verificação tem casos de exceção (pontos iguais, opostos, `u1 = 0`). `ponto_mult()` e
+`ecdsa_verifica()` tratam cada um. Mexeu em `ecc.c`: rode `host/test_ecc.py` (4 s, no
+PC, 52 vetores do CAVP e os casos de borda) antes de simular. Ele não substitui o
+`tb_ecdsa`: o coprocessador ali é um modelo em C.
+
+⚠ **`mont.c` e `bn.c` são comuns ao RSA e ao ECDSA** (exponenciação na escada e
+aritmética de bytes). A chave RSA e a de ECDSA ocupam a mesma área do key store, uma
+por comando; `g_rsa_ok` guarda o algoritmo, e `R2` com chave de curva responde `11`.
+
+⚠ **O `E4` valida a chave pública antes de qualquer conta** (coordenadas menores que
+`p`, ponto na curva). Não remover: ponto fora da curva é ataque conhecido.
 
 ⚠ **A assinatura é verificada com `e` antes de sair** (Bellcore). Reprovou: `91`,
 nada sai, erro grave marcado. Não remover: a conferência pega também erro de software.

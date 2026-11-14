@@ -96,11 +96,12 @@ USO_KEK = "K0"
 USO_DADOS = "D0"
 USO_MAC = "M0"
 USO_PIN = "P0"
-USO_ASSINA = "S0"   # fase 7: par RSA de assinatura
+USO_ASSINA = "S0"   # fase 7: par assimetrico de assinatura (RSA ou ECDSA)
 
 ALG_AES = "A"
 ALG_3DES = "T"
 ALG_RSA = "R"
+ALG_EC = "E"         # fase 7: curva eliptica (P-256)
 
 # Modo de uso -- X9.143, em dois grupos que nao se cruzam: cifra e MAC.
 # Tem de casar com fw/include/keystore.h. Se as duas implementacoes
@@ -121,6 +122,10 @@ MODO_ASSINA = "S"
 # norma e paga). Igual a TR31_RSA_CHAVE em fw/include/tr31.h:
 #     e(4) || p(128) || q(128) || dp(128) || dq(128) || qinv(128)
 RSA_CHAVE = 644
+# A chave privada de ECDSA P-256, tambem em layout deste projeto. Igual a
+# TR31_EC_CHAVE:
+#     d(32) || Qx(32) || Qy(32)
+EC_CHAVE = 96
 AES_CHAVE_MAX = 32
 
 EXP_SIM = "E"
@@ -277,8 +282,14 @@ def _valida_campos(cab, chave_n):
         if chave_n != RSA_CHAVE:
             raise Tr31Erro(f"chave RSA de {chave_n} bytes, esperado {RSA_CHAVE}")
         return
+    if cab["algoritmo"] == ALG_EC:
+        if cab["uso"] != USO_ASSINA or cab["modo"] != MODO_ASSINA:
+            raise Tr31Erro("chave de ECDSA exige uso S0 e modo S")
+        if chave_n != EC_CHAVE:
+            raise Tr31Erro(f"chave de ECDSA de {chave_n} bytes, esperado {EC_CHAVE}")
+        return
     if cab["algoritmo"] != ALG_AES:
-        raise Tr31Erro(f"algoritmo {cab['algoritmo']!r}: este projeto so faz AES e RSA")
+        raise Tr31Erro(f"algoritmo {cab['algoritmo']!r}: este projeto so faz AES, RSA e ECDSA")
     if not 0 < chave_n <= AES_CHAVE_MAX:
         raise Tr31Erro(f"chave AES de {chave_n} bytes")
     if cab["modo"] not in (MODO_CIFRA, MODO_DECIFRA, MODO_AMBOS, MODO_NENHUM,

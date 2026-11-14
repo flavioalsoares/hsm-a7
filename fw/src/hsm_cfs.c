@@ -415,6 +415,29 @@ void hsm_cfs_rsa_le(uint16_t janela, uint8_t *be, uint32_t limbs)
     }
 }
 
+void hsm_cfs_rsa_escreve_w(uint16_t janela, const uint32_t *w, uint32_t palavras)
+{
+    uint32_t i;
+
+    NEORV32_CFS->REG[R_RSA_ADDR] = janela;
+    for (i = 0u; i < palavras; i++) {
+        NEORV32_CFS->REG[R_RSA_DATA] = w[i] & 0xFFFFu;
+        NEORV32_CFS->REG[R_RSA_DATA] = w[i] >> 16;
+    }
+}
+
+void hsm_cfs_rsa_le_w(uint16_t janela, uint32_t *w, uint32_t palavras)
+{
+    uint32_t i, v;
+
+    NEORV32_CFS->REG[R_RSA_ADDR] = janela;
+    for (i = 0u; i < palavras; i++) {
+        v  = NEORV32_CFS->REG[R_RSA_DATA] & 0xFFFFu;
+        v |= (NEORV32_CFS->REG[R_RSA_DATA] & 0xFFFFu) << 16;
+        w[i] = v;
+    }
+}
+
 int hsm_cfs_rsa_mont(unsigned dst, unsigned a, unsigned b, uint32_t limbs)
 {
     uint32_t i;

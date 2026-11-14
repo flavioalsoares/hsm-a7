@@ -135,6 +135,13 @@ KAT_BITS = [
     (0x100, "RSA-2048"),
 ]
 
+# Autotestes de PRIMEIRO USO (fase 7): o SELFTEST nao os roda. O bit so
+# aparece se o teste ja reprovou neste boot.
+KAT_BITS_USO = [
+    (0x200, "assinatura RSA"),
+    (0x400, "ECDSA P-256"),
+]
+
 STATUS_NAMES = {
     0x00: "OK",
     0x01: "BAD_CRC",
@@ -534,13 +541,16 @@ def cmd_selftest_dev(client, args):
     r = int.from_bytes(data[:2], "little")
     for bit, nome in KAT_BITS:
         print("  %-22s %s" % (nome, "FALHOU" if (r & bit) else "ok"))
+    for bit, nome in KAT_BITS_USO:
+        print("  %-22s %s" % (nome, "FALHOU" if (r & bit)
+                              else "roda no primeiro uso"))
 
     if r == 0:
         print("\nPOST: OK")
         print("  (zerou a BRAM; fora de TAMPERED, restaurou LMK e chaves da flash)")
         return 0
 
-    print("\nPOST REPROVOU (mascara 0x%02X). O dispositivo esta em TAMPERED"
+    print("\nPOST REPROVOU (mascara 0x%03X). O dispositivo esta em TAMPERED"
           " e nao aceita mais comando de operacao." % r)
     return 1
 

@@ -73,8 +73,8 @@ USER_FLAGS += -Wall -Wextra -Werror
 # rtl/soc/neorv32_wrapper.vhd. O linker do NEORV32 assume 16 KB / 8 KB se
 # nada for dito, e um binario maior que isso nao linka; um MENOR que a
 # memoria real so desperdica -- mas a DMEM menor faria a pilha nascer no
-# meio da RAM, longe do fim. Fase 4: 32 KB / 16 KB.
-USER_FLAGS += -Wl,--defsym,__neorv32_rom_size=32k
+# meio da RAM, longe do fim. Fase 4: 32 KB / 16 KB. Fase 7: 64 KB / 16 KB.
+USER_FLAGS += -Wl,--defsym,__neorv32_rom_size=64k
 USER_FLAGS += -Wl,--defsym,__neorv32_ram_size=16k
 
 # O gcc do Debian nao acha a picolibc sozinho: ela vive fora do sysroot do

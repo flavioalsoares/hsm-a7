@@ -26,6 +26,12 @@ Uso:
     hsmhost.py rsa-sign BLOCO DIGEST        # R2: assina com a chave do bloco
     hsmhost.py rsa-gen [--exp E]            # R0: gera par RSA-2048
     hsmhost.py rsa-confere [-n N]           # R0 + R2 + R4, conferidos aqui
+    hsmhost.py ecdsa-verify QX QY DIGEST R S  # E4: ECDSA P-256
+    hsmhost.py ecdsa-cavp [--lmk HEX]       # E4 com os vetores do CAVP; com a
+                                            # LMK, tambem E2 com a chave do CAVP
+    hsmhost.py ecdsa-sign BLOCO DIGEST      # E2: assina com a chave do bloco
+    hsmhost.py ecdsa-gen [--exp E]          # E0: gera par P-256
+    hsmhost.py ecdsa-confere [-n N]         # E0 + E2 + E4, conferidos aqui
     hsmhost.py confere --lmk HEX [-n N]     # o Python conferindo o C
     hsmhost.py selftest                     # codec, sem placa
 
@@ -244,6 +250,185 @@ class Host:
         """R2: a chave privada vai no key block sob a LMK; sai S."""
         _, c = self.pede("R2", bloco.encode() + digest.hex().upper().encode())
         return int(c[:512].decode(), 16)
+
+
+    def ecdsa_verifica(self, qx, qy, digest, r, s):
+        """E4: so dados publicos entram, e sai um bit (o codigo de erro).
+        Chave publica fora da curva e erro 16, e sobe como HostErro."""
+        campos = b"".join(v.to_bytes(32, "big") for v in (qx, qy)) + digest \
+            + r.to_bytes(32, "big") + s.to_bytes(32, "big")
+        self.t.espera(10.0)
+        try:
+            erro, _ = self.pede("E4", campos.hex().upper().encode(), aceita=(0, 1))
+        finally:
+            self.t.espera(5.0)
+        return erro == 0
+
+    def ecdsa_gera(self, exp="E"):
+        """E0: (key block da chave privada, Qx, Qy)."""
+        self.t.espera(10.0)
+        try:
+            _, c = self.pede("E0", exp.encode())
+        finally:
+            self.t.espera(5.0)
+        bloco = c[:-128].decode()
+        return bloco, int(c[-128:-64].decode(), 16), int(c[-64:].decode(), 16)
+
+    def ecdsa_assina(self, bloco, digest):
+        """E2: a chave privada vai no key block sob a LMK; saem r e s."""
+        self.t.espera(10.0)
+        try:
+            _, c = self.pede("E2", bloco.encode() + digest.hex().upper().encode())
+        finally:
+            self.t.espera(5.0)
+        return int(c[:64].decode(), 16), int(c[64:128].decode(), 16)
+
+
+# --------------------------------------------------------------------
+# ECDSA P-256: a conferencia em Python, com inteiros. E a segunda
+# implementacao -- nao usa nada do firmware.
+EC_P = 2**256 - 2**224 + 2**192 + 2**96 - 1
+EC_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+EC_B = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
+EC_G = (0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
+        0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5)
+
+
+def ec_soma(p1, p2):
+    """Soma de pontos afins; None e o ponto no infinito."""
+    if p1 is None:
+        return p2
+    if p2 is None:
+        return p1
+    (x1, y1), (x2, y2) = p1, p2
+    if x1 == x2:
+        if (y1 + y2) % EC_P == 0:
+            return None
+        lam = (3 * x1 * x1 - 3) * pow(2 * y1, -1, EC_P) % EC_P
+    else:
+        lam = (y2 - y1) * pow(x2 - x1, -1, EC_P) % EC_P
+    x3 = (lam * lam - x1 - x2) % EC_P
+    return x3, (lam * (x1 - x3) - y1) % EC_P
+
+
+def ec_mult(k, p):
+    r = None
+    while k:
+        if k & 1:
+            r = ec_soma(r, p)
+        p = ec_soma(p, p)
+        k >>= 1
+    return r
+
+
+def ecdsa_confere_py(q, digest, r, s):
+    """Verificacao ECDSA em Python (FIPS 186-5, 6.4.2)."""
+    x, y = q
+    if not (0 <= x < EC_P and 0 <= y < EC_P) or \
+            (y * y - (x**3 - 3 * x + EC_B)) % EC_P != 0:
+        return False
+    if not (0 < r < EC_N and 0 < s < EC_N):
+        return False
+    e = int.from_bytes(digest, "big")
+    w = pow(s, -1, EC_N)
+    ponto = ec_soma(ec_mult(e * w % EC_N, EC_G), ec_mult(r * w % EC_N, q))
+    return ponto is not None and ponto[0] % EC_N == r
+
+
+def ecdsa_vetores(nome):
+    """Os casos da secao [P-256,SHA-256] de um arquivo do CAVP."""
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    casos, atual = [], {}
+    with open(os.path.join(raiz, "vectors", "ecdsa", nome)) as f:
+        for linha in f:
+            m = re.match(r"^(\w+) = (.*)$", linha.strip())
+            if m:
+                atual[m[1]] = m[2].strip()
+            elif atual:
+                casos.append(atual)
+                atual = {}
+    if atual:
+        casos.append(atual)
+    return [c for c in casos if "Qx" in c]
+
+
+def ecdsa_confere(h, voltas):
+    """Gera pares no dispositivo e confere cada um daqui, so com Q: a
+    assinatura do E2 tem de verificar em Python, e o E4 tem de aceita-la e
+    recusar a adulterada."""
+    import time
+    for v in range(voltas):
+        t0 = time.monotonic()
+        bloco, qx, qy = h.ecdsa_gera()
+        dt = time.monotonic() - t0
+        anteriores = set()
+        for i in range(3):
+            digest = hashlib.sha256(b"ecdsa-confere %d %d" % (v, i)).digest()
+            r, s = h.ecdsa_assina(bloco, digest)
+            if not ecdsa_confere_py((qx, qy), digest, r, s):
+                print("par %d: assinatura %d NAO verifica" % (v, i))
+                return 1
+            if r in anteriores:
+                print("par %d: r repetido -- o k se repetiu" % v)
+                return 1
+            anteriores.add(r)
+            if not h.ecdsa_verifica(qx, qy, digest, r, s):
+                print("par %d: o E4 recusou a propria assinatura" % v)
+                return 1
+            if h.ecdsa_verifica(qx, qy, digest, r, s ^ 1):
+                print("par %d: o E4 aceitou assinatura adulterada" % v)
+                return 1
+        print("par %d: gerado em %.2f s, 3 assinaturas conferidas" % (v, dt))
+    return 0
+
+
+def ecdsa_cavp(h, lmk=None):
+    """SigVer: cada vetor tem de dar o veredito do CAVP. PKV: chave publica
+    invalida tem de ser recusada com 16. Com a LMK, tambem assina com as
+    chaves do SigGen do CAVP e confere aqui."""
+    if lmk is not None:
+        import tr31
+        for i, c in enumerate(ecdsa_vetores("SigGen_P256.txt")[:3]):
+            chave = b"".join(bytes.fromhex(c[k].zfill(64)) for k in ("d", "Qx", "Qy"))
+            bloco = tr31.embrulha(lmk, chave, uso="S0", algoritmo="E", modo="S",
+                                  exportabilidade="E")
+            digest = hashlib.sha256(bytes.fromhex(c["Msg"])).digest()
+            r, s = h.ecdsa_assina(bloco, digest)
+            if not ecdsa_confere_py((int(c["Qx"], 16), int(c["Qy"], 16)), digest, r, s):
+                print("E2 %d: assinatura ERRADA" % i)
+                return 1
+            print("E2 %d: assinatura com a chave do CAVP confere" % i)
+    vs = ecdsa_vetores("SigVer_P256.rsp")
+    for i, c in enumerate(vs):
+        digest = hashlib.sha256(bytes.fromhex(c["Msg"])).digest()
+        espera = c["Result"].startswith("P")
+        try:
+            ok = h.ecdsa_verifica(int(c["Qx"], 16), int(c["Qy"], 16), digest,
+                                  int(c["R"], 16), int(c["S"], 16))
+        except HostErro as e:
+            ok = None if e.codigo == 16 else "erro %d" % e.codigo
+        # "Q changed" pode tirar o ponto da curva: ai a recusa e o 16.
+        if ok is not espera and not (ok is None and not espera):
+            print("vetor %d: esperado %s, veio %r" % (i, c["Result"], ok))
+            return 1
+        print("vetor %d: %s" % (i, c["Result"]))
+    pk = ecdsa_vetores("PKV_P256.rsp")
+    for i, c in enumerate(pk):
+        if len(c["Qx"]) > 64 or len(c["Qy"]) > 64:
+            continue                    # nem cabe no campo do comando
+        espera = c["Result"].startswith("P")
+        try:
+            h.ecdsa_verifica(int(c["Qx"], 16), int(c["Qy"], 16), b"\0" * 31 + b"\1", 1, 1)
+            aceita = True
+        except HostErro as e:
+            if e.codigo != 16:
+                raise
+            aceita = False
+        if aceita != espera:
+            print("PKV %d: esperado %s" % (i, c["Result"]))
+            return 1
+    print("%d vetores de SigVer e %d de PKV do CAVP conferidos" % (len(vs), len(pk)))
+    return 0
 
 
 def chave_cavp():
@@ -505,6 +690,14 @@ def main(argv=None):
     p = sub.add_parser("rsa-sign"); p.add_argument("bloco"); p.add_argument("digest")
     p = sub.add_parser("rsa-gen"); p.add_argument("--exp", default="E", choices=list("ENS"))
     p = sub.add_parser("rsa-confere"); p.add_argument("-n", type=int, default=3)
+    p = sub.add_parser("ecdsa-verify")
+    for c in ("qx", "qy", "digest", "r", "s"):
+        p.add_argument(c)
+    p = sub.add_parser("ecdsa-cavp")
+    p.add_argument("--lmk", default=None, help="LMK em hex (brinquedo)")
+    p = sub.add_parser("ecdsa-sign"); p.add_argument("bloco"); p.add_argument("digest")
+    p = sub.add_parser("ecdsa-gen"); p.add_argument("--exp", default="E", choices=list("ENS"))
+    p = sub.add_parser("ecdsa-confere"); p.add_argument("-n", type=int, default=3)
     p = sub.add_parser("confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
@@ -562,6 +755,22 @@ def main(argv=None):
             return rsa_confere(h, a.n)
         elif a.cmd == "rsa-sign":
             print("%0512X" % h.rsa_assina(a.bloco, bytes.fromhex(a.digest)))
+        elif a.cmd == "ecdsa-verify":
+            ok = h.ecdsa_verifica(int(a.qx, 16), int(a.qy, 16),
+                                  bytes.fromhex(a.digest), int(a.r, 16), int(a.s, 16))
+            print("assinatura confere" if ok else "assinatura NAO confere")
+            return 0 if ok else 1
+        elif a.cmd == "ecdsa-cavp":
+            return ecdsa_cavp(h, bytes.fromhex(a.lmk) if a.lmk else None)
+        elif a.cmd == "ecdsa-gen":
+            bloco, qx, qy = h.ecdsa_gera(a.exp)
+            print(bloco)
+            print("Qx %064X" % qx, file=sys.stderr)
+            print("Qy %064X" % qy, file=sys.stderr)
+        elif a.cmd == "ecdsa-confere":
+            return ecdsa_confere(h, a.n)
+        elif a.cmd == "ecdsa-sign":
+            print("%064X %064X" % h.ecdsa_assina(a.bloco, bytes.fromhex(a.digest)))
         elif a.cmd == "confere":
             return confere(h, bytes.fromhex(a.lmk), a.n)
     except HostErro as e:

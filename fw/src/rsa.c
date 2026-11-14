@@ -11,19 +11,9 @@
  */
 #include "rsa.h"
 #include "hsm_cfs.h"
+#include "bn.h"
+#include "mont.h"
 #include "wipe.h"
-
-#define J_REG(r) ((uint16_t)((r) << 7))
-#define J_MOD   0x400u
-
-/* Registradores do core. */
-#define R_BASE  0u
-#define R_ACC   1u
-#define R_R2    2u
-#define R_UM    3u
-#define R_X     4u
-#define R_Y     5u
-#define R_T     6u
 
 #define METADE  (RSA_BYTES / 2u)     /* 128 bytes: p, q, dp, dq, qinv */
 
@@ -33,142 +23,6 @@ static const uint8_t g_prefixo[19] = {
     0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20
 };
 
-/* -n^-1 mod 2^16, por Newton: cada passo dobra os bits certos. */
-static uint16_t n0_linha(uint16_t n0)
-{
-    uint32_t x = 1u;
-    unsigned i;
-
-    for (i = 0u; i < 4u; i++) {
-        x = (x * (2u - (uint32_t)n0 * x)) & 0xFFFFu;
-    }
-    return (uint16_t)(0u - x);
-}
-
-/* a < b, comparando big-endian. So sobre dados publicos. */
-static int menor(const uint8_t *a, const uint8_t *b, uint32_t n)
-{
-    uint32_t i;
-
-    for (i = 0u; i < n; i++) {
-        if (a[i] != b[i]) {
-            return (a[i] < b[i]) ? 1 : 0;
-        }
-    }
-    return 0;
-}
-
-/* x = x - y, big-endian; devolve o emprestimo final (0 ou 1). Sem desvio
- * pelo valor: serve tambem para segredos. */
-static uint32_t subtrai(uint8_t *x, const uint8_t *y, uint32_t n)
-{
-    uint32_t i, emprestimo = 0u, d;
-
-    for (i = n; i > 0u; i--) {
-        d = (uint32_t)x[i - 1u] - y[i - 1u] - emprestimo;
-        x[i - 1u] = (uint8_t)d;
-        emprestimo = (d >> 8) & 1u;
-    }
-    return emprestimo;
-}
-
-/* x = x + y, big-endian; devolve o vai-um final. */
-static uint32_t soma(uint8_t *x, const uint8_t *y, uint32_t n)
-{
-    uint32_t i, vai = 0u, d;
-
-    for (i = n; i > 0u; i--) {
-        d = (uint32_t)x[i - 1u] + y[i - 1u] + vai;
-        x[i - 1u] = (uint8_t)d;
-        vai = d >> 8;
-    }
-    return vai;
-}
-
-/* a = (a + b) mod m, com a, b < m. Tempo constante: calcula a + b - m
- * sempre e escolhe por mascara. `t` e rascunho de n bytes. */
-static void soma_mod(uint8_t *a, const uint8_t *b, const uint8_t *m,
-                     uint8_t *t, uint32_t n)
-{
-    uint32_t i, vai, emp, fica;
-    uint8_t  mascara;
-
-    vai = soma(a, b, n);
-    for (i = 0u; i < n; i++) {
-        t[i] = a[i];
-    }
-    emp = subtrai(t, m, n);
-    /* Fica com a soma (sem subtrair) se ela era menor que m: emprestimo
-     * sem vai-um. */
-    fica    = emp & (vai ^ 1u);
-    mascara = (uint8_t)(0u - fica);
-    for (i = 0u; i < n; i++) {
-        a[i] = (uint8_t)((a[i] & mascara) | (t[i] & (uint8_t)~mascara));
-    }
-}
-
-/* a = (a - b) mod m, com a, b < m. Tempo constante. */
-static void subtrai_mod(uint8_t *a, const uint8_t *b, const uint8_t *m,
-                        uint8_t *t, uint32_t n)
-{
-    uint32_t i, emp;
-    uint8_t  mascara;
-
-    emp = subtrai(a, b, n);
-    for (i = 0u; i < n; i++) {
-        t[i] = a[i];
-    }
-    (void)soma(t, m, n);
-    mascara = (uint8_t)(0u - emp);
-    for (i = 0u; i < n; i++) {
-        a[i] = (uint8_t)((t[i] & mascara) | (a[i] & (uint8_t)~mascara));
-    }
-}
-
-/* Programa o modulo m (n bytes, bit alto ligado, impar) e deixa R^2 mod m
- * em R_R2 e 1 em R_UM. R = 2^(8n). `x` e rascunho de n bytes.
- *
- * R^2 sai de 2R mod m com k quadrados, onde 2^k = 8n: cada produto de
- * Montgomery dobra o expoente de 2. */
-static int prepara_modulo(const uint8_t *m, uint32_t n, uint8_t *x)
-{
-    uint32_t i, k, limbs = n / 2u, vai;
-
-    hsm_cfs_rsa_n0p(n0_linha((uint16_t)(((uint16_t)m[n - 2u] << 8) | m[n - 1u])));
-    hsm_cfs_rsa_escreve(J_MOD, m, limbs);
-
-    /* 2R mod m. Como m tem o bit alto ligado, R - m < m. */
-    for (i = 0u; i < n; i++) {
-        x[i] = 0u;
-    }
-    (void)subtrai(x, m, n);                  /* 0 - m = R - m */
-    vai = 0u;
-    for (i = n; i > 0u; i--) {
-        uint32_t d = ((uint32_t)x[i - 1u] << 1) | vai;
-        x[i - 1u] = (uint8_t)d;
-        vai = d >> 8;
-    }
-    /* Dado publico ou nao, o desvio aqui depende so de m, que no caso
-     * secreto (p ou q) e o mesmo a cada assinatura. */
-    if ((vai != 0u) || !menor(x, m, n)) {
-        (void)subtrai(x, m, n);
-    }
-    hsm_cfs_rsa_escreve(J_REG(R_R2), x, limbs);
-
-    for (k = 0u; (1u << k) < 8u * n; k++) {
-        if (hsm_cfs_rsa_mont(R_R2, R_R2, R_R2, limbs) != 0) {
-            return -1;
-        }
-    }
-
-    for (i = 0u; i < n; i++) {
-        x[i] = 0u;
-    }
-    x[n - 1u] = 1u;
-    hsm_cfs_rsa_escreve(J_REG(R_UM), x, limbs);
-    return 0;
-}
-
 int rsa_publica(const uint8_t n[RSA_BYTES], uint32_t e,
                 const uint8_t s[RSA_BYTES], uint8_t out[RSA_BYTES])
 {
@@ -176,10 +30,10 @@ int rsa_publica(const uint8_t n[RSA_BYTES], uint32_t e,
     int b;
 
     if (((n[0] & 0x80u) == 0u) || ((n[RSA_BYTES - 1u] & 1u) == 0u) ||
-        ((e & 1u) == 0u) || (e < 3u) || !menor(s, n, RSA_BYTES)) {
+        ((e & 1u) == 0u) || (e < 3u) || !bn_menor(s, n, RSA_BYTES)) {
         return -1;
     }
-    if (prepara_modulo(n, RSA_BYTES, out) != 0) {
+    if (mont_prepara(n, RSA_BYTES, out) != 0) {
         return -1;
     }
     hsm_cfs_rsa_escreve(J_REG(R_BASE), s, limbs);
@@ -191,7 +45,7 @@ int rsa_publica(const uint8_t n[RSA_BYTES], uint32_t e,
     }
 
     /* e e publico: pode desviar por bit. A operacao privada nao pode --
-     * ver escada() abaixo. */
+     * ver mont_escada() abaixo. */
     b = 31;
     while (((e >> b) & 1u) == 0u) {
         b--;
@@ -258,42 +112,6 @@ int rsa_verifica(const uint8_t n[RSA_BYTES], uint32_t e,
  * Operacao privada
  * ------------------------------------------------------------------- */
 
-/* Escada de Montgomery: R_X = base^d, tudo na representacao de
- * Montgomery. A base esta em R_BASE; R_UM ja tem 1 e R_R2, R^2.
- *
- * TEMPO CONSTANTE. Todo bit, 0 ou 1, custa exatamente um produto e um
- * quadrado, e d e percorrido inteiro, zeros a esquerda inclusive. O bit
- * so escolhe QUAIS registradores entram no comando, por mascara -- e o
- * core leva o mesmo numero de ciclos qualquer que seja o registrador. */
-static int escada(const uint8_t *d, uint32_t n)
-{
-    uint32_t limbs = n / 2u, i, bit;
-    unsigned produto, quadrado;
-    int      b;
-
-    /* R_X = 1 em Montgomery (= R mod m), R_Y = base em Montgomery. */
-    if ((hsm_cfs_rsa_mont(R_X, R_UM, R_R2, limbs) != 0) ||
-        (hsm_cfs_rsa_mont(R_Y, R_BASE, R_R2, limbs) != 0)) {
-        return -1;
-    }
-
-    for (i = 0u; i < n; i++) {
-        for (b = 7; b >= 0; b--) {
-            bit = ((uint32_t)d[i] >> b) & 1u;
-            /* bit 0: Y = X*Y, X = X^2.   bit 1: X = X*Y, Y = Y^2.
-             * O quadrado le o valor ANTIGO do seu registrador, que o
-             * produto nao tocou. */
-            produto  = (unsigned)((R_X & (0u - bit)) | (R_Y & (bit - 1u)));
-            quadrado = (unsigned)((R_Y & (0u - bit)) | (R_X & (bit - 1u)));
-            if ((hsm_cfs_rsa_mont(produto, R_X, R_Y, limbs) != 0) ||
-                (hsm_cfs_rsa_mont(quadrado, quadrado, quadrado, limbs) != 0)) {
-                return -1;
-            }
-        }
-    }
-    return 0;
-}
-
 /* Rascunho da operacao privada. Estatico para nao pesar na pilha;
  * apagado no fim de toda assinatura.
  *
@@ -350,7 +168,7 @@ static int metade(const uint8_t *m, const uint8_t *d, uint8_t s[METADE], int mon
 {
     const uint32_t limbs = METADE / 2u;
 
-    if (prepara_modulo(m, METADE, g_t) != 0) {
+    if (mont_prepara(m, METADE, g_t) != 0) {
         return -1;
     }
     /* R_T = R^3 = Mont(R^2, R^2). */
@@ -363,12 +181,12 @@ static int metade(const uint8_t *m, const uint8_t *d, uint8_t s[METADE], int mon
     }
     hsm_cfs_rsa_le(J_REG(R_BASE), g_a, limbs);
     hsm_cfs_rsa_le(J_REG(R_ACC), g_b, limbs);
-    soma_mod(g_a, g_b, m, g_t, METADE);          /* em*R mod m */
+    bn_soma_mod(g_a, g_b, m, g_t, METADE);          /* em*R mod m */
 
     /* A escada quer a base em forma normal: tira o R com um produto por 1. */
     hsm_cfs_rsa_escreve(J_REG(R_BASE), g_a, limbs);
     if ((hsm_cfs_rsa_mont(R_BASE, R_BASE, R_UM, limbs) != 0) ||
-        (escada(d, METADE) != 0)) {
+        (mont_escada(d, METADE) != 0)) {
         return -1;
     }
     if (!mont) {
@@ -425,7 +243,7 @@ int rsa_crt_assina(const uint8_t chave[RSA_CHAVE_PRIV],
 
     /* h = qinv * (sp - sq) mod p. O produto de Montgomery de (sp - sq)~
      * por qinv em forma normal ja da h em forma normal. */
-    subtrai_mod(g_b, g_a, p, g_t, METADE);
+    bn_subtrai_mod(g_b, g_a, p, g_t, METADE);
     hsm_cfs_rsa_escreve(J_REG(R_BASE), g_b, limbs);
     hsm_cfs_rsa_escreve(J_REG(R_ACC), qinv, limbs);
     if (hsm_cfs_rsa_mont(R_T, R_BASE, R_ACC, limbs) != 0) {
@@ -439,7 +257,7 @@ int rsa_crt_assina(const uint8_t chave[RSA_CHAVE_PRIV],
         (produto_inteiro(p, q, g_n) != 0)) {
         goto fim;
     }
-    if (soma(&g_em[METADE], g_sq, METADE) != 0u) {
+    if (bn_soma(&g_em[METADE], g_sq, METADE) != 0u) {
         for (i = METADE; i > 0u; i--) {
             g_em[i - 1u] = (uint8_t)(g_em[i - 1u] + 1u);
             if (g_em[i - 1u] != 0u) {
@@ -503,18 +321,6 @@ static uint32_t mod_pequeno(const uint8_t *x, uint32_t n, uint32_t k)
     return r;
 }
 
-/* Iguais, comparando tudo (sem sair cedo). */
-static int iguais(const uint8_t *a, const uint8_t *b, uint32_t n)
-{
-    uint32_t i;
-    uint8_t  d = 0u;
-
-    for (i = 0u; i < n; i++) {
-        d |= (uint8_t)(a[i] ^ b[i]);
-    }
-    return d == 0u;
-}
-
 /* Miller-Rabin, FIPS 186-5 B.3.1, sobre w de 1024 bits com o bit alto
  * ligado. 1 = provavelmente primo, 0 = composto, -1 = falha. Usa g_a (base
  * e z), g_b (m), g_sq (1 em Montgomery) e g_n (w - 1 em Montgomery). */
@@ -524,7 +330,7 @@ static int miller_rabin(const uint8_t w[METADE])
     uint8_t  *um = g_sq, *menos_um = g_n;
     uint32_t  a = 0u, i, j, rodada;
 
-    if (prepara_modulo(w, METADE, g_t) != 0) {
+    if (mont_prepara(w, METADE, g_t) != 0) {
         return -1;
     }
     /* 1 e w - 1 na representacao de Montgomery: R mod w, e w - (R mod w). */
@@ -535,7 +341,7 @@ static int miller_rabin(const uint8_t w[METADE])
     for (i = 0u; i < METADE; i++) {
         menos_um[i] = w[i];
     }
-    (void)subtrai(menos_um, um, METADE);
+    (void)bn_subtrai(menos_um, um, METADE);
 
     /* w - 1 = 2^a * m. w e impar: basta zerar o bit baixo e deslocar. */
     for (i = 0u; i < METADE; i++) {
@@ -570,18 +376,18 @@ static int miller_rabin(const uint8_t w[METADE])
                 alto |= g_a[i];
             }
             alto |= (uint8_t)(g_a[METADE - 1u] & 0xFEu);
-            if ((alto != 0u) && menor(g_a, g_t, METADE)) {
+            if ((alto != 0u) && bn_menor(g_a, g_t, METADE)) {
                 break;
             }
         }
         hsm_cfs_rsa_escreve(J_REG(R_BASE), g_a, limbs);
 
         /* z = b^m mod w, em Montgomery, em R_X. */
-        if (escada(g_b, METADE) != 0) {
+        if (mont_escada(g_b, METADE) != 0) {
             return -1;
         }
         hsm_cfs_rsa_le(J_REG(R_X), g_a, limbs);
-        if (iguais(g_a, um, METADE) || iguais(g_a, menos_um, METADE)) {
+        if (bn_iguais(g_a, um, METADE) || bn_iguais(g_a, menos_um, METADE)) {
             continue;
         }
         for (j = 1u; j < a; j++) {
@@ -589,10 +395,10 @@ static int miller_rabin(const uint8_t w[METADE])
                 return -1;
             }
             hsm_cfs_rsa_le(J_REG(R_X), g_a, limbs);
-            if (iguais(g_a, menos_um, METADE)) {
+            if (bn_iguais(g_a, menos_um, METADE)) {
                 break;
             }
-            if (iguais(g_a, um, METADE)) {
+            if (bn_iguais(g_a, um, METADE)) {
                 return 0;
             }
         }
@@ -623,11 +429,11 @@ static int primo(uint8_t p[METADE], const uint8_t *outro, uint32_t e,
             for (k = 0u; k < METADE; k++) {
                 g_t[k] = p[k];
             }
-            if (subtrai(g_t, outro, METADE) != 0u) {
+            if (bn_subtrai(g_t, outro, METADE) != 0u) {
                 for (k = 0u; k < METADE; k++) {
                     g_t[k] = outro[k];
                 }
-                (void)subtrai(g_t, p, METADE);
+                (void)bn_subtrai(g_t, p, METADE);
             }
             for (k = 0u; k < 12u; k++) {
                 acc |= g_t[k];
@@ -751,7 +557,7 @@ int rsa_gera(uint8_t chave[RSA_CHAVE_PRIV], uint8_t n[RSA_BYTES])
 
     /* qinv = q^(p-2) mod p, pelo pequeno teorema de Fermat: tambem na
      * escada, porque p e segredo. */
-    if (prepara_modulo(p, METADE, g_t) != 0) {
+    if (mont_prepara(p, METADE, g_t) != 0) {
         goto fim;
     }
     for (i = 0u; i < METADE; i++) {
@@ -759,9 +565,9 @@ int rsa_gera(uint8_t chave[RSA_CHAVE_PRIV], uint8_t n[RSA_BYTES])
         g_a[i] = 0u;
     }
     g_a[METADE - 1u] = 2u;
-    (void)subtrai(g_b, g_a, METADE);                       /* p - 2 */
+    (void)bn_subtrai(g_b, g_a, METADE);                       /* p - 2 */
     hsm_cfs_rsa_escreve(J_REG(R_BASE), q, limbs);
-    if ((escada(g_b, METADE) != 0) ||
+    if ((mont_escada(g_b, METADE) != 0) ||
         (hsm_cfs_rsa_mont(R_X, R_X, R_UM, limbs) != 0)) {
         goto fim;
     }

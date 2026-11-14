@@ -401,7 +401,64 @@ def rsa_vetor():
     if pow(int(v[2], 16), e, int(n, 16)) != int.from_bytes(em, "big"):
         raise SystemExit("SigGen15: vetor nao fecha")
     return {"n": bytes.fromhex(n), "e": e, "s": bytes.fromhex(v[2]),
-            "em": em, "digest": digest}
+            "em": em, "digest": digest,
+            "chave": rsa_chave_crt(int(n, 16), e,
+                                   int(re.search(r"^d = (\w+)", (VEC / "rsa" / "SigGen15_186-3.txt").read_text().split("[mod = 3072]")[0], re.M)[1], 16),
+                                   int.from_bytes(em, "big"), int(v[2], 16))}
+
+
+def rsa_chave_crt(n, e, d, em, s):
+    """A chave do vetor no layout do key block: e(4) p q dp dq qinv.
+
+    O arquivo do CAVP traz n, e e d, e a assinatura do firmware e por CRT,
+    que precisa de p e q. Eles saem de (n, e, d) pelo metodo classico: e*d - 1
+    e multiplo da ordem do grupo, e uma raiz quadrada nao trivial de 1 modulo n
+    entrega um fator. Nada aqui e escolhido: p*q tem de ser o n do vetor, e a
+    assinatura por CRT do EM tem de ser o S do vetor, ou o script para.
+    """
+    import math
+    k = e * d - 1
+    t = 0
+    while k % 2 == 0:
+        k //= 2
+        t += 1
+    p = None
+    for g in range(2, 200):
+        x = pow(g, k, n)
+        for _ in range(t):
+            y = x * x % n
+            if y == 1 and x not in (1, n - 1):
+                p = math.gcd(x - 1, n)
+                break
+            x = y
+        if p:
+            break
+    if not p:
+        raise SystemExit("SigGen15: nao fatorou n")
+    q = n // p
+    if p < q:
+        p, q = q, p
+    dp, dq, qinv = d % (p - 1), d % (q - 1), pow(q, -1, p)
+    sp, sq = pow(em, dp, p), pow(em, dq, q)
+    if p * q != n or (sq + q * ((qinv * (sp - sq)) % p)) != s:
+        raise SystemExit("SigGen15: a chave em CRT nao reproduz o vetor")
+    return e.to_bytes(4, "big") + b"".join(
+        v.to_bytes(128, "big") for v in (p, q, dp, dq, qinv))
+
+
+def ecdsa_vetor():
+    """Primeiro vetor [P-256,SHA-256] do SigGen.txt: d, Q, k, R, S e o digest
+    da mensagem. Serve ao KAT de assinatura (com k fixo) e ao de verificacao."""
+    texto = (VEC / "ecdsa" / "SigGen_P256.txt").read_text()
+    c = {}
+    for m in re.finditer(r"^(\w+) = (\w+)", texto, re.M):
+        if m[1] in c:
+            break
+        c[m[1]] = m[2]
+    b = lambda nome: bytes.fromhex(c[nome].zfill(64))
+    return {"d": b("d"), "q": b("Qx") + b("Qy"), "k": b("k"),
+            "rs": b("R") + b("S"),
+            "digest": hashlib.sha256(bytes.fromhex(c["Msg"])).digest()}
 
 
 def main():
@@ -412,6 +469,7 @@ def main():
     drbg = drbg_vetores()
     tr31 = tr31_vetor()
     rsa = rsa_vetor()
+    ec = ecdsa_vetor()
 
     L = []
     L.append("/* fw/include/kat_vectors.h -- GERADO, nao editar")
@@ -512,6 +570,17 @@ def main():
     L.append(carr("kat_rsa_n", rsa["n"]))
     L.append(carr("kat_rsa_s", rsa["s"]))
     L.append(carr("kat_rsa_digest", rsa["digest"]))
+    L.append("/* A chave do mesmo vetor, em CRT: p e q saem de n, e, d em")
+    L.append(" * scripts/mkkat.py. KAT de assinatura, no primeiro uso. */")
+    L.append(carr("kat_rsa_chave", rsa["chave"]))
+    L.append("")
+    L.append("/* ---- ECDSA P-256 com SHA-256, CAVP (FIPS 186-4), SigGen ---- */")
+    L.append(carr("kat_ec_d", ec["d"]))
+    L.append(carr("kat_ec_q", ec["q"]))
+    L.append(carr("kat_ec_k", ec["k"]))
+    L.append(carr("kat_ec_digest", ec["digest"]))
+    L.append(carr("kat_ec_rs", ec["rs"]))
+    L.append("")
     L.append(carr("kat_tr31_kbpk", tr31["kbpk"]))
     L.append(carr("kat_tr31_key", tr31["key"]))
     L.append(f"#define KAT_TR31_KEY_LEN {len(tr31['key'])}u")

@@ -35,10 +35,20 @@ sha256 72178527ce93500e730bc8eb182b857e583096d652b64ece0879c52ba1df973b
 [RSA PKCS#1 v1.5]  NIST CAVP — FIPS 186-3
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/dss/186-3rsatestvectors.zip
 sha256 8405aeb3572a4f98ed4b1a3ccb3f2f49e725462dd28ec4759d6a15d88855d19c
-extrai SigGen15_186-3.rsp, KeyGen_RandomProbablyPrime3_3.rsp,
+extrai SigGen15_186-3.rsp, SigGen15_186-3.txt (o mesmo, com o expoente
+       privado d), KeyGen_RandomProbablyPrime3_3.rsp,
        KeyGen_186-3_RandomProbablyPrime3_3_KAT.txt
 uso    fase 7 — exponenciação modular de 2048 bits (2026-11-06); chave
-       privada oficial para assinar e KAT de primalidade (2026-11-08).
+       privada oficial para assinar e KAT de primalidade (2026-11-08); KAT
+       de assinatura por CRT, com p e q tirados de n, e, d (2026-11-13).
+
+[ECDSA P-256]  NIST CAVP — FIPS 186-4
+url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/dss/186-4ecdsatestvectors.zip
+sha256 fe47cc92b4cee418236125c9ffbcd9bb01c8c34e74a4ba195d954bcb72824752
+extrai KeyPair.rsp, PKV.rsp, SigGen.txt, SigVer.rsp, FILTRADOS para as
+       seções [P-256] e [P-256,SHA-256] por scripts/_filtra_ecdsa.py (o zip
+       tem 15 curvas e 5 hashes). SigGen.txt é o que traz `d` e `k`.
+uso    fase 7 — ECDSA sobre a curva P-256. Baixado em 2026-11-13.
 
 [ANSI X9.143 / TR-31 versão D]  valor conhecido de TERCEIROS
 url    https://raw.githubusercontent.com/knovichikhin/psec/cb315e98d4399207f54da42282654d840fe3bb82/tests/test_tr31.py
@@ -86,12 +96,17 @@ dc0cb380169f43a83c4aff86eeb146d5861a7e0247908106f8b6fd37902e97f8  aes/CBCVarKey2
 0be3b50f6b3e28e34e16f72d1acbcea4e3c240d725a32b30917b9e560e8ef24e  aes/ECBVarTxt256.rsp
 b7bbc0e72324efa5155b33c525850e967abf4cea2a078089262bf628a96bc0ea  cmac/CMACGenAES256.rsp
 b1b12df719b72e48e2b5d576066733b78807f39f8d338f4d01492af10fb5ef74  drbg/CTR_DRBG_AES256.rsp
+4461384f5822b9a4074911f55ec4774610a654cc08df6e75ba69698b4dbfc329  ecdsa/KeyPair_P256.rsp
+026244bc43e1549fb4d6a4e2cc688eeb956a0074e10ea8801c3c350b3ee4adac  ecdsa/PKV_P256.rsp
+3b6f864b8826294f069dc7a73cc496d305203f381d65550aea278cce58588e96  ecdsa/SigGen_P256.txt
+7cbfdce9b2606a294f927e6a98193125e161bb8d38caa04cad00d2dd2f384afb  ecdsa/SigVer_P256.rsp
 72178527ce93500e730bc8eb182b857e583096d652b64ece0879c52ba1df973b  hmac/rfc4231.txt
 6fac36f37360bcf74ffcf4465c18e30d6d5a04cc90885b901fc3130c16060974  sha/SHA256LongMsg.rsp
 75e1cb83994638481808e225b9eb0c1ebd0c232d952ac42b61abce6363be283c  sha/SHA256ShortMsg.rsp
 f0e4a23c88630ab5f35cce8f6ad10b5ced08ae5745c4cccf652aa881a8046292  rsa/KeyGen_186-3_RandomProbablyPrime3_3_KAT.txt
 745abeb4706714f2477c74261c6d55f01bdcf47d5f23dfd3e32312af188ce5bb  rsa/KeyGen_RandomProbablyPrime3_3.rsp
 84eb2584488a1dd960f9c9fbe5366696b7ebe6f13bcfe287e4ee48333341c5ec  rsa/SigGen15_186-3.rsp
+19c49b8fc7102cc12476e215854cd228f1f8c0d316f0ea2df6c183f167e9724a  rsa/SigGen15_186-3.txt
 39d78f2653758bfbdc78e6188ddfda134097cd83198cfc9e0105f0684c8ef9ab  tr31/x9143_D_AES256.rsp
 
 # Conferir a qualquer momento:

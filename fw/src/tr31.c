@@ -150,6 +150,12 @@ static int cab_valido(const tr31_cab_t *cab, uint32_t chave_n)
                (cab->modo == (uint8_t)KS_MODO_ASSINA) &&
                (chave_n == TR31_RSA_CHAVE);
     }
+    if (cab->algoritmo == (uint8_t)KS_ALG_EC) {
+        /* Chave de ECDSA P-256: tambem so de assinatura. */
+        return (cab->uso[0] == (uint8_t)'S') && (cab->uso[1] == (uint8_t)'0') &&
+               (cab->modo == (uint8_t)KS_MODO_ASSINA) &&
+               (chave_n == TR31_EC_CHAVE);
+    }
     if (cab->algoritmo != (uint8_t)KS_ALG_AES) {
         /* 'T' e valido na norma e NAO neste hardware. Aceitar o byte
          * seria produzir um bloco que promete 3DES a quem for importar. */

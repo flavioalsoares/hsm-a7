@@ -91,8 +91,13 @@ localizados sem ganho de entropia.
 
 O **POST** (seção 11) roda antes de aceitar qualquer comando. Ele cobre
 AES-256, SHA-256, HMAC-SHA-256, CTR_DRBG, os testes de partida da fonte,
-CMAC-AES-256, o key store, o key block X9.143 e o RSA-2048 — todos contra
-vetores oficiais ou de procedência registrada.
+CMAC-AES-256, o key store, o key block X9.143 e a verificação RSA-2048 —
+todos contra vetores oficiais ou de procedência registrada.
+
+Dois autotestes ficam fora do boot, porque são lentos: o da assinatura RSA e
+o do ECDSA. Cada um roda **antes do primeiro uso** do algoritmo depois do
+boot. A FIPS 140-3 chama isso de autoteste condicional de algoritmo, e o
+permite. O que ela não permite é usar o algoritmo antes de testá-lo.
 
 Falha leva a `TAMPERED`, e o dispositivo passa a atender **só** ao
 `SELFTEST`, que é o único jeito de o operador saber *o que* reprovou em vez
@@ -499,14 +504,15 @@ obrigatório.
 
 ## 30. Fase 7 — assimétrico
 
-RSA-2048 primeiro, P-256 depois. O aprendizado de arquitetura de HSM está
+RSA-2048 e ECDSA sobre a curva P-256. O aprendizado de arquitetura de HSM está
 nas fases 3 a 5. Mas há um gancho direto com a seção 17.1 — implementar RSA-CRT sem verificar a assinatura antes de
 emitir é reproduzir o ataque Bellcore no próprio equipamento.
 
 O equipamento tem o RSA-2048 completo: um multiplicador modular no fabric, a
 exponenciação no firmware, a geração de chave, a assinatura por CRT em tempo
 constante, a verificação, o KAT no POST e três comandos na porta host — `R0`,
-`R2` e `R4`.
+`R2` e `R4`. Tem também o ECDSA P-256, sobre o mesmo multiplicador, com os
+comandos `E0`, `E2` e `E4`.
 As medidas e o estado de cada peça estão em `doc/fase7-notas.md`.
 
 ### Por que um HSM precisa de criptografia assimétrica
@@ -851,11 +857,389 @@ despachante a apaga no fim de todo comando, como faz com o slot efêmero.
 15.1), recusada como nas chaves simétricas. Um bloco adulterado responde `10`,
 o mesmo código de qualquer outro bloco inválido.
 
-### O que falta
+### Curvas elípticas: outro problema difícil
 
-- **P-256**, a curva elíptica, com o mesmo cuidado de tempo constante;
-- o KAT da assinatura no POST, que custaria cerca de 0,2 s a cada boot
-  (decisão pendente).
+O RSA apoia-se na fatoração. As curvas elípticas apoiam-se em outro problema,
+e ele permite chaves muito menores: uma chave de 256 bits numa curva tem a
+força de um RSA de 3072 bits.
+
+Uma curva elíptica, para este uso, é o conjunto dos pares `(x, y)` que
+satisfazem uma equação como
+
+```
+    y² = x³ + a·x + b        (contas módulo um primo p)
+```
+
+mais um ponto especial, o **ponto no infinito**, que faz o papel do zero.
+Os números `x` e `y` não são reais: são inteiros de `0` a `p − 1`, e toda
+conta termina com `mod p`. O desenho da curva como uma linha suave serve
+para entender a regra. O que o equipamento calcula é uma nuvem de pontos
+isolados.
+
+O nome engana. Uma curva elíptica não é uma elipse: o nome vem das integrais
+que medem o comprimento de arco da elipse, onde essas equações apareceram
+primeiro.
+
+### Somar pontos
+
+Os pontos da curva podem ser **somados**, e a soma de dois pontos da curva é
+outro ponto da curva. A regra é geométrica:
+
+1. Trace a reta que passa por `P` e por `Q`.
+2. A reta corta a curva em um terceiro ponto.
+3. Espelhe esse ponto no eixo `x`. O resultado é `P + Q`.
+
+Para somar um ponto a ele mesmo (**dobrar**), a reta é a tangente à curva
+naquele ponto. Escrita em fórmulas, a regra só usa somas, produtos e **uma
+divisão** módulo `p`:
+
+```
+    somar P + Q:      λ = (yQ − yP) / (xQ − xP)
+    dobrar P:         λ = (3·xP² + a) / (2·yP)
+
+    x = λ² − xP − xQ                (na dobra, xQ = xP)
+    y = λ·(xP − x) − yP
+```
+
+O `λ` é a inclinação da reta. Dividir módulo `p` é multiplicar pelo inverso:
+`1/14 mod 17 = 11`, porque `14 · 11 = 154 = 9·17 + 1`.
+
+Dois casos ficam fora das fórmulas:
+
+- O **oposto** de `P = (x, y)` é `−P = (x, −y)`. A reta por `P` e `−P` é
+  vertical e não corta a curva de novo. Por definição, `P + (−P)` é o ponto
+  no infinito.
+- O ponto no infinito é o zero: `P + 0 = P`.
+
+Com essas regras, os pontos formam um **grupo**: a soma é associativa, tem
+zero e todo ponto tem oposto. A ordem das parcelas não importa.
+
+### Uma curva de brinquedo
+
+A curva `y² = x³ − 3x + 3` módulo `17` tem 22 pontos, mais o ponto no
+infinito: 23 elementos. Parta de `G = (1, 1)` e some `G` repetidas vezes:
+
+```
+     1G = ( 1,  1)     7G = ( 4, 15)    13G = ( 8,  7)    19G = ( 3,  2)
+     2G = (15, 16)     8G = (13, 11)    14G = ( 7,  6)    20G = ( 9, 12)
+     3G = ( 9,  5)     9G = ( 7, 11)    15G = (13,  6)    21G = (15,  1)
+     4G = ( 3, 15)    10G = ( 8, 10)    16G = ( 4,  2)    22G = ( 1, 16)
+     5G = (11, 14)    11G = (10,  2)    17G = (14,  6)    23G = infinito
+     6G = (14, 11)    12G = (10, 15)    18G = (11,  3)
+```
+
+Uma soma, passo a passo: `3G = 2G + G`, com `2G = (15, 16)` e `G = (1, 1)`.
+
+```
+    λ = (1 − 16) / (1 − 15) = 15 / 14 = 15 · 11 mod 17 = 12
+    x = 12² − 15 − 1 = 128 mod 17 = 9
+    y = 12 · (15 − 9) − 16 = 56 mod 17 = 5            3G = (9, 5)
+```
+
+E uma dobra: `4G = 2 · (2G)`.
+
+```
+    λ = (3 · 15² − 3) / (2 · 16) = 9 / 15 = 9 · 8 mod 17 = 4
+    x = 4² − 15 − 15 = −14 mod 17 = 3
+    y = 4 · (15 − 3) − 16 = 32 mod 17 = 15            4G = (3, 15)
+```
+
+Três coisas aparecem na tabela:
+
+- **A sequência fecha.** `23G` é o ponto no infinito, e `24G` volta a `G`. O
+  número 23 é a **ordem** de `G`. Os múltiplos de `G` só dependem do
+  multiplicador módulo 23. É por isso que as contas de ECDSA com escalares
+  são feitas módulo a ordem, e não módulo `p`.
+- **A tabela é simétrica.** `22G = (1, 16)` é o oposto de `G = (1, 1)`,
+  porque `16 = −1 mod 17`. Em geral, `(23 − k)·G = −(k·G)`.
+- **Não há padrão.** `5G` não fica perto de `4G`. Dado o ponto `(8, 7)`, a
+  única forma de achar o `13` é procurar.
+
+### O problema difícil: o logaritmo discreto
+
+Calcular `k · P` é fácil. Lê-se `k` bit a bit, dobra-se sempre e soma-se
+conforme o bit, como na exponenciação. É a **multiplicação de ponto**, a
+operação cara da curva. Para um `k` de 256 bits são 256 dobras e cerca de
+128 somas.
+
+O inverso é o problema difícil: dados `P` e `Q = k · P`, achar `k`. É o
+**logaritmo discreto** na curva. Na curva de brinquedo, 22 tentativas
+resolvem. Numa curva com cerca de `2²⁵⁶` pontos, o melhor método conhecido
+(o rô de Pollard) custa cerca de `2¹²⁸` operações. É a raiz quadrada do
+número de pontos, e não há atalho conhecido.
+
+A correspondência com o RSA é direta. Só muda a notação:
+
+| No RSA | Na curva |
+|---|---|
+| multiplicar dois números módulo `n` | somar dois pontos |
+| elevar ao quadrado | dobrar |
+| `m^d mod n` (exponenciação) | `k · P` (multiplicação de ponto) |
+| *square-and-multiply* | dobrar e somar |
+| achar o expoente: logaritmo discreto | achar o escalar: logaritmo discreto |
+
+### Por que a chave da curva é menor
+
+A diferença está no melhor ataque conhecido contra cada problema.
+
+Contra a fatoração existe o **crivo do corpo de números**, um método
+subexponencial. Ele explora a estrutura dos inteiros: números pequenos,
+fatores pequenos, relações entre eles. Cada bit a mais no módulo dá pouco
+trabalho a mais ao atacante. Para compensar, o módulo tem de crescer muito.
+
+Os pontos de uma curva bem escolhida não têm essa estrutura. Não existe
+"ponto pequeno" nem "ponto primo". Só sobram os ataques genéricos, que
+servem para qualquer grupo e custam a raiz quadrada da ordem. Cada dois bits
+a mais na chave dobram o trabalho do atacante.
+
+A SP 800-57 do NIST dá a equivalência:
+
+| Força de segurança | Simétrica | RSA (módulo) | Curva (ordem) |
+|---|---|---|---|
+| 112 bits | 3DES de três chaves | 2048 | 224 |
+| 128 bits | AES-128 | 3072 | 256 |
+| 192 bits | AES-192 | 7680 | 384 |
+| 256 bits | AES-256 | 15360 | 512 |
+
+A P-256 é mais forte que o RSA-2048 deste equipamento, com uma chave oito
+vezes menor. E a distância cresce: dobrar a força da curva custa dobrar a
+chave, e dobrar a força do RSA custa multiplicar o módulo por cinco.
+
+⚠ **Nenhum dos dois resiste a um computador quântico grande.** O algoritmo
+de Shor resolve a fatoração e o logaritmo discreto. A chave menor da curva
+não é defesa contra isso.
+
+### A curva P-256
+
+Uma curva é definida por um conjunto de números públicos, os **parâmetros
+de domínio**. Todos os usuários da curva usam os mesmos. A **P-256** é uma
+das curvas do NIST (FIPS 186, SP 800-186). Outras normas dão a ela os nomes
+`secp256r1` e `prime256v1`. Os parâmetros:
+
+- **O primo `p`**, de 256 bits, que define o corpo das coordenadas:
+  `p = 2²⁵⁶ − 2²²⁴ + 2¹⁹² + 2⁹⁶ − 1`. A forma não é acaso. Um primo feito de
+  poucas potências de dois permite reduzir módulo `p` só com somas e
+  subtrações de palavras de 32 bits, o que acelera o software. Este
+  equipamento não usa esse atalho: o produto de Montgomery do coprocessador
+  serve para qualquer módulo ímpar, e já estava pronto.
+- **Os coeficientes `a` e `b`.** `a = −3`, um valor que economiza produtos
+  na fórmula da dobra. `b` é um número de 256 bits que saiu de um hash
+  (SHA-1) de uma semente publicada. A ideia é mostrar que ninguém escolheu
+  `b` para criar uma curva fraca. A norma não explica de onde veio a
+  semente, e essa é a crítica conhecida às curvas do NIST. Não se conhece
+  fraqueza na P-256.
+- **O ponto base `G`**, de onde saem todas as chaves públicas.
+- **A ordem `n`** de `G`: o menor número com `n · G` igual ao ponto no
+  infinito. É o `23` da curva de brinquedo. Na P-256, `n` é um primo de
+  256 bits, um pouco menor que `p`.
+- **O cofator `h = 1`.** O número de pontos da curva é `h · n`. Com `h = 1`,
+  todo ponto da curva, menos o infinito, é múltiplo de `G` e tem ordem `n`.
+  Curvas com cofator maior têm pontos de ordem pequena, e quem os aceita
+  sem conferir vaza bits da chave. Na P-256, conferir que o ponto está na
+  curva basta.
+
+O número de pontos fica sempre perto de `p`: o teorema de Hasse garante a
+distância máxima de `2·√p`. Por isso `n` e `p` têm o mesmo tamanho, e por
+isso são dois números diferentes, com dois papéis diferentes:
+
+- **módulo `p`** fazem-se as contas com **coordenadas** (somar e dobrar
+  pontos);
+- **módulo `n`** fazem-se as contas com **escalares** (a chave privada, o
+  `k`, o `s` da assinatura).
+
+Trocar um pelo outro é o erro clássico de quem implementa. O firmware
+carrega um ou outro no coprocessador conforme a conta.
+
+A chave:
+
+```
+    chave privada:  d, um número de 1 a n − 1, sorteado
+    chave pública:  Q = d · G, um ponto da curva
+```
+
+Gerar a chave custa **uma** multiplicação de ponto. Não há busca de primos:
+qualquer número de `1` a `n − 1` é uma chave privada válida. O `d` sai do
+DRBG por rejeição: sorteiam-se 256 bits, e um valor fora da faixa é
+descartado e sorteado de novo. Reduzir o valor com `mod n` seria mais
+simples, mas favoreceria os números baixos.
+
+### ECDSA: a assinatura
+
+O ECDSA (*Elliptic Curve Digital Signature Algorithm*, FIPS 186-5) é a
+versão em curva do DSA. Para assinar um hash `e`, com a chave privada `d`:
+
+```
+    sorteia k, de 1 a n − 1              (o número secreto DESTA assinatura)
+    R = k · G
+    r = (coordenada x de R) mod n
+    s = k⁻¹ · (e + r · d) mod n
+    a assinatura é o par (r, s)
+```
+
+Para verificar, com a chave pública `Q`:
+
+```
+    u1 = e · s⁻¹ mod n
+    u2 = r · s⁻¹ mod n
+    R' = u1 · G + u2 · Q
+    confere se (coordenada x de R') mod n == r
+```
+
+Funciona porque `Q = d · G`, e então
+`u1 · G + u2 · Q = (e + r · d) · s⁻¹ · G = k · G`. Quem verifica refaz o
+ponto `R` sem conhecer `k` nem `d`.
+
+O papel de cada peça:
+
+- **`r`** compromete o assinante com o ponto `R`, sem revelar `k`. Tirar
+  `k` de `R` é o logaritmo discreto.
+- **`s`** amarra o hash, o `r` e a chave privada numa equação só. Sem `d`,
+  ninguém acha um `s` que feche a conta.
+- **`k⁻¹`** é um inverso módulo `n`. Como `n` é primo, o pequeno teorema de
+  Fermat dá o inverso com uma exponenciação: `k⁻¹ = k^(n−2) mod n`. Ela
+  roda na mesma escada do RSA, porque `k` é segredo.
+- **O hash** tem 256 bits, o mesmo tamanho de `n`, e entra inteiro. Com um
+  hash mais longo que `n`, a norma manda usar só os bits da esquerda.
+
+Com a curva de brinquedo (`n = 23`): chave privada `d = 7`, chave pública
+`Q = 7G = (4, 15)`, hash `e = 5` e `k = 10`.
+
+```
+    assinar:    R  = 10G = (8, 10)           r = 8
+                k⁻¹ = 7                      (10 · 7 = 70 = 3·23 + 1)
+                s  = 7 · (5 + 8·7) mod 23 = 13
+                assinatura: (8, 13)
+
+    verificar:  s⁻¹ = 16                     (13 · 16 = 208 = 9·23 + 1)
+                u1 = 5 · 16 mod 23 = 11      u2 = 8 · 16 mod 23 = 13
+                11G = (10, 2)                13Q = (1, 16)
+                R' = (10, 2) + (1, 16) = (8, 10)
+                x de R' = 8 = r              confere
+```
+
+⚠ **O `k` é tão secreto quanto a chave, e não pode se repetir.** Duas
+assinaturas com o mesmo `k` têm o mesmo `r`, e delas sai `d` com uma
+subtração e uma divisão:
+
+```
+    k = (e1 − e2) / (s1 − s2)        d = (s1 · k − e1) / r
+```
+
+Na curva de brinquedo: assine o hash `12` com o mesmo `k = 10`. A
+assinatura é `(8, 16)`, com o mesmo `r = 8`. Quem vê as duas calcula
+`k = (5 − 12) / (13 − 16) = 10` e `d = (13 · 10 − 5) / 8 = 7`, tudo
+módulo 23. A chave privada saiu de duas assinaturas e quatro contas.
+
+Foi assim que a chave de assinatura de um console de videogame foi
+recuperada em 2010: o `k` era constante. E não precisa repetir: conhecer
+alguns bits de `k` em várias assinaturas já basta (ataques de reticulado).
+Por isso o `k` deste equipamento sai do DRBG a cada assinatura, por
+rejeição, e a multiplicação `k · G` tem tempo constante.
+
+Existe uma variante que calcula `k` a partir da chave e do hash, sem
+sorteio (ECDSA determinístico, RFC 6979). A FIPS 186-5 aceita as duas. Este
+equipamento usa o sorteio: ele tem um gerador aprovado dentro da fronteira.
+
+⚠ **A assinatura não é determinística.** Assinar o mesmo hash duas vezes dá
+duas assinaturas diferentes, as duas válidas. Um teste não pode comparar a
+assinatura com um valor esperado, como no RSA. Ele a confere pela
+verificação. O autoteste do equipamento usa um `k` fixo do vetor oficial,
+por uma entrada que nenhum comando alcança.
+
+⚠ **Para cada assinatura válida existe outra.** Se `(r, s)` confere,
+`(r, n − s)` também confere, sobre o mesmo hash. Quem usa a assinatura como
+identificador único de uma mensagem tem de saber disso. O equipamento aceita
+as duas formas, como a norma manda.
+
+### RSA e ECDSA, lado a lado
+
+| | RSA-2048 | ECDSA P-256 |
+|---|---|---|
+| Problema difícil | fatorar `n = p · q` | logaritmo discreto na curva |
+| Força de segurança | 112 bits | 128 bits |
+| Chave privada | dois primos de 1024 bits | um número de 256 bits |
+| Chave pública | `n` e `e`: 256 bytes e mais um pouco | um ponto: 64 bytes |
+| Assinatura | 256 bytes | 64 bytes |
+| Gerar a chave | procurar dois primos: lento, tempo variável | uma multiplicação de ponto |
+| Assinar | caro (duas exponenciações de 1024 bits) | uma multiplicação de ponto |
+| Verificar | barato (`e` pequeno) | duas multiplicações de ponto: mais caro que assinar |
+| Sorteio na assinatura | nenhum (PKCS#1 v1.5) | um `k` novo por assinatura |
+| Mesma mensagem, duas vezes | mesma assinatura | assinaturas diferentes |
+| Parâmetros | cada chave tem o seu módulo | todos usam a mesma curva |
+| Erro que entrega a chave | falha numa metade do CRT (Bellcore) | `k` repetido, previsível ou vazado |
+| Enchimento | obrigatório, e fonte de ataques | não existe |
+
+Duas linhas merecem atenção num HSM:
+
+- **A qualidade do sorteio.** No RSA, o gerador aleatório só importa quando
+  a chave nasce. No ECDSA, ele importa em **toda** assinatura. Um gerador
+  que falha depois de a chave existir não compromete a chave RSA, e
+  compromete a chave ECDSA na primeira assinatura. Os testes contínuos da
+  fonte de entropia (seção 25) pesam mais aqui.
+- **O custo de verificar.** Um terminal que só verifica assinaturas trabalha
+  menos com RSA. Um equipamento que assina muito trabalha menos com ECDSA.
+
+O que os dois têm em comum, neste equipamento: a operação privada roda em
+tempo constante, a assinatura é verificada antes de sair, e a chave privada
+só existe fora da fronteira como key block sob a LMK.
+
+### A multiplicação de ponto, sem vazar o escalar
+
+O método de dobrar e somar tem o defeito do *square-and-multiply*: um bit 1
+custa uma soma a mais. Com `k` ou `d` no escalar, o tempo entrega o segredo.
+
+O equipamento usa a **escada de Montgomery** também aqui. Ela mantém dois
+pontos, `R0` e `R1`, sempre com `R1 = R0 + P`, e a cada bit faz uma soma e
+uma dobra, quaisquer que sejam os bits. O bit decide só qual dos dois pontos
+recebe cada resultado.
+
+Há um custo escondido na soma de pontos: a **divisão** módulo `p`. Dividir é
+calcular um inverso, que custa centenas de produtos. A saída é a de sempre:
+trocar a representação. Em vez de `(x, y)`, guarda-se `(X, Y, Z)`, com
+`x = X/Z²` e `y = Y/Z³`. Nessa forma, somar e dobrar não dividem, e um único
+inverso no fim devolve `(x, y)`. A escada deste equipamento usa uma variante
+em que os dois pontos têm sempre o mesmo `Z`, e ele nem precisa ser guardado.
+
+Cada bit do escalar custa 14 produtos modulares de 256 bits, e uma
+multiplicação de ponto, cerca de 4 000. Todos vão para o mesmo coprocessador
+do RSA, com o tamanho ajustado para 256 bits. As somas e subtrações ficam em
+C, escritas sem desvio pelo valor.
+
+⚠ **As fórmulas têm casos de exceção, e quem ataca os procura.** A soma de
+dois pontos iguais é uma dobra, com outra fórmula. A soma de um ponto com o
+seu oposto é o ponto no infinito, que `(x, y)` não representa. Na
+assinatura, esses casos têm chance desprezível. Na verificação, quem monta a
+assinatura escolhe `u1` e `u2`, e consegue produzi-los. O firmware trata
+cada um deles de forma explícita.
+
+⚠ **A chave pública que chega é conferida.** O `E4` recebe `Q` do host, e um
+`Q` fora da curva leva as contas para outra curva, mais fraca. Antes de
+qualquer conta, o firmware confere que as coordenadas são menores que `p` e
+que o ponto satisfaz a equação.
+
+### A chave de curva elíptica no key block, e os comandos
+
+A chave privada sai como key block X9.143 sob a LMK, como a do RSA. O
+cabeçalho usa uso `S0`, algoritmo `E` (curva elíptica) e modo `S`. O conteúdo
+é um layout deste projeto: `d`, `Qx` e `Qy`, 32 bytes cada. A chave pública
+vai junto, para o dispositivo verificar a própria assinatura antes de
+entregá-la.
+
+| Pedido | Resposta | Entrada | Saída |
+|---|---|---|---|
+| `E0` gerar par | `E1` | exportabilidade(1) | key block · Qx(64) · Qy(64) |
+| `E2` assinar | `E3` | key block · digest(64) | r(64) · s(64) |
+| `E4` verificar | `E5` | Qx(64) · Qy(64) · digest(64) · r(64) · s(64) | — |
+
+As regras são as do RSA. A assinatura é verificada antes de sair. O `E4`
+verifica duas vezes e devolve um bit. Um key block RSA no `E2`, ou um de
+ECDSA no `R2`, responde `11`: é confusão de tipo de chave.
+
+### O que o equipamento não faz
+
+- **Acordo de chave (ECDH).** Sobre a curva, o equipamento só assina e
+  verifica.
+- **Cifrar com RSA.** A chave RSA só assina.
 
 ## 31. Fase 8 — criptografia de pagamento
 
