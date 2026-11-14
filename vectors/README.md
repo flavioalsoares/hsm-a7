@@ -22,6 +22,8 @@ oficiais, com hash registrado em `MANIFEST.txt`.
 | `rsa/` | NIST CAVP (FIPS 186-3) | RSA-2048 PKCS#1 v1.5, chaves e primalidade |
 | `ecdsa/` | NIST CAVP (FIPS 186-4) | ECDSA P-256 com SHA-256: par de chaves, validação de chave pública, assinar e verificar |
 | `tr31/` | terceiros (ver `MANIFEST.txt`) | key block X9.143 versão D |
+| `pinblock/` | terceiros (ver `MANIFEST.txt`) | PIN block ISO 9564-1 formato 4 |
+| `tdes/` | NIST CAVP | DES e 3DES, modos ECB e CBC: KATs da SP 800-20 e MMT |
 
 ### Os quatro tipos de vetor do AESAVS
 

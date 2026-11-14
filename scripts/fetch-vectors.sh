@@ -60,6 +60,20 @@ ECDSA_SHA="fe47cc92b4cee418236125c9ffbcd9bb01c8c34e74a4ba195d954bcb72824752"
 TR31_URL="https://raw.githubusercontent.com/knovichikhin/psec/cb315e98d4399207f54da42282654d840fe3bb82/tests/test_tr31.py"
 TR31_SHA="e1f42adaed9e2335dc837ba3278310bec0e9a9b2238ec7b38c87c0516addf491"
 
+# TDES (3DES): os KATs da SP 800-20 e os testes de varias mensagens (MMT),
+# do CAVP. Entram na fase 8. Nos KATs as tres chaves sao iguais (KEYs), e o
+# que se testa e o DES; os MMT2 tem duas chaves e os MMT3, tres.
+TDES_KAT_URL="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/des/KAT_TDES.zip"
+TDES_KAT_SHA="19d8841f84ae3415350b069a4768bd416c05a0533ee43e905ab099adb8ccb374"
+TDES_MMT_URL="https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/des/tdesmmt.zip"
+TDES_MMT_SHA="04db93728ebf994330b0ba4555d397f8f03c29fd8547d9d586219fabe00e8c78"
+
+# PIN block ISO 9564-1 formato 4: a norma e paga, e nao ha vetor oficial
+# publico. Valores do arquivo de testes da mesma biblioteca, fixados por
+# commit e por hash. Fonte secundaria, como a do key block.
+PIN_URL="https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_pinblock.py"
+PIN_SHA="6d1880ab9cfdee975452de6905c5172465ee5ea89a528450dfb3e88b1685667e"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -98,7 +112,7 @@ fetch() {
     fi
 }
 
-mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa}
+mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa,pinblock,tdes}
 
 echo "=== baixando"
 fetch "$AES_URL"  "$AES_SHA"  "$TMP/KAT_AES.zip"
@@ -107,6 +121,9 @@ fetch "$HMAC_URL" "$HMAC_SHA" "$TMP/rfc4231.txt"
 fetch "$DRBG_URL" "$DRBG_SHA" "$TMP/drbgtestvectors.zip"
 fetch "$CMAC_URL" "$CMAC_SHA" "$TMP/cmactestvectors.zip"
 fetch "$TR31_URL" "$TR31_SHA" "$TMP/psec_test_tr31.py"
+fetch "$PIN_URL" "$PIN_SHA" "$TMP/psec_test_pinblock.py"
+fetch "$TDES_KAT_URL" "$TDES_KAT_SHA" "$TMP/KAT_TDES.zip"
+fetch "$TDES_MMT_URL" "$TDES_MMT_SHA" "$TMP/tdesmmt.zip"
 fetch "$RSA_URL" "$RSA_SHA" "$TMP/186-3rsatestvectors.zip"
 fetch "$ECDSA_URL" "$ECDSA_SHA" "$TMP/186-4ecdsatestvectors.zip"
 
@@ -147,6 +164,20 @@ done
 # origem. A extracao e mecanica e falha se achar numero diferente de um.
 python3 "$ROOT/scripts/_extrai_tr31.py" \
         "$TMP/psec_test_tr31.py" "$VEC/tr31/x9143_D_AES256.rsp"
+
+# TDES: so os modos ECB e CBC. Os zips trazem tambem CFB e OFB, que este
+# projeto nao usa.
+unzip -qjo "$TMP/KAT_TDES.zip" 'KAT_TDES/TECB*.rsp' \
+      'KAT_TDES/TCBCinvperm.rsp' 'KAT_TDES/TCBCpermop.rsp' \
+      'KAT_TDES/TCBCsubtab.rsp' 'KAT_TDES/TCBCvarkey.rsp' \
+      'KAT_TDES/TCBCvartext.rsp' -d "$VEC/tdes/"
+unzip -qjo "$TMP/tdesmmt.zip" 'TECBMMT2.rsp' 'TECBMMT3.rsp' \
+      'TCBCMMT2.rsp' 'TCBCMMT3.rsp' -d "$VEC/tdes/"
+
+# PIN block formato 4: tres valores, copiados literalmente. A extracao
+# falha se o arquivo de origem nao tiver exatamente um de cada.
+python3 "$ROOT/scripts/_extrai_pinblock.py" \
+        "$TMP/psec_test_pinblock.py" "$VEC/pinblock/iso9564_f4.rsp"
 
 # CTR_DRBG vem num zip dentro do zip, e o arquivo completo tem 785 KB com
 # 3DES e AES-128/192 que este projeto nao usa. Filtra para [AES-256 ...].

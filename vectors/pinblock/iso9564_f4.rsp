@@ -1,0 +1,28 @@
+# PIN block ISO 9564-1 formato 4 -- valores conhecidos de terceiros.
+#
+# NAO E VETOR OFICIAL. Ver vectors/MANIFEST.txt para a procedencia e
+# para o que estes valores cobrem e o que NAO cobrem.
+#
+# PINFIELD  os 8 primeiros bytes do campo do PIN (os outros 8 sao
+#           aleatorios)
+# PANFIELD  o campo do PAN, 16 bytes
+# RND       os 8 bytes aleatorios do campo do PIN
+# BLOCK     o PIN block cifrado
+
+[campo do PIN]
+
+PIN = 1234
+PINFIELD = 441234AAAAAAAAAA
+
+[campo do PAN]
+
+PAN = 112233445566778899
+PANFIELD = 61122334455667788990000000000000
+
+[AES-128]
+
+KEY = 00112233445566778899AABBCCDDEEFF
+PIN = 1234
+PAN = 1234567890123456789
+RND = FFFFFFFFFFFFFFFF
+BLOCK = 28B41FDDD29B743E93124BD8E32D921E

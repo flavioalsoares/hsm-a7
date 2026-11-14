@@ -275,6 +275,49 @@ def ecdsa():
     escreve("ecdsa_e2", ["%02x" % x for x in digest + b32(g, "Qx", "Qy")], 2)
 
 
+def pin():
+    """Vetores do tb_pin: duas chaves de PIN (P0) sob a LMK do tb, a chave de
+    destino tambem como chave de dados (D0), e um PIN block formato 4 feito
+    pelo host/pinblock.py sob a chave de origem.
+
+    A chave de destino embrulhada como D0 e so para o testbench: com ela o
+    C2 abre o bloco traduzido, e o tb confere o campo do PIN. So quem tem a
+    LMK consegue fazer esse bloco.
+
+    O PAN e inventado (prefixo 999999). Nenhum PAN real, nunca.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import pinblock
+    import tr31
+
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    ko = hashlib.sha256(b"tb_pin: chave de origem").digest()
+    kd = hashlib.sha256(b"tb_pin: chave de destino").digest()
+    ench = bytes(range(16))
+
+    def bloco(chave, uso):
+        b = tr31.embrulha(lmk, chave, uso=uso, modo="B", exportabilidade="E",
+                          enchimento=ench)
+        if len(b) != 144:
+            raise SystemExit("PIN: key block de %d caracteres" % len(b))
+        return ["%02x" % ord(c) for c in b]
+
+    escreve("pin_ko", bloco(ko, "P0"), 2)
+    escreve("pin_kd", bloco(kd, "P0"), 2)
+    escreve("pin_kd_d0", bloco(kd, "D0"), 2)
+
+    pin_, pan = "48213", "9999990123456789"
+    rnd = bytes(range(0xA1, 0xA9))
+    campo = pinblock.campo_pin(pin_, rnd)
+    pb = pinblock.cifra(ko, pin_, pan, rnd)
+    if pinblock.decifra(ko, pb, pan) != pin_:
+        raise SystemExit("PIN: ida e volta falhou no Python")
+    # PAN em ASCII (16) . PIN block (16) . campo do PAN (16) . campo do PIN (16)
+    dados = pan.encode() + pb + pinblock.campo_pan(pan) + campo
+    escreve("pin_dados", ["%02x" % x for x in dados], 2)
+
+
 def rsa_r2(prefixo):
     """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
     embrulhada sob a LMK que o tb_rsa monta na cerimonia.
@@ -327,6 +370,7 @@ def main():
     n_sha = sha256_padded()
     n_rsa_mont, n_rsa_kat, rsa_n0p, rsa_e = rsa()
     ecdsa()
+    pin()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.

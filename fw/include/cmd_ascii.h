@@ -38,6 +38,7 @@
 #define ASCII_MODO          11u
 #define ASCII_NAO_EXPORTA   12u   /* K4: a chave e 'N'               */
 #define ASCII_NAO_KEK       13u   /* K4/K6: o bloco de protecao nao e K0 */
+#define ASCII_PIN_INVAL     14u   /* fase 8: o PIN block aberto nao e formato 4 */
 #define ASCII_DADOS         15u
 #define ASCII_PARAM         16u
 #define ASCII_ESTADO        20u

@@ -12,6 +12,7 @@
 #include "rsa.h"
 #include "ecc.h"
 #include "tr31.h"
+#include "pinblock.h"
 #include "wipe.h"
 
 /* Slot completo -- com a chave. Este tipo NÃO aparece no header: nada fora
@@ -55,6 +56,11 @@ static uint8_t g_rsa[TR31_RSA_CHAVE];
 static uint8_t g_rsa_ok;         /* 0 vazia, ou o algoritmo: 'R' ou 'E'. A
                                   * chave de ECDSA ocupa os 96 primeiros
                                   * bytes da mesma area. */
+/* Fase 8: o campo do PIN em claro, entre abrir um PIN block e fecha-lo sob
+ * outra chave. E dado sensivel como chave: entra na zeroizacao e na prova. */
+static uint8_t g_pin[PIN_BLOCO];
+static uint8_t g_pin_ok;
+
 static uint8_t g_comp_n;         /* quantos entraram  */
 static uint8_t g_comp_total;     /* quantos foram anunciados */
 
@@ -175,6 +181,8 @@ void keystore_init(void)
     g_comp_total = 0u;
     wipe_padrao(g_rsa, sizeof g_rsa);
     g_rsa_ok = 0u;
+    wipe_padrao(g_pin, sizeof g_pin);
+    g_pin_ok = 0u;
 
     /* A chave expandida do coprocessador tambem e material de chave, e
      * fica fora da DMEM. Zeroizar so a DMEM deixaria a ultima chave usada
@@ -222,6 +230,11 @@ int keystore_prova_zeroizacao(void)
     for (i = 0u; i < (uint32_t)sizeof g_rsa; i++) {
         acc |= p[i];
     }
+    p = (const volatile uint8_t *)(const void *)g_pin;
+    for (i = 0u; i < (uint32_t)sizeof g_pin; i++) {
+        acc |= p[i];
+    }
+    acc |= g_pin_ok;
     acc |= g_rsa_ok;
     acc |= g_lmk_comps;
     acc |= g_comp_n;
@@ -479,6 +492,157 @@ int keystore_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
     if (r != 0) {
         wipe(saida, n);
     }
+    (void)hsm_cfs_wipe();
+    return r;
+}
+
+/* ------------------------------------------------------------------ */
+/* PIN block (fase 8)                                                  */
+/* ------------------------------------------------------------------ */
+
+/* 1 se o `uso` do slot e P0, chave de PIN. O codigo exato: uma chave de
+ * dados que abrisse PIN blocks seria o C2 decifrando PINs. */
+static int uso_pin(int i)
+{
+    return (g_slots[i].uso[0] == (uint8_t)KS_USO_PIN[0]) &&
+           (g_slots[i].uso[1] == (uint8_t)KS_USO_PIN[1]);
+}
+
+/* Uma passada do formato 4 sob a chave do slot, que e carregada AQUI, a cada
+ * chamada. Um bloco de CBC com IV zero e um bloco de AES puro.
+ *
+ *   cifrar:    saida = E( E(entrada) ^ pan )      entrada = campo do PIN
+ *   decifrar:  saida = D( D(entrada) ^ pan )      saida   = campo do PIN
+ *
+ * FRONTEIRA: dentro. `meio` e um valor intermediario e sai apagado. */
+static int pin_passada(int i, const uint8_t pan[PIN_BLOCO],
+                       const uint8_t entrada[PIN_BLOCO],
+                       uint8_t saida[PIN_BLOCO], int cifrar)
+{
+    static const uint8_t zero[AES_BLOCO] = { 0u };
+    uint8_t  meio[PIN_BLOCO];
+    uint32_t j;
+    int      r = -1;
+
+    if (hsm_cfs_aes_key(g_slots[i].chave) == 0) {
+        if (aes_cbc(zero, entrada, meio, PIN_BLOCO, cifrar) == 0) {
+            for (j = 0u; j < PIN_BLOCO; j++) {
+                meio[j] ^= pan[j];
+            }
+            if (aes_cbc(zero, meio, saida, PIN_BLOCO, cifrar) == 0) {
+                r = 0;
+            }
+        }
+    }
+    wipe(meio, sizeof meio);
+    return r;
+}
+
+/* 1 se o slot e chave de PIN e o `modo` permite `precisa` (CIFRA/DECIFRA). */
+static int pin_pode(int i, uint8_t precisa)
+{
+    if (!uso_pin(i)) {
+        return 0;
+    }
+    return ((g_slots[i].modo == KS_MODO_AMBOS) ||
+            (g_slots[i].modo == precisa)) ? 1 : 0;
+}
+
+void keystore_pin_apaga(void)
+{
+    wipe(g_pin, sizeof g_pin);
+    g_pin_ok = 0u;
+}
+
+/* FRONTEIRA: dentro. O campo do PIN em claro fica em g_pin e nas duas copias
+ * locais, que saem apagadas em todo caminho. */
+int keystore_pin_abre(ks_handle_t h, const uint8_t pan_campo[PIN_BLOCO],
+                      const uint8_t bloco[PIN_BLOCO])
+{
+    int      i = indice(h);
+    uint8_t  a[PIN_BLOCO], b[PIN_BLOCO];
+    uint32_t j;
+    uint8_t  dif = 0u;
+    int      r;
+
+    keystore_pin_apaga();
+    if ((i < 0) || (pan_campo == 0) || (bloco == 0)) {
+        return -3;
+    }
+    if (!pin_pode(i, KS_MODO_DECIFRA)) {
+        return -1;
+    }
+    if ((pin_passada(i, pan_campo, bloco, a, 0) != 0) ||
+        (pin_passada(i, pan_campo, bloco, b, 0) != 0)) {
+        r = -3;
+    } else {
+        for (j = 0u; j < PIN_BLOCO; j++) {
+            dif |= (uint8_t)(a[j] ^ b[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        } else if (!pinblock_campo_valido(a)) {
+            r = -4;
+        } else {
+            for (j = 0u; j < PIN_BLOCO; j++) {
+                g_pin[j] = a[j];
+            }
+            g_pin_ok = 1u;
+            g_slots[i].contador_uso++;
+            r = 0;
+        }
+    }
+    wipe(a, sizeof a);
+    wipe(b, sizeof b);
+    (void)hsm_cfs_wipe();
+    return r;
+}
+
+/* FRONTEIRA: dentro ate a ultima linha. O que sai em `bloco` e criptograma. */
+int keystore_pin_fecha(ks_handle_t h, const uint8_t pan_campo[PIN_BLOCO],
+                       uint8_t bloco[PIN_BLOCO])
+{
+    int      i = indice(h);
+    uint8_t  segunda[PIN_BLOCO];
+    uint32_t j;
+    uint8_t  dif = 0u;
+    int      r;
+
+    if ((i < 0) || (pan_campo == 0) || (bloco == 0) || (g_pin_ok == 0u)) {
+        keystore_pin_apaga();
+        return -3;
+    }
+    if (!pin_pode(i, KS_MODO_CIFRA)) {
+        keystore_pin_apaga();
+        return -1;
+    }
+    /* Os 8 bytes aleatorios sao NOVOS: o bloco de saida nao herda os do
+     * bloco de entrada. Sem isso, traduzir o mesmo bloco duas vezes para a
+     * mesma chave daria o mesmo resultado, e o host saberia que dois blocos
+     * de origens diferentes levam o mesmo campo. */
+    if (drbg_dispositivo_bytes(&g_pin[PIN_BLOCO / 2u], PIN_BLOCO / 2u) != 0) {
+        r = -3;
+    } else if ((pin_passada(i, pan_campo, g_pin, bloco, 1) != 0) ||
+               (pin_passada(i, pan_campo, g_pin, segunda, 1) != 0)) {
+        r = -3;
+    } else {
+        for (j = 0u; j < PIN_BLOCO; j++) {
+            dif |= (uint8_t)(bloco[j] ^ segunda[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        } else {
+            g_slots[i].contador_uso++;
+            r = 0;
+        }
+    }
+    wipe(segunda, sizeof segunda);
+    if (r != 0) {
+        wipe(bloco, PIN_BLOCO);
+    }
+    keystore_pin_apaga();
     (void)hsm_cfs_wipe();
     return r;
 }

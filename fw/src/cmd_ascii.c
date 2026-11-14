@@ -28,6 +28,7 @@
 #include "hsm_cfs.h"
 #include "keystore.h"
 #include "state.h"
+#include "pinblock.h"
 #include "tr31.h"
 #include "wipe.h"
 
@@ -906,6 +907,82 @@ sai:
     return r;
 }
 
+/* P0 -- traduzir PIN block: bloco da chave de origem . bloco da chave de
+ *       destino . formato de origem(1) . formato de destino(1) .
+ *       tamanho do PAN(2) . PAN . PIN block(32) -> PIN block(32)
+ *
+ * Abre o PIN block com a chave de origem e o fecha sob a de destino. O PIN
+ * em claro so existe dentro do key store. O unico formato e o 4 (ISO
+ * 9564-1, AES); o campo de formato existe para o pedido nao mudar de forma
+ * quando houver outro.
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao.
+ *   vazamento    o erro 14 diz ao host se um bloco, aberto sob aquela
+ *                chave e aquele PAN, e um formato 4 bem formado. E
+ *                inerente ao servico: sem isso o host traduziria lixo sem
+ *                saber. Com 8 bytes aleatorios e enchimento fixo, um bloco
+ *                forjado passa com chance desprezivel, e o veredito nao
+ *                separa um PIN de outro. O bloco de saida leva aleatorio
+ *                novo: dois pedidos iguais dao saidas diferentes. O que o
+ *                comando NAO faz e devolver o PIN, nem aceitar chave que
+ *                nao seja P0 -- uma chave de dados aqui seria o C2
+ *                decifrando PINs.
+ *   exportability nao se aplica: nenhuma chave sai.
+ *   log          sim, antes.
+ *
+ * As duas chaves precisam de uso 'P0' (senao 11); a de origem, modo 'D' ou
+ * 'B'; a de destino, 'E' ou 'B' (senao 11). */
+static uint8_t h_p0(leitor_t *in, escritor_t *out)
+{
+    const uint8_t *ko = 0, *kd = 0;
+    uint16_t       kon = 0u, kdn = 0u;
+    uint8_t        pan[PIN_BLOCO], bloco[PIN_BLOCO], saida[PIN_BLOCO];
+    ks_info_t      info;
+    int32_t        pn;
+    uint8_t        r;
+    int            v;
+
+    if ((r = le_bloco(in, &ko, &kon)) != ASCII_OK) { return r; }
+    if ((r = le_bloco(in, &kd, &kdn)) != ASCII_OK) { return r; }
+    if ((uint32_t)in->pos + 2u > in->n)            { return ASCII_MALFORMADA; }
+    if ((in->p[in->pos] != (uint8_t)PIN_FORMATO_4) ||
+        (in->p[in->pos + 1u] != (uint8_t)PIN_FORMATO_4)) {
+        return ASCII_PARAM;
+    }
+    in->pos = (uint16_t)(in->pos + 2u);
+    pn = le_dec(in, 2u);
+    if (pn == -1)                                  { return ASCII_MALFORMADA; }
+    if ((pn < 1) || (pn > (int32_t)PIN_PAN_MAX))   { return ASCII_PARAM; }
+    if ((uint32_t)in->pos + (uint32_t)pn > in->n)  { return ASCII_MALFORMADA; }
+    if (pinblock_campo_pan(&in->p[in->pos], (uint32_t)pn, pan) != 0) {
+        return ASCII_PARAM;
+    }
+    in->pos = (uint16_t)(in->pos + (uint16_t)pn);
+    if ((r = le_hex(in, bloco, PIN_BLOCO)) != ASCII_OK) { return r; }
+    if ((r = fim(in)) != ASCII_OK)                      { return r; }
+
+    /* Uma chave por vez no slot efemero: a de origem sai antes de a de
+     * destino entrar. Entre as duas, o campo do PIN fica no key store. */
+    if ((r = abre_bloco(ko, kon, &info)) != ASCII_OK)   { return r; }
+    v = keystore_pin_abre(KS_HANDLE_EFEMERA, pan, bloco);
+    keystore_efemera_apaga();
+    if (v != 0) {
+        if (v == -1) { return ASCII_MODO; }
+        if (v == -2) { return ASCII_ERRO_GRAVE; }
+        return (v == -4) ? ASCII_PIN_INVAL : ASCII_INTERNO;
+    }
+    if ((r = abre_bloco(kd, kdn, &info)) != ASCII_OK)   { return r; }
+    v = keystore_pin_fecha(KS_HANDLE_EFEMERA, pan, saida);
+    if (v != 0) {
+        if (v == -1) { return ASCII_MODO; }
+        return (v == -2) ? ASCII_ERRO_GRAVE : ASCII_INTERNO;
+    }
+    poe_hex(out, saida, PIN_BLOCO);
+    return ASCII_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tabela                                                              */
 /* ------------------------------------------------------------------ */
@@ -933,6 +1010,7 @@ static const ascii_entry_t g_ascii[] = {
     { 'C', '2', ST_OPER,   h_c2, L },
     { 'M', '0', ST_OPER,   h_m0, L },
     { 'M', '2', ST_OPER,   h_m2, L },
+    { 'P', '0', ST_OPER,   h_p0, L },
     { 'R', '0', ST_OPER,   h_r0, L },
     { 'R', '2', ST_OPER,   h_r2, L },
     { 'R', '4', ST_OPER,   h_r4, L },
@@ -1031,6 +1109,7 @@ void ascii_despacha(const uint8_t *msg, uint16_t n,
     /* Nada da chave do comando sobrevive a ele: o slot efemero, o
      * coprocessador e os buffers de dados. Em QUALQUER desfecho. */
     keystore_efemera_apaga();
+    keystore_pin_apaga();
     wipe(g_dados, sizeof g_dados);
     wipe(g_res, sizeof g_res);
 

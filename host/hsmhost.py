@@ -57,6 +57,7 @@ ERROS = {
     11: "o modo do bloco nao permite",
     12: "a chave nao e exportavel",
     13: "o bloco de protecao nao e uma KEK (K0)",
+    14: "PIN block invalido",
     15: "dados invalidos",
     16: "parametro invalido",
     20: "estado nao permite",
@@ -282,6 +283,14 @@ class Host:
         finally:
             self.t.espera(5.0)
         return int(c[:64].decode(), 16), int(c[64:128].decode(), 16)
+
+    def pin_traduz(self, origem, destino, pan, bloco):
+        """P0: o PIN block sai da chave de origem para a de destino. As duas
+        chaves vao como key block sob a LMK. So existe o formato 4."""
+        campos = (origem + destino + "44" + "%02d" % len(pan) + pan
+                  + bloco.hex().upper())
+        _, c = self.pede("P0", campos.encode())
+        return bytes.fromhex(c[:32].decode())
 
 
 # --------------------------------------------------------------------
@@ -654,6 +663,82 @@ def confere(h, lmk, n):
     return 0
 
 
+def pin_confere(h, lmk, n):
+    """Traducao de PIN (P0), conferida com o pinblock.py. O Python faz o
+    papel do terminal, que cifra o PIN sob a chave de origem, e o do
+    destino, que abre o bloco traduzido.
+
+    ⚠ PRECISA DA LMK, para abrir os blocos das duas chaves de PIN. E o
+    brinquedo aparecendo, como no `confere`.
+    ⚠ Os PANs sao inventados (prefixo 999999). Nenhum PAN real, nunca."""
+    import pinblock
+    import tr31
+    from hsmtool import _kcv_local
+
+    d = h.diag()
+    if d["kcv_lmk"] != _kcv_local(lmk).hex().upper():
+        print("KCV da LMK nao confere: dispositivo %s, informada %s"
+              % (d["kcv_lmk"], _kcv_local(lmk).hex().upper()))
+        return 1
+
+    def recusa(codigo, *args):
+        try:
+            h.pin_traduz(*args)
+        except HostErro as e:
+            assert e.codigo == codigo, "P0: %d, esperado %d" % (e.codigo,
+                                                                codigo)
+        else:
+            raise AssertionError("P0 aceito, esperado %d" % codigo)
+
+    for volta in range(n):
+        ko_b, _ = h.gen("P0", "B", "E")
+        kd_b, _ = h.gen("P0", "B", "E")
+        ko, _ = tr31.desembrulha(lmk, ko_b)
+        kd, _ = tr31.desembrulha(lmk, kd_b)
+
+        np = pinblock.PIN_MIN + volta % (pinblock.PIN_MAX - pinblock.PIN_MIN + 1)
+        na = 12 + volta % 8
+        pin = "".join(str(b % 10) for b in os.urandom(np))
+        pan = "999999" + "".join(str(b % 10) for b in os.urandom(na - 6))
+
+        entrada = pinblock.cifra(ko, pin, pan)
+        saida = h.pin_traduz(ko_b, kd_b, pan, entrada)
+        assert pinblock.decifra(kd, saida, pan) == pin, "P0: PIN mudou"
+        outra = h.pin_traduz(ko_b, kd_b, pan, entrada)
+        assert outra != saida, "P0: o aleatorio nao mudou"
+        assert pinblock.decifra(kd, outra, pan) == pin, "P0: segunda saida"
+        # e de volta, pela chave de destino
+        volta_b = h.pin_traduz(kd_b, ko_b, pan, saida)
+        assert pinblock.decifra(ko, volta_b, pan) == pin, "P0: volta"
+
+        # recusas
+        ruim = bytes([entrada[0] ^ 1]) + entrada[1:]
+        recusa(14, ko_b, kd_b, pan, ruim)                  # bloco adulterado
+        outro_pan = pan[:-1] + str((int(pan[-1]) + 1) % 10)
+        recusa(14, ko_b, kd_b, outro_pan, entrada)         # PAN trocado
+        recusa(14, kd_b, ko_b, pan, entrada)               # chave trocada
+        dados_b, _ = h.gen("D0", "B", "E")
+        recusa(11, dados_b, kd_b, pan, entrada)            # origem nao e P0
+        recusa(11, ko_b, dados_b, pan, entrada)            # destino nao e P0
+        so_e, _ = h.gen("P0", "E", "E")
+        recusa(11, so_e, kd_b, pan, entrada)               # origem so cifra
+        so_d, _ = h.gen("P0", "D", "E")
+        recusa(11, ko_b, so_d, pan, entrada)               # destino so decifra
+        adulterado = ko_b[:-1] + ("0" if ko_b[-1] != "0" else "1")
+        recusa(10, adulterado, kd_b, pan, entrada)
+        # a chave de PIN nao cifra dados
+        try:
+            h.cripto(ko_b, bytes(16), entrada, False)
+        except HostErro as e:
+            assert e.codigo == 11, "C2 com chave de PIN: %d" % e.codigo
+        else:
+            raise AssertionError("C2 aceitou uma chave de PIN")
+        print("volta %d: P0 conferido (PIN de %d, PAN de %d)"
+              % (volta + 1, np, na))
+    print("%d de %d voltas conferidas" % (n, n))
+    return 0
+
+
 # --------------------------------------------------------------------
 def main(argv=None):
     ap = argparse.ArgumentParser(description="porta HOST do HSM (ASCII)")
@@ -698,6 +783,12 @@ def main(argv=None):
     p = sub.add_parser("ecdsa-sign"); p.add_argument("bloco"); p.add_argument("digest")
     p = sub.add_parser("ecdsa-gen"); p.add_argument("--exp", default="E", choices=list("ENS"))
     p = sub.add_parser("ecdsa-confere"); p.add_argument("-n", type=int, default=3)
+    p = sub.add_parser("pin-traduz")
+    for c in ("origem", "destino", "pan", "bloco"):
+        p.add_argument(c)
+    p = sub.add_parser("pin-confere")
+    p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
+    p.add_argument("-n", type=int, default=10)
     p = sub.add_parser("confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
@@ -771,6 +862,11 @@ def main(argv=None):
             return ecdsa_confere(h, a.n)
         elif a.cmd == "ecdsa-sign":
             print("%064X %064X" % h.ecdsa_assina(a.bloco, bytes.fromhex(a.digest)))
+        elif a.cmd == "pin-traduz":
+            print(h.pin_traduz(a.origem, a.destino, a.pan,
+                               bytes.fromhex(a.bloco)).hex().upper())
+        elif a.cmd == "pin-confere":
+            return pin_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "confere":
             return confere(h, bytes.fromhex(a.lmk), a.n)
     except HostErro as e:
