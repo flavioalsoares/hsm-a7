@@ -36,6 +36,8 @@ de SigVer e os 12 de PKV do CAVP com a resposta certa. `ecdsa-confere`: 20 pares
 gerados na placa e 60 assinaturas, conferidas pelo Python e pelo `E4`. O `E0`
 responde em 0,53 s. `rsa-cavp` e `rsa-confere` passam com o firmware novo, e o
 `post` mostra os dois autotestes de primeiro uso como pendentes até o primeiro uso.
+Com `--lmk`, `ecdsa-cavp` e `rsa-cavp` assinaram na placa com chaves oficiais do
+CAVP (3 pelo `E2`, 3 pelo `R2`), e o Python conferiu cada assinatura.
 
 ## Produto de Montgomery
 
@@ -391,8 +393,3 @@ vetor ou se a assinatura por CRT não for o `S` do vetor.
 ⚠ **A assinatura esperada do `R2` no `tb_rsa` é conta do Python.** A chave é oficial
 (KeyGen do CAVP), mas o CAVP não publica assinatura para ela. A verificação com `e`
 confere a conta.
-
-## Próximos passos
-
-1. Rodar `hsmhost.py rsa-cavp --lmk` e `hsmhost.py ecdsa-cavp --lmk` na placa. Os
-   comandos precisam da LMK em hex.
