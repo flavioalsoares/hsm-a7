@@ -2,6 +2,8 @@
 //
 // tb_pin -- traducao de PIN block ISO 9564-1 formato 4, porta host (fase 8)
 //
+// O formato 0 e a traducao entre formatos estao no tb_pin0.
+//
 // sim-timeout: 14400
 //
 // Contra o firmware real no NEORV32. O PIN block de entrada e as chaves vem
@@ -322,7 +324,7 @@ module tb_pin;
 
     // P0: origem . destino . formatos . PAN . PIN block. `qo`/`qd` escolhem
     // o key block (0 = ko, 1 = kd, 2 = kd como D0). `mexe`: 1 troca um bit
-    // do PIN block, 2 troca um digito do PAN, 3 pede formato '0', 4 troca
+    // do PIN block, 2 troca um digito do PAN, 3 pede formato '1', 4 troca
     // um caractere do key block de origem.
     task pede_p0(input integer qo, input integer qd, input integer mexe);
         integer k;
@@ -336,7 +338,7 @@ module tb_pin;
             end
             for (k = 0; k < 144; k = k + 1)
                 poe((qd == 0) ? ko[k] : (qd == 1) ? kd[k] : kd_d0[k]);
-            poe((mexe == 3) ? "0" : "4"); poe("4");
+            poe((mexe == 3) ? "1" : "4"); poe("4");
             poe("1"); poe("6");
             for (k = 0; k < 16; k = k + 1) begin
                 b = dados[k];

@@ -964,67 +964,116 @@ sai:
 
 /* P0 -- traduzir PIN block: bloco da chave de origem . bloco da chave de
  *       destino . formato de origem(1) . formato de destino(1) .
- *       tamanho do PAN(2) . PAN . PIN block(32) -> PIN block(32)
+ *       tamanho do PAN(2) . PAN . PIN block(16 ou 32) -> PIN block(16 ou 32)
  *
  * Abre o PIN block com a chave de origem e o fecha sob a de destino. O PIN
- * em claro so existe dentro do key store. O unico formato e o 4 (ISO
- * 9564-1, AES); o campo de formato existe para o pedido nao mudar de forma
- * quando houver outro.
+ * em claro so existe dentro do key store. Formatos da ISO 9564-1: '0'
+ * (3DES, bloco de 16 caracteres hex) e '4' (AES, 32 caracteres). As quatro
+ * combinacoes valem: a norma permite traduzir entre o 0 e o 4 nos dois
+ * sentidos.
+ *
+ * O pedido leva UM PAN, que vale para a origem e para o destino. E de
+ * proposito: traduzir trocando o PAN amarra o PIN de uma conta a outra
+ * conta, e a norma restringe isso. Nao acrescentar um segundo PAN.
  *
  * Checklist:
  *   estados      OPERATIONAL.
  *   dual control nao: e operacao.
- *   vazamento    o erro 14 diz ao host se um bloco, aberto sob aquela
- *                chave e aquele PAN, e um formato 4 bem formado. E
- *                inerente ao servico: sem isso o host traduziria lixo sem
- *                saber. Um bloco ao acaso passa na conferencia cerca de
- *                uma vez em 2^24 (domina o PIN de 12 digitos, que deixa
- *                so dois nibbles de enchimento; manual, secao 41.2). Nao
- *                e barreira contra quem pergunta milhoes de vezes: o
- *                controle e o log. O veredito nao separa um PIN de
- *                outro. O bloco de saida leva aleatorio
- *                novo: dois pedidos iguais dao saidas diferentes. O que o
- *                comando NAO faz e devolver o PIN, nem aceitar chave que
- *                nao seja P0 -- uma chave de dados aqui seria o C2
- *                decifrando PINs.
+ *   vazamento    o erro 14 diz ao host se o bloco, aberto sob aquela chave
+ *                e aquele PAN, e um campo bem formado do formato de origem.
+ *                E inerente ao servico: sem isso o host traduziria lixo sem
+ *                saber.
+ *
+ *                Formato 4: um bloco ao acaso passa cerca de uma vez em
+ *                2^24 (manual, secao 41.2), e o veredito nao separa um PIN
+ *                de outro, porque o PAN entra DEPOIS de uma cifragem.
+ *
+ *                Formato 0: o veredito VAZA O PIN, e e um ataque publicado
+ *                (Clulow, 2003). O PAN entra por
+ *                XOR direto sobre os digitos do PIN, do terceiro em diante,
+ *                e o PAN vem do host. Com o PAN alterado num digito, o 14
+ *                diz se (digito do PIN XOR diferenca) passou de 9. Com
+ *                108 pedidos por bloco (9 trocas em 12 posicoes) saem o
+ *                tamanho do PIN, sempre, e parte de cada digito: de 10
+ *                candidatos sobram 3,9 em media, e 2 quando o digito do
+ *                PAN naquela posicao e 8 ou 9 (host/test_pinblock.py faz
+ *                a conta). O ultimo bit do digito nunca sai, e os dois
+ *                primeiros digitos ficam de fora: o campo do PAN e zero
+ *                ali. O equipamento nao tem como fechar isso sem
+ *                deixar de falar o formato 0, que e o que o mercado usa;
+ *                esconder o 14 atras de outro codigo nao fecha, porque a
+ *                resposta continua sendo sucesso ou recusa. O controle e
+ *                de fora: o log, que registra cada pedido recusado, e o
+ *                limite de quem pode falar com a porta host. Ver o manual,
+ *                Parte VII, e doc/fase8-notas.md.
+ *
+ *                O bloco de saida no formato 4 leva aleatorio novo. No
+ *                formato 0 nao ha aleatorio: mesmo PIN, mesmo PAN e mesma
+ *                chave dao o mesmo bloco, e o host ve quando uma conta
+ *                repete o PIN. E do formato.
+ *
+ *                O que o comando NAO faz e devolver o PIN, nem aceitar
+ *                chave que nao seja P0 -- uma chave de dados aqui seria o
+ *                C2 decifrando PINs.
  *   exportability nao se aplica: nenhuma chave sai.
  *   log          sim, antes.
  *
- * As duas chaves precisam de uso 'P0' (senao 11); a de origem, modo 'D' ou
- * 'B'; a de destino, 'E' ou 'B' (senao 11). */
+ * As duas chaves precisam de uso 'P0' e do algoritmo do formato (AES para o
+ * 4, 3DES para o 0), senao 11; a de origem, modo 'D' ou 'B'; a de destino,
+ * 'E' ou 'B' (senao 11). */
+static uint8_t pan_dos_dois(const uint8_t *pan, uint32_t n, uint8_t formato,
+                            uint8_t campo[PIN_BLOCO])
+{
+    int v = (formato == (uint8_t)PIN_FORMATO_0)
+                ? pinblock_campo_pan0(pan, n, campo)
+                : pinblock_campo_pan(pan, n, campo);
+    return (v == 0) ? ASCII_OK : ASCII_PARAM;
+}
+
 static uint8_t h_p0(leitor_t *in, escritor_t *out)
 {
     const uint8_t *ko = 0, *kd = 0;
     uint16_t       kon = 0u, kdn = 0u;
-    uint8_t        pan[PIN_BLOCO], bloco[PIN_BLOCO], saida[PIN_BLOCO];
+    uint8_t        pan_o[PIN_BLOCO], pan_d[PIN_BLOCO];
+    uint8_t        bloco[PIN_BLOCO], saida[PIN_BLOCO];
     ks_info_t      info;
     int32_t        pn;
-    uint8_t        r;
+    uint8_t        fo, fd, r;
+    uint32_t       no, nd;
     int            v;
 
     if ((r = le_bloco(in, &ko, &kon)) != ASCII_OK) { return r; }
     if ((r = le_bloco(in, &kd, &kdn)) != ASCII_OK) { return r; }
     if ((uint32_t)in->pos + 2u > in->n)            { return ASCII_MALFORMADA; }
-    if ((in->p[in->pos] != (uint8_t)PIN_FORMATO_4) ||
-        (in->p[in->pos + 1u] != (uint8_t)PIN_FORMATO_4)) {
+    fo = in->p[in->pos];
+    fd = in->p[in->pos + 1u];
+    if (((fo != (uint8_t)PIN_FORMATO_0) && (fo != (uint8_t)PIN_FORMATO_4)) ||
+        ((fd != (uint8_t)PIN_FORMATO_0) && (fd != (uint8_t)PIN_FORMATO_4))) {
         return ASCII_PARAM;
     }
+    no = (fo == (uint8_t)PIN_FORMATO_0) ? PIN_BLOCO_0 : PIN_BLOCO;
+    nd = (fd == (uint8_t)PIN_FORMATO_0) ? PIN_BLOCO_0 : PIN_BLOCO;
     in->pos = (uint16_t)(in->pos + 2u);
     pn = le_dec(in, 2u);
     if (pn == -1)                                  { return ASCII_MALFORMADA; }
     if ((pn < 1) || (pn > (int32_t)PIN_PAN_MAX))   { return ASCII_PARAM; }
     if ((uint32_t)in->pos + (uint32_t)pn > in->n)  { return ASCII_MALFORMADA; }
-    if (pinblock_campo_pan(&in->p[in->pos], (uint32_t)pn, pan) != 0) {
-        return ASCII_PARAM;
+    /* O campo do PAN de cada lado, no formato daquele lado. O formato 0
+     * pede de 13 a 19 digitos. O PAN e dado publico. */
+    if ((r = pan_dos_dois(&in->p[in->pos], (uint32_t)pn, fo, pan_o)) != ASCII_OK) {
+        return r;
+    }
+    if ((r = pan_dos_dois(&in->p[in->pos], (uint32_t)pn, fd, pan_d)) != ASCII_OK) {
+        return r;
     }
     in->pos = (uint16_t)(in->pos + (uint16_t)pn);
-    if ((r = le_hex(in, bloco, PIN_BLOCO)) != ASCII_OK) { return r; }
+    if ((r = le_hex(in, bloco, no)) != ASCII_OK)        { return r; }
     if ((r = fim(in)) != ASCII_OK)                      { return r; }
 
     /* Uma chave por vez no slot efemero: a de origem sai antes de a de
      * destino entrar. Entre as duas, o campo do PIN fica no key store. */
     if ((r = abre_bloco(ko, kon, &info)) != ASCII_OK)   { return r; }
-    v = keystore_pin_abre(KS_HANDLE_EFEMERA, pan, bloco);
+    v = keystore_pin_abre(KS_HANDLE_EFEMERA, fo, pan_o, bloco);
     keystore_efemera_apaga();
     if (v != 0) {
         if (v == -1) { return ASCII_MODO; }
@@ -1032,12 +1081,12 @@ static uint8_t h_p0(leitor_t *in, escritor_t *out)
         return (v == -4) ? ASCII_PIN_INVAL : ASCII_INTERNO;
     }
     if ((r = abre_bloco(kd, kdn, &info)) != ASCII_OK)   { return r; }
-    v = keystore_pin_fecha(KS_HANDLE_EFEMERA, pan, saida);
+    v = keystore_pin_fecha(KS_HANDLE_EFEMERA, fd, pan_d, saida);
     if (v != 0) {
         if (v == -1) { return ASCII_MODO; }
         return (v == -2) ? ASCII_ERRO_GRAVE : ASCII_INTERNO;
     }
-    poe_hex(out, saida, PIN_BLOCO);
+    poe_hex(out, saida, nd);
     return ASCII_OK;
 }
 

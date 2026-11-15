@@ -22,7 +22,7 @@ Este projeto usa quatro tipos, do mais forte ao mais fraco:
 | Referência | Exemplo | O que garante |
 |---|---|---|
 | Vetor oficial | arquivos do CAVP, do NIST | o algoritmo é o da norma |
-| Vetor de terceiros | o key block, o PIN block formato 4 | uma implementação independente concorda |
+| Vetor de terceiros | o key block, o PIN block nos formatos 0 e 4 | uma implementação independente concorda |
 | Segunda implementação | o Python do host contra o C do firmware | duas leituras da mesma norma concordam |
 | Propriedade | ida e volta, um bit trocado tem de reprovar | o comportamento é coerente, sem dizer que é o da norma |
 
@@ -260,6 +260,16 @@ no primeiro bloco: a discordância num formato é sistemática, e não rara.
   tamanho de PIN e de PAN.
 - A conferência do formato é testada com campos válidos e com cada nibble
   alterado para cada um dos outros 15 valores.
+- **Formato 0.** Onze valores de terceiros cobrem o bloco em claro, isto é,
+  o campo do PIN já combinado com o campo do PAN: seis blocos bem formados e
+  cinco malformados. A cifra do formato 0 é um bloco de 3DES, que tem vetor
+  oficial (seção 40.3). O C e o Python são comparados no campo do PAN, na
+  conferência do campo e nas duas conversões entre a forma do formato 0 e a
+  do formato 4.
+- **O formato 0 não tem aleatório, e o teste usa isso.** O bloco traduzido é
+  previsível: o testbench compara os 8 bytes que o firmware devolve com os
+  que o Python calculou, um a um. No formato 4 isso não é possível, e o
+  teste tem de abrir o bloco para conferir.
 
 **Quanto vale a conferência do formato.** Um bloco aberto com a chave
 errada, ou com o PAN errado, é um bloco de 16 bytes ao acaso. A chance de
@@ -277,6 +287,29 @@ domina a conta é o PIN de 12 dígitos, que só tem dois nibbles de enchimento
 para conferir. Um PIN de 4 dígitos tem dez. A conferência serve para pegar
 chave e PAN trocados, e não é barreira contra quem pode perguntar milhões de
 vezes: esse é o papel do log e do controle de acesso ao comando.
+
+A conta do formato 0 é a mesma, com controle `0` e enchimento `F`, e dá o
+mesmo `2⁻²⁴`. Os dois formatos têm `10⁴ + 10⁵ + … + 10¹²` campos válidos,
+cerca de `1,1 × 10¹²`, em `2⁶⁴` possíveis.
+
+**Medir um vazamento.** No formato 0, o veredito da conferência depende do
+PIN quando quem pede informa um PAN alterado (seção 34.3). O teste de PC faz
+o papel do atacante: troca um dígito do PAN por vez, anota só "passou" ou
+"recusou", e agrupa os valores do dígito do PIN que dão as mesmas respostas.
+Valores no mesmo grupo são indistinguíveis para o atacante. A medida é o
+tamanho médio do grupo:
+
+```
+   candidatos que sobram  =  soma, sobre os grupos, de  (tamanho)² / 10
+```
+
+Com um grupo só, de 10, sobram 10: nada vazou. Com dez grupos de 1, sobra 1:
+o dígito saiu inteiro. A medida deu 3,92, na média sobre os dez dígitos do
+PAN. O teste também cobra o que **não** pode vazar: os dois primeiros
+dígitos do PIN e o último bit de cada dígito. É um teste que mede um defeito
+conhecido do formato, e não um defeito do equipamento. Ele existe para o
+número do manual sair de um programa, e para acusar se uma mudança no código
+alterar o que o veredito revela.
 
 ### 41.3 O PKCS#8
 
@@ -557,7 +590,7 @@ implementação independente no PC a refaz ou a desfaz.
 | Teste | O equipamento | O PC |
 |---|---|---|
 | Chaves simétricas | gera, cifra, decifra, autentica, exporta, importa | abre os blocos com a LMK e refaz AES e CMAC |
-| Tradução de PIN | traduz um PIN block entre duas chaves | faz o papel do terminal e o do destino |
+| Tradução de PIN | traduz um PIN block entre duas chaves e entre os formatos 0 e 4 | faz o papel do terminal e o do destino; no formato 0, prevê o bloco de saída |
 | Chaves 3DES | gera e devolve o KCV | abre o bloco e confere tamanho, paridade e KCV |
 | RSA e ECDSA | gera pares e assina | verifica só com a chave pública |
 | PKCS#8 | gera, e assina com chave vinda de fora | usa a chave do equipamento numa biblioteca, e o contrário |

@@ -618,7 +618,7 @@ trabalha". As decisões:*
 | 8.1 | PIN block formato 4 e tradução de PIN (`P0`) | validada na placa em 2026-11-14 |
 | 8.2 | Motor DES e 3DES, com autoteste nos vetores do NIST | validada na placa em 2026-11-15 |
 | 8.3 | Chave 3DES no key store: algoritmo `T` no key block, paridade, KCV | validada na placa em 2026-11-15 |
-| 8.4 | PIN block formato 0, tradução entre formatos e entre chaves | a fazer |
+| 8.4 | PIN block formato 0, tradução entre formatos e entre chaves | validada na placa em 2026-11-15 |
 | 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | a fazer |
 | 8.6 | CVV: gerar e verificar | a fazer |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | a fazer |

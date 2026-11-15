@@ -286,13 +286,14 @@ class Host:
             self.t.espera(5.0)
         return int(c[:64].decode(), 16), int(c[64:128].decode(), 16)
 
-    def pin_traduz(self, origem, destino, pan, bloco):
+    def pin_traduz(self, origem, destino, pan, bloco, formatos="44"):
         """P0: o PIN block sai da chave de origem para a de destino. As duas
-        chaves vao como key block sob a LMK. So existe o formato 4."""
-        campos = (origem + destino + "44" + "%02d" % len(pan) + pan
+        chaves vao como key block sob a LMK. `formatos`: o de origem e o de
+        destino, '4' (AES, 16 bytes) ou '0' (3DES, 8 bytes)."""
+        campos = (origem + destino + formatos + "%02d" % len(pan) + pan
                   + bloco.hex().upper())
         _, c = self.pede("P0", campos.encode())
-        return bytes.fromhex(c[:32].decode())
+        return bytes.fromhex(c[:(16 if formatos[1] == "0" else 32)].decode())
 
 
 # --------------------------------------------------------------------
@@ -880,8 +881,56 @@ def pin_confere(h, lmk, n):
             assert e.codigo == 11, "C2 com chave de PIN: %d" % e.codigo
         else:
             raise AssertionError("C2 aceitou uma chave de PIN")
-        print("volta %d: P0 conferido (PIN de %d, PAN de %d)"
-              % (volta + 1, np, na))
+        # ---- formato 0 (3DES), e a traducao entre formatos -------------
+        import des
+        na0 = 13 + volta % 7
+        pan0 = "999999" + "".join(str(b % 10) for b in os.urandom(na0 - 6))
+        to_b, _ = h.gen("P0", "B", "E", "T2" if volta % 2 else "T3")
+        td_b, _ = h.gen("P0", "B", "E", "T3" if volta % 2 else "T2")
+        to, _ = tr31.desembrulha(lmk, to_b)
+        td, _ = tr31.desembrulha(lmk, td_b)
+        e0 = pinblock.cifra0(to, pin, pan0)
+        # 0 -> 0: sem aleatorio, o bloco de saida e previsivel
+        s0 = h.pin_traduz(to_b, td_b, pan0, e0, "00")
+        assert s0 == pinblock.cifra0(td, pin, pan0), "P0 00: bloco"
+        assert h.pin_traduz(to_b, td_b, pan0, e0, "00") == s0, "P0 00: mudou"
+        # 0 -> 4, e o caminho de volta 4 -> 0
+        s4 = h.pin_traduz(to_b, kd_b, pan0, e0, "04")
+        assert pinblock.decifra(kd, s4, pan0) == pin, "P0 04: PIN mudou"
+        v0 = h.pin_traduz(kd_b, to_b, pan0, s4, "40")
+        assert v0 == e0, "P0 40: bloco"
+        # o digito verificador nao entra no formato 0
+        outro_v = pan0[:-1] + str((int(pan0[-1]) + 1) % 10)
+        assert h.pin_traduz(to_b, td_b, outro_v, e0, "00") == s0, "verificador"
+
+        def recusa_f(codigo, formatos, *args):
+            try:
+                h.pin_traduz(*args, formatos)
+            except HostErro as e:
+                assert e.codigo == codigo, "P0 %s: %d, esperado %d" % (
+                    formatos, e.codigo, codigo)
+            else:
+                raise AssertionError("P0 %s aceito, esperado %d"
+                                     % (formatos, codigo))
+
+        ruim0 = bytes([e0[0] ^ 1]) + e0[1:]
+        recusa_f(14, "00", to_b, td_b, pan0, ruim0)        # bloco adulterado
+        # O penultimo digito do PAN cai sob o ultimo nibble do campo, que e
+        # sempre enchimento (o PIN tem no maximo 12 digitos, e ha 14 casas).
+        outro0 = pan0[:-2] + str((int(pan0[-2]) + 1) % 10) + pan0[-1]
+        recusa_f(14, "00", to_b, td_b, outro0, e0)         # PAN trocado
+        recusa_f(11, "00", ko_b, td_b, pan0, e0)           # origem AES
+        recusa_f(11, "00", to_b, kd_b, pan0, e0)           # destino AES
+        recusa_f(11, "40", to_b, td_b, pan0, s4)           # origem 3DES, f. 4
+        recusa_f(11, "04", to_b, td_b, pan0, e0)           # destino 3DES, f. 4
+        d3_b, _ = h.gen("D0", "B", "E", "T2")
+        recusa_f(11, "00", d3_b, td_b, pan0, e0)           # 3DES, mas nao P0
+        recusa_f(16, "00", to_b, td_b, "999999012345", e0) # PAN de 12
+        recusa_f(16, "10", to_b, td_b, pan0, e0)           # formato 1
+        recusa_f(16, "03", to_b, td_b, pan0, e0)           # formato 3
+        recusa_f(22, "00", to_b, td_b, pan0, e0 + b"\x00") # bloco longo
+        print("volta %d: P0 conferido (PIN de %d, PAN de %d e de %d, "
+              "formatos 4 e 0)" % (volta + 1, np, na, na0))
     print("%d de %d voltas conferidas" % (n, n))
     return 0
 
@@ -941,6 +990,8 @@ def main(argv=None):
     p = sub.add_parser("pin-traduz")
     for c in ("origem", "destino", "pan", "bloco"):
         p.add_argument(c)
+    p.add_argument("--formatos", default="44",
+                   help="origem e destino: 4 (AES) ou 0 (3DES); padrao 44")
     p = sub.add_parser("pin-confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
@@ -1023,7 +1074,8 @@ def main(argv=None):
             return tdes_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "pin-traduz":
             print(h.pin_traduz(a.origem, a.destino, a.pan,
-                               bytes.fromhex(a.bloco)).hex().upper())
+                               bytes.fromhex(a.bloco),
+                               a.formatos).hex().upper())
         elif a.cmd == "pin-confere":
             return pin_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "confere":

@@ -807,7 +807,7 @@ Não trocar por desvio condicional.
 
 Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vigor
 está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
-DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos, 8.5
+DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos (**feita**), 8.5
 verificação de PIN e o ataque de decimalização, 8.6 CVV, 8.7 troca de chaves 3DES,
 8.8 DUKPT, 8.9 MAC e dados com 3DES.
 
@@ -821,7 +821,7 @@ outra mais fraca.
 validados em hardware 2026-11-15.** Suíte de 28 testbenches em 11 h 46 (`tb_ecdsa`
 9 h 15, `tb_rsa` 4 h 19, `tb_tdes` 1 h 08); `regressao.py` com 17 passos em 219 s.
 Timing **+0,572 ns**, 0 critical warnings, 8081 LUTs, 7914 FF, BRAM 25,5, DSP 4.
-Firmware `0.8.3`, 46 944 bytes. Próxima: etapa 8.4.
+Firmware `0.8.3`, 46 944 bytes.
 
 ⚠ **O coprocessador só faz AES-256, e lê 32 bytes de chave.** Uma chave 3DES tem 16
 ou 24. A checagem de algoritmo mora em `uso_dados()`, `uso_mac()` e `uso_pin()`, em
@@ -878,8 +878,28 @@ dois: `fw/src/pinblock.c` e `host/pinblock.py`.
 ⚠ **Nenhum PAN real, nunca.** Os testes usam o prefixo inventado `999999`.
 
 ⚠ **O erro `14` do `P0` é um oráculo de formato, e está escrito no handler.** Com o
-formato 4 ele revela pouco. Quando entrar outro formato, a tradução entre formatos é
-onde moram os ataques clássicos: refazer o item de vazamento do checklist.
+formato 4 ele revela pouco. Com o formato 0 (etapa 8.4) ele revela o tamanho do PIN
+e parte de cada dígito, do terceiro em diante, a quem informa um PAN alterado: é
+ataque publicado, e a conta está em `host/test_pinblock.py` e no manual, seção 34.3.
+Não há conserto dentro do formato, e não é para tentar um (fundir códigos de erro
+não fecha nada): o controle é o log. Entrou outro formato: refazer o item de
+vazamento do checklist.
+
+**Etapa 8.4 (formato 0 e tradução entre formatos): ✅ validada em hardware 2026-11-15.** `tb_pin0` 2 h 21, `tb_pin` 1 h 27, `tb_tdes` 1 h 08; `regressao.py` com 17 passos em 232 s. Firmware `0.8.4`, 47 916 bytes. Próxima: etapa 8.5. O `P0` aceita os
+formatos `0` (3DES, PIN block de 16 caracteres) e `4` (AES, 32), nas quatro
+combinações.
+
+⚠ **Dentro do key store o PIN tem uma forma só, a do campo do formato 4**, qualquer
+que seja o formato de fora. `pinblock_f0_para_f4()` e `pinblock_f4_para_f0()`
+convertem. O algoritmo da chave tem de ser o do formato (`uso_pin()`).
+
+⚠ **O `P0` leva UM PAN, para a origem e para o destino.** Não acrescentar um
+segundo: traduzir trocando o PAN amarra o PIN de uma conta a outra. Os formatos 1 e
+3 ficaram fora; o 1 não leva o PAN, e a tradução para ele é a que a norma restringe.
+
+⚠ **O formato 0 não tem aleatório**: o bloco de saída é previsível, e o `tb_pin0` o
+compara inteiro com o do Python. Mexer no formato 0 exige mexer nos dois:
+`fw/src/pinblock.c` e `host/pinblock.py`.
 
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 

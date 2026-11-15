@@ -368,7 +368,7 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `E0` | `E1` | exportabilidade(1) | key block ‖ Qx(64) ‖ Qy(64) | `OPERATIONAL` |
 | `E2` | `E3` | key block ‖ digest(64) | r(64) ‖ s(64) | `OPERATIONAL` |
 | `E4` | `E5` | Qx(64) ‖ Qy(64) ‖ digest(64) ‖ r(64) ‖ s(64) | — (o veredito é o erro) | `OPERATIONAL` |
-| `P0` | `P1` | bloco da chave de origem ‖ bloco da chave de destino ‖ formato de origem(1) ‖ formato de destino(1) ‖ tamanho do PAN(2) ‖ PAN ‖ PIN block(32) | PIN block(32) | `OPERATIONAL` |
+| `P0` | `P1` | bloco da chave de origem ‖ bloco da chave de destino ‖ formato de origem(1) ‖ formato de destino(1) ‖ tamanho do PAN(2) ‖ PAN ‖ PIN block(16 ou 32) | PIN block(16 ou 32) | `OPERATIONAL` |
 
 Erros: `00` sem erro · `01` verificação falhou · `10` key block inválido ·
 `11` o uso ou o modo do bloco não permite · `12` chave não exportável · `13` o
@@ -385,10 +385,13 @@ que também é o padrão sem o campo; `T2` é 3DES de comprimento duplo; `T3` é
 3DES de comprimento triplo. Outro valor responde `16`. A seção 38.8 explica
 o que cada comando faz com uma chave 3DES.
 
-`P0` traduz um PIN block ISO 9564 formato 4 de uma chave de PIN para outra.
-As duas chaves têm uso `P0`, e os dois campos de formato só aceitam `4`. O
-tamanho do PAN vai em dois dígitos decimais, e o PAN, em dígitos ASCII. A
-seção 34.1 explica o comando.
+`P0` traduz um PIN block ISO 9564 de uma chave de PIN para outra, e de um
+formato para outro. As duas chaves têm uso `P0`. Cada campo de formato
+aceita `4` (AES, PIN block de 32 caracteres) ou `0` (3DES, 16 caracteres), e
+a chave tem de ser do algoritmo do formato; se não é, a resposta é `11`. O
+tamanho do PAN vai em dois dígitos decimais, e o PAN, em dígitos ASCII: de 1
+a 19, e de 13 a 19 quando um dos formatos é o `0`. As seções 34.1 a 34.3
+explicam o comando.
 
 `K4` e `K6` trocam chave com outra instituição sob uma **KEK** — chave de
 uso `K0` que as duas têm, formada por componentes no console
@@ -1127,7 +1130,12 @@ que não foi escrito:
 - Bond, M. — *Attacks on Cryptoprocessor Transaction Sets* (2001)
 - Bond, M. e Zieliński, P. — *Decimalisation Table Attacks for PIN Cracking*
   (2003)
-- Clulow, J. — *On the Security of Real-World PIN Processing* (2003)
+- Clulow, J. — *The Design and Analysis of Cryptographic Application
+  Programming Interfaces for Security Devices*, dissertação de mestrado,
+  University of Natal, Durban (2003) — ataques a PIN blocks
+- Berkman, O. e Ostrovsky, O. M. — *The Unbearable Lightness of PIN
+  Cracking*, Financial Cryptography 2007, LNCS 4886 — ataques pela função
+  de tradução
 - Boneh, DeMillo e Lipton — *On the Importance of Checking Cryptographic
   Protocols for Faults* (1997) — o ataque Bellcore
 - Kocher, P. — *Timing Attacks* (1996) e, com Jaffe e Jun, *Differential

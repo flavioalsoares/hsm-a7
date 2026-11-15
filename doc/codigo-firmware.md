@@ -145,7 +145,7 @@ handler, resultado no log. Nenhum comando de cerimônia está nela.
 |---|---|
 | `des.c` | DES e 3DES (TDEA) em software, direto da FIPS 46-3: uma rotina de permutação de bits, as tabelas da norma, o escalonamento de chave, a operação cifra-decifra-cifra e o CBC. Também a paridade das chaves e a recusa de chaves fracas. É o motor legado das funções de pagamento; o coprocessador continua só com AES-256. `tdes_ctx_comum()` é o único contexto do firmware |
 | `pkcs8.c` | a chave privada RSA-2048 e a P-256 em PKCS#8, DER: é o conteúdo do key block de uma chave assimétrica. Um escritor e um leitor de DER mínimos, e estritos. Calcula o expoente privado `d` ao montar. Só bytes, sem coprocessador |
-| `pinblock.c` | a forma do PIN block ISO 9564-1 formato 4: monta o campo do PAN e confere o campo do PIN, sem desvio pelo valor. Não tem chave nem cifra. A cifra e o campo do PIN em claro ficam em `keystore.c` (`keystore_pin_abre()`, `keystore_pin_fecha()`) |
+| `pinblock.c` | a forma do PIN block ISO 9564-1, formatos 0 e 4: monta o campo do PAN de cada formato, confere o campo do PIN e converte entre a forma do formato 0 e a do formato 4, sem desvio pelo valor. Não tem chave nem cifra. Dentro do key store o PIN fica sempre na forma do formato 4. A cifra e o campo do PIN em claro ficam em `keystore.c` (`keystore_pin_abre()`, `keystore_pin_fecha()`) |
 
 ### Fase 7: assimétrico
 

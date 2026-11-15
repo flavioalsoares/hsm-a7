@@ -174,10 +174,11 @@ unzip -qjo "$TMP/KAT_TDES.zip" 'KAT_TDES/TECB*.rsp' \
 unzip -qjo "$TMP/tdesmmt.zip" 'TECBMMT2.rsp' 'TECBMMT3.rsp' \
       'TCBCMMT2.rsp' 'TCBCMMT3.rsp' -d "$VEC/tdes/"
 
-# PIN block formato 4: tres valores, copiados literalmente. A extracao
+# PIN block, formatos 4 e 0: valores copiados literalmente. A extracao
 # falha se o arquivo de origem nao tiver exatamente um de cada.
 python3 "$ROOT/scripts/_extrai_pinblock.py" \
-        "$TMP/psec_test_pinblock.py" "$VEC/pinblock/iso9564_f4.rsp"
+        "$TMP/psec_test_pinblock.py" "$VEC/pinblock/iso9564_f4.rsp" \
+        "$VEC/pinblock/iso9564_f0.rsp"
 
 # CTR_DRBG vem num zip dentro do zip, e o arquivo completo tem 785 KB com
 # 3DES e AES-128/192 que este projeto nao usa. Filtra para [AES-256 ...].

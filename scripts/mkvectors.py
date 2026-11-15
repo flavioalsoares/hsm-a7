@@ -319,6 +319,29 @@ def pin():
     dados = pan.encode() + pb + pinblock.campo_pan(pan) + campo
     escreve("pin_dados", ["%02x" % x for x in dados], 2)
 
+    # ---- tb_pin0: formato 0, com chaves 3DES de PIN ---------------------
+    # O formato 0 nao tem aleatorio: o bloco de saida e previsivel, e o tb
+    # o compara inteiro com o que o Python calcula aqui.
+    import des
+    ko3 = des.paridade_impar(hashlib.sha256(b"tb_pin0: origem").digest()[:16])
+    kd3 = des.paridade_impar(hashlib.sha256(b"tb_pin0: destino").digest()[:24])
+
+    def bloco3(chave):
+        b = tr31.embrulha(lmk, chave, uso="P0", algoritmo="T", modo="B",
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != 112:
+            raise SystemExit("PIN: key block 3DES de %d caracteres" % len(b))
+        return ["%02x" % ord(c) for c in b]
+
+    escreve("pin0_ko", bloco3(ko3), 2)
+    escreve("pin0_kd", bloco3(kd3), 2)
+    entrada0 = pinblock.cifra0(ko3, pin_, pan)
+    saida0 = pinblock.cifra0(kd3, pin_, pan)
+    if pinblock.decifra0(kd3, saida0, pan) != pin_ or entrada0 == saida0:
+        raise SystemExit("PIN: formato 0 falhou no Python")
+    # PIN block sob a origem (8) . PIN block esperado sob o destino (8)
+    escreve("pin0_dados", ["%02x" % x for x in entrada0 + saida0], 2)
+
 
 def tdes():
     """Vetores do tb_tdes: chaves 3DES conhecidas, embrulhadas sob a LMK do tb

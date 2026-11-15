@@ -222,28 +222,34 @@ int keystore_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
                          const uint8_t iv[16], const uint8_t *entrada,
                          uint8_t *saida, uint32_t n, int cifrar);
 
-/* PIN block ISO 9564-1 formato 4 (fase 8). Traduzir e abrir sob uma chave e
- * fechar sob outra, e as duas nao cabem juntas no slot efemero. Entre as duas
- * chamadas, o campo do PIN em claro fica numa area propria DESTE arquivo: ele
- * nunca aparece num handler, nem na pilha de quem chama.
+/* PIN block ISO 9564-1, formatos 0 e 4 (fase 8). Traduzir e abrir sob uma
+ * chave e fechar sob outra, e as duas nao cabem juntas no slot efemero. Entre
+ * as duas chamadas, o campo do PIN em claro fica numa area propria DESTE
+ * arquivo: ele nunca aparece num handler, nem na pilha de quem chama. La ele
+ * fica sempre na forma do formato 4, qualquer que seja o formato de fora.
+ *
+ * `formato` e '4' (AES: `pan_campo` e `bloco` de 16 bytes) ou '0' (3DES: os
+ * dois de 8 bytes). O campo do PAN e o de pinblock.h para aquele formato.
  *
  * `keystore_pin_abre()` decifra `bloco` com a chave do slot e o campo do PAN, e
- * confere o formato. `keystore_pin_fecha()` sorteia de novo os 8 bytes
- * aleatorios, cifra sob a chave do slot e apaga o campo. As duas calculam duas
- * vezes, com a chave carregada de novo, como tudo o que sai ao host (fase 6).
+ * confere o formato. `keystore_pin_fecha()` cifra sob a chave do slot e apaga
+ * o campo; no formato 4, sorteia de novo os 8 bytes aleatorios. As duas
+ * calculam duas vezes, com a chave carregada de novo, como tudo o que sai ao
+ * host (fase 6).
  *
- * A chave precisa de uso P0. Abrir pede modo 'D' ou 'B'; fechar, 'E' ou 'B'.
+ * A chave precisa de uso P0 e do algoritmo do formato: AES para o 4, 3DES
+ * para o 0. Abrir pede modo 'D' ou 'B'; fechar, 'E' ou 'B'.
  *
- * Devolvem 0; -1 se o uso ou o modo proibe; -2 se as duas execucoes
- * discordaram (erro grave marcado); -3 em erro interno; -4 (so a abre) se o
- * bloco aberto nao e um formato 4 bem formado.
+ * Devolvem 0; -1 se o uso, o algoritmo ou o modo proibe; -2 se as duas
+ * execucoes discordaram (erro grave marcado); -3 em erro interno; -4 (so a
+ * abre) se o bloco aberto nao e um campo bem formado daquele formato.
  *
  * `keystore_pin_apaga()` apaga o campo. O despachante a chama no fim de todo
  * comando. */
-int  keystore_pin_abre(ks_handle_t h, const uint8_t pan_campo[16],
-                       const uint8_t bloco[16]);
-int  keystore_pin_fecha(ks_handle_t h, const uint8_t pan_campo[16],
-                        uint8_t bloco[16]);
+int  keystore_pin_abre(ks_handle_t h, uint8_t formato,
+                       const uint8_t *pan_campo, const uint8_t *bloco);
+int  keystore_pin_fecha(ks_handle_t h, uint8_t formato,
+                        const uint8_t *pan_campo, uint8_t *bloco);
 void keystore_pin_apaga(void);
 
 /* MAC sob a chave de um slot -- CMAC-AES-256, SP 800-38B.

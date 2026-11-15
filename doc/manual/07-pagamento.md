@@ -74,6 +74,62 @@ Bloco de 64 bits, porque nasceu para DES.
   controla o PAN que entra no XOR, ele controla metade do bloco — e é daí
   que saem os ataques de tradução da seção 15.3.
 
+**Os campos, nibble a nibble.** Um nibble é meio byte, um dígito
+hexadecimal. O bloco tem 16.
+
+```
+   campo do PIN    0 | N | P P P P ... | F F F ... F
+                   |   |   |             +-- enchimento F ate o fim
+                   |   |   +-- os N digitos do PIN
+                   |   +-- tamanho do PIN, de 4 a 12
+                   +-- controle: formato 0
+
+   campo do PAN    0 0 0 0 | os 12 digitos do PAN a direita,
+                             sem o ultimo
+```
+
+O último dígito do PAN é o dígito verificador, calculado dos outros. Ele
+não entra, porque não acrescenta nada.
+
+**Um exemplo, com números.** PIN `48213`, PAN inventado `9999990123456789`,
+chave 3DES dupla `0123456789ABCDEF FEDCBA9876543210`:
+
+```
+   campo do PIN   0 5 4 8 2 1 3 F F F F F F F F F
+   campo do PAN   0 0 0 0 9 9 9 0 1 2 3 4 5 6 7 8
+   XOR            0 5 4 8 B 8 A F E D C B A 9 8 7
+   3DES           2DC3F05263417865                  (o PIN block)
+```
+
+Olhe a linha do XOR. Os quatro primeiros nibbles são os do campo do PIN,
+intactos: o campo do PAN é zero ali. O controle, o tamanho e os **dois
+primeiros dígitos do PIN** não se misturam com nada. Do terceiro dígito em
+diante, cada nibble é um dígito do PIN, ou um `F`, combinado com um dígito
+do PAN.
+
+Quem abre o bloco desfaz a cifra, refaz o XOR com o campo do PAN e confere:
+controle `0`, tamanho de 4 a 12, dígitos de 0 a 9, enchimento `F`.
+
+**Três diferenças para o formato 4**, que a seção 33.4 descreve:
+
+| | Formato 0 | Formato 4 |
+|---|---|---|
+| Cifra e bloco | 3DES, 8 bytes | AES, 16 bytes |
+| Aleatório | nenhum: mesmo PIN, mesmo PAN e mesma chave dão sempre o mesmo bloco | 8 bytes novos a cada bloco |
+| Como o PAN entra | por XOR, **antes** da única cifragem | por XOR, **entre** duas cifragens |
+
+A terceira linha é a que decide a segurança. No formato 0, trocar um dígito
+do PAN troca um nibble conhecido do bloco em claro. No formato 4, trocar um
+dígito do PAN embaralha o bloco inteiro, porque há uma cifragem depois. A
+seção 34.3 mostra o que isso custa.
+
+Um bloco ao acaso passa na conferência do formato 0 com a mesma chance do
+formato 4, cerca de uma vez em 2²⁴: os dois formatos têm o mesmo número de
+campos válidos, e a metade aleatória do formato 4 não é conferida.
+
+**Neste equipamento**, o formato 0 usa uma chave de PIN 3DES, dupla ou
+tripla, e o PAN tem de 13 a 19 dígitos.
+
 ### 33.2 Formato 1 — quando não há conta
 
 Usa preenchimento **aleatório** e não inclui o PAN. Existe para o caso em
@@ -202,7 +258,7 @@ sob a segunda chave:
 
 | Pedido | Resposta | Entrada | Saída |
 |---|---|---|---|
-| `P0` traduzir | `P1` | key block de origem · key block de destino · formato de origem(1) · formato de destino(1) · tamanho do PAN(2) · PAN · PIN block(32) | PIN block(32) |
+| `P0` traduzir | `P1` | key block de origem · key block de destino · formato de origem(1) · formato de destino(1) · tamanho do PAN(2) · PAN · PIN block(16 ou 32) | PIN block(16 ou 32) |
 
 As regras:
 
@@ -213,13 +269,20 @@ As regras:
 - **O modo conta.** A chave de origem precisa decifrar (`D` ou `B`), e a de
   destino precisa cifrar (`E` ou `B`). Uma chave de modo `E` serve a um
   equipamento que só envia PINs adiante, e nunca abre o que recebe.
-- **O formato é conferido.** Se o bloco aberto não é um formato 4 bem
-  formado, a resposta é `14` e nada sai. É o veredito de "deu certo" de que
-  a seção fala. Com o formato 4 ele revela pouco: não separa um PIN de
-  outro, e um bloco forjado ao acaso só passa uma vez em 17 milhões. Isso
-  não é barreira contra quem pergunta em laço: o controle é o log.
-- **O aleatório é novo.** O bloco de saída não herda os 8 bytes aleatórios
-  do bloco de entrada. Dois pedidos iguais dão duas saídas diferentes.
+- **O formato escolhe a cifra.** O formato `4` pede chave AES, e o formato
+  `0`, chave 3DES. Chave de PIN do algoritmo errado responde `11`. O PIN
+  block tem 32 caracteres hexadecimais no formato 4, e 16 no formato 0.
+- **O formato é conferido.** Se o bloco aberto não é um campo bem formado do
+  formato de origem, a resposta é `14` e nada sai. É o veredito de "deu
+  certo" de que a seção fala. Com o formato 4 ele revela pouco: não separa
+  um PIN de outro, e um bloco forjado ao acaso só passa uma vez em 17
+  milhões. Isso não é barreira contra quem pergunta em laço: o controle é o
+  log. Com o formato 0 ele revela parte do PIN, e a seção 34.3 faz a conta.
+- **O aleatório é novo.** No formato 4, o bloco de saída não herda os 8
+  bytes aleatórios do bloco de entrada: dois pedidos iguais dão duas saídas
+  diferentes. O formato 0 não tem aleatório, e dois pedidos iguais dão a
+  mesma saída.
+- **Um PAN só.** O pedido leva um PAN, que vale para abrir e para fechar.
 - **O resultado é calculado duas vezes**, na abertura e no fechamento, como
   tudo o que sai ao host (seção 29).
 
@@ -227,9 +290,132 @@ O PIN em claro fica numa área do key store, entre abrir com uma chave e
 fechar com a outra. Ele não passa pelo código que interpreta o comando, e é
 apagado no fim do comando, qualquer que seja o resultado.
 
-Hoje os dois campos de formato só aceitam `4`. Eles existem porque o uso
-real do comando é traduzir entre formatos, e é nessa conversão que moram os
-ataques da seção 15.3.
+### 34.2 Traduzir entre formatos
+
+Um terminal novo cifra o PIN em formato 4, com AES. A rede que leva a
+transação ao emissor, em muitos casos, só fala formato 0, com 3DES. Alguém
+no caminho tem de converter, e esse alguém é o HSM do adquirente. É o uso
+mais comum da tradução hoje.
+
+O `P0` aceita as quatro combinações:
+
+| Formatos | Origem | Destino | Uso típico |
+|---|---|---|---|
+| `44` | AES | AES | de uma chave de zona AES para outra |
+| `40` | AES | 3DES | do terminal novo para a rede antiga |
+| `04` | 3DES | AES | da rede antiga para um emissor novo |
+| `00` | 3DES | 3DES | de uma chave de zona 3DES para outra |
+
+Dentro do equipamento o PIN fica sempre na mesma forma, qualquer que seja o
+formato de fora. Abrir converte para essa forma; fechar converte dela para o
+formato de destino. A conversão troca o controle e o enchimento, e mantém o
+tamanho e os dígitos.
+
+**O que a norma restringe, e por quê.** A ISO 9564-1 não deixa traduzir de
+qualquer formato para qualquer formato. A regra geral: um bloco amarrado à
+conta não pode virar um bloco sem conta. Os formatos 0, 3 e 4 levam o PAN, e
+a tradução entre eles é permitida. O formato 1 não leva. Traduzir do 0 para
+o 1 soltaria o PIN da conta, e o bloco resultante valeria para qualquer
+cartão. O sentido contrário também é perigoso: Berkman e Ostrovsky (2007)
+mostraram um ataque que só usa a tradução, do formato 1 para o formato 0,
+com o PAN escolhido pelo atacante e uma tabela de blocos já vistos. Este
+equipamento só tem o 0 e o 4, e as quatro combinações estão dentro da regra.
+
+A segunda restrição é sobre o PAN: a tradução não pode trocar a conta. Um
+comando que abre o bloco com um PAN e o fecha com outro amarra o PIN de um
+cliente ao cartão de outro. Por isso o `P0` leva um PAN só.
+
+**Do forte para o fraco.** A tradução `40` tira o PIN de um bloco AES e o
+põe num bloco 3DES. A regra da seção 37.2, "uma chave nunca sai embrulhada
+por outra mais fraca", vale para **chaves**, e não para PINs: o PIN segue o
+caminho que a rede tem. O formato 4 no terminal protege o trecho do
+terminal, e não o caminho inteiro.
+
+### 34.3 O que o erro `14` revela no formato 0
+
+A seção 34 diz que o comando revela "se deu certo", e que isso basta. Aqui
+está a conta, para o formato 0. O ataque é público, e é conhecido como
+ataque de modificação do PAN: está na dissertação de Clulow, de 2003
+(referência no Apêndice).
+
+**O que o atacante tem.** Um PIN block formato 0 capturado, o PAN daquela
+conta, e acesso ao comando de tradução. Ele não tem chave nenhuma em claro.
+
+**O que ele faz.** Pede a tradução do bloco, mas informa o PAN com **um
+dígito trocado**. O equipamento abre o bloco, e faz o XOR com o campo do
+PAN informado, e não com o verdadeiro. O resultado é o campo do PIN com um
+nibble alterado:
+
+```
+   nibble que o equipamento ve  =  nibble verdadeiro  XOR  d
+
+   d  =  digito verdadeiro do PAN  XOR  digito informado
+```
+
+O atacante conhece `d`, porque conhece os dois dígitos. Ele não vê o
+nibble. Vê só se o equipamento respondeu `00` ou `14`.
+
+**Sob o enchimento**, qualquer troca estraga o `F`, e a resposta é `14`.
+**Sob um dígito do PIN**, a resposta depende do dígito: sai `14` quando o
+resultado passa de 9. Com o exemplo da seção 33.1, em que o terceiro dígito
+do PIN é `2` e está sob um `9` do PAN:
+
+| PAN informado, naquela posição | `d` | O equipamento vê | Resposta |
+|---|---|---|---|
+| `9` (o verdadeiro) | 0 | `2` | `00` |
+| `8` | 1 | `2 XOR 1 = 3` | `00` |
+| `1` | 8 | `2 XOR 8 = A` | `14` |
+| `3` | A | `2 XOR A = 8` | `00` |
+| `0` | 9 | `2 XOR 9 = B` | `14` |
+
+A terceira e a quarta linhas, juntas, dizem que o dígito é 2 ou 3: são os
+únicos valores que dão mais que 9 com `d = 8` e não com `d = A`.
+
+**O que sai, medido por programa** (`host/test_pinblock.py` faz o papel do
+atacante, com 9 trocas em cada uma das 12 posições, 108 pedidos):
+
+- **O tamanho do PIN, sempre.** Trocar o dígito do PAN por ele mesmo `XOR 1`
+  mantém válido um dígito de PIN, porque `XOR 1` leva dígito em dígito, e
+  estraga um enchimento. A última posição que responde `00` é o fim do PIN.
+- **Parte de cada dígito, do terceiro em diante.** Quanto, depende do dígito
+  do PAN que está na mesma posição:
+
+| Dígito do PAN | O atacante separa o dígito do PIN em |
+|---|---|
+| 0 ou 1 | {0,1} {2,3,4,5,6,7} {8,9} |
+| 2 ou 3 | {2,3} {0,1,4,5,6,7} {8,9} |
+| 4 ou 5 | {4,5} {0,1,2,3,6,7} {8,9} |
+| 6 ou 7 | {6,7} {0,1,2,3,4,5} {8,9} |
+| 8 ou 9 | {0,1} {2,3} {4,5} {6,7} {8,9} |
+
+  Em média, de 10 candidatos sobram 3,9. Com um 8 ou um 9 no PAN, sobram 2.
+- **O último bit de cada dígito nunca sai.** `XOR 1` nunca muda a resposta.
+- **Os dois primeiros dígitos nunca saem.** O campo do PAN é zero ali, e o
+  atacante não tem o que trocar.
+
+Para um PIN de 4 dígitos, o atacante sai com os dois últimos dígitos
+reduzidos, em média, de 100 combinações para cerca de 15. Não é o PIN
+inteiro. O ataque completo, na literatura, junta este veredito com outros
+comandos, e com outros formatos, até fechar o PIN.
+
+**Por que o formato 4 não tem esse problema.** Nele, o PAN entra depois de
+uma cifragem. Trocar um dígito do PAN muda um nibble do bloco **cifrado**
+intermediário, e a segunda decifragem espalha a mudança pelo bloco inteiro.
+A resposta é `14` com probabilidade de quase 1, qualquer que seja o PIN.
+
+**Por que o equipamento não conserta.** Não há conserto dentro do formato.
+Esconder o `14` atrás de outro código não muda nada: a resposta continua
+sendo sucesso ou recusa. Recusar PAN "diferente do verdadeiro" é impossível:
+o equipamento não sabe qual é o verdadeiro. O que o mercado faz é de fora:
+
+- restringir quem fala com o HSM, e por qual rede;
+- registrar e vigiar as recusas: 108 erros `14` sobre o mesmo bloco não
+  acontecem em operação normal;
+- migrar para o formato 4, onde o veredito não diz nada.
+
+Neste equipamento, toda recusa do `P0` entra no log de auditoria, com o
+código de erro. É o único controle que ele tem contra este ataque, e é o
+mesmo que um equipamento comercial tem.
 
 ---
 

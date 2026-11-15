@@ -110,6 +110,22 @@ uso    fase 8 — o formato do PIN block. Baixado em 2026-11-14.
        Python (`host/pinblock.py`); o firmware é conferido contra o
        Python, e contra os dois campos, que não dependem de chave.
 
+[PIN block ISO 9564-1 formato 0]  valores conhecidos de TERCEIROS
+url    o mesmo arquivo do formato 4, acima (mesmo commit, mesmo hash)
+extrai onze valores do formato 0, pelo scripts/_extrai_pinblock.py
+uso    fase 8, etapa 8.4. Extraído em 2026-11-15.
+
+       ⚠ PROCEDÊNCIA: FONTE SECUNDÁRIA, como a do formato 4.
+
+       O que eles cobrem: o bloco EM CLARO do formato 0 (campo do PIN XOR
+       campo do PAN), para PINs de 4, 9, 10 e 12 dígitos e um PAN de 16; e
+       cinco blocos malformados (controle, tamanho, enchimento, dígito).
+
+       O que NÃO cobrem: a cifra. No formato 0 ela é um bloco de 3DES, e o
+       3DES tem vetor oficial do NIST (`tdes/`). Não cobrem também PAN de
+       outro tamanho: a regra dos 12 dígitos à direita, sem o verificador,
+       é conferida só entre o C e o Python.
+
 [CTR_DRBG]  NIST CAVP — SP 800-90A
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/drbg/drbgtestvectors.zip
 sha256 5f7e5658ebd5b4e6785a7b12fa32333511d2acc2f2d9c5ae1ffa16b699377769
@@ -142,6 +158,7 @@ f0e4a23c88630ab5f35cce8f6ad10b5ced08ae5745c4cccf652aa881a8046292  rsa/KeyGen_186
 19c49b8fc7102cc12476e215854cd228f1f8c0d316f0ea2df6c183f167e9724a  rsa/SigGen15_186-3.txt
 39d78f2653758bfbdc78e6188ddfda134097cd83198cfc9e0105f0684c8ef9ab  tr31/x9143_D_AES256.rsp
 884959d3b61c4a9af5fd5bb3619d78958f92ac17145a43585aae9facaf7bd1e2  pinblock/iso9564_f4.rsp
+98b88b6037af73855532a0ebdd01b7a93e73ab24553b0c200183a7797763fc78  pinblock/iso9564_f0.rsp
 4d4969210c1d61550a908818b4f61d01f8b6048a40afa9ae09a788a96965d36c  tdes/TCBCMMT2.rsp
 0ea39ced9720b3855c8d517e1b0a9493b9b515eaa426d6580f592024685590c6  tdes/TCBCMMT3.rsp
 ff3b3f84784e1e4f11d23a9a9497d9bf95bd60b474259c28b979543556f80fbd  tdes/TCBCinvperm.rsp

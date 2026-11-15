@@ -294,15 +294,20 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   a biblioteca, nos dois sentidos.
 - **`hsmhost.py pkcs8-confere --lmk LMK [-n N]`** prova a interoperabilidade na
   placa: chave gerada no equipamento e usada pela biblioteca, e o contrário.
-- **`host/pinblock.py`** é o PIN block formato 4 em Python: os dois campos, a
-  cifra e a decifração. Faz o papel do terminal e o do destino nos testes.
-- **`hsmhost.py pin-traduz ORIGEM DESTINO PAN BLOCO`** manda um `P0`.
-- **`hsmhost.py pin-confere --lmk LMK [-n N]`** gera duas chaves de PIN, cifra
-  um PIN no Python, traduz com `P0` e abre o resultado no Python. Cobra também
-  as recusas: bloco, PAN e chave trocados, e chave que não é de PIN.
+- **`host/pinblock.py`** é o PIN block em Python, nos formatos 4 (AES) e 0
+  (3DES, com o `host/des.py`): os campos, a cifra e a decifração. Faz o papel
+  do terminal e o do destino nos testes.
+- **`hsmhost.py pin-traduz ORIGEM DESTINO PAN BLOCO [--formatos XY]`** manda um
+  `P0`. `XY` é o formato de origem e o de destino, `4` ou `0`; o padrão é `44`.
+- **`hsmhost.py pin-confere --lmk LMK [-n N]`** gera chaves de PIN AES e 3DES,
+  cifra um PIN no Python, traduz com `P0` e abre o resultado no Python. No
+  formato 0 o bloco de saída é previsível, e o teste o compara inteiro. Cobra
+  também as recusas: bloco, PAN e chave trocados, chave que não é de PIN, e
+  chave de algoritmo diferente do formato.
 - **`host/test_pinblock.py`** não fala com a placa. Confere o Python contra os
-  valores de terceiros e compila `fw/src/pinblock.c` com `gcc` para comparar a
-  forma dos campos.
+  valores de terceiros dos dois formatos, compila `fw/src/pinblock.c` com
+  `gcc` para comparar a forma dos campos e as conversões, e mede o que o
+  veredito do formato 0 revela a quem altera o PAN (manual, seção 34.3).
 
 - **`host/regressao.py --lmk LMK [--rapido]`** é a regressão na placa: roda o
   `ping`, o `post`, os sensores, todos os `confere`, os vetores do CAVP e o

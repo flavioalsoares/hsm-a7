@@ -84,7 +84,7 @@ def main(argv=None):
         ("chaves 3DES (K0 T2/T3, K2, K4, K6)",
          host + ["tdes-confere", "--lmk", a.lmk, "-n", n(10, 2)], 600,
          ["voltas conferidas"]),
-        ("traducao de PIN (P0)",
+        ("traducao de PIN (P0), formatos 4 e 0",
          host + ["pin-confere", "--lmk", a.lmk, "-n", n(50, 9)], 900,
          ["voltas conferidas"]),
         ("ECDSA, vetores do CAVP (E4, E2)",

@@ -14,7 +14,7 @@ pagamento.
 | 8.1 | PIN block ISO 9564-1 formato 4 e tradução de PIN (`P0`) | pronta, validada na placa |
 | 8.2 | Motor DES e 3DES, com autoteste nos vetores do NIST | pronta, validada na placa em 2026-11-15 |
 | 8.3 | Chave 3DES no key store: algoritmo `T` no key block, paridade, KCV | pronta, validada na placa em 2026-11-15 |
-| 8.4 | PIN block formato 0, tradução entre formatos e entre chaves | a fazer |
+| 8.4 | PIN block formato 0, tradução entre formatos e entre chaves | pronta, validada na placa em 2026-11-15 |
 | 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | a fazer |
 | 8.6 | CVV: gerar e verificar | a fazer |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | a fazer |
@@ -203,6 +203,100 @@ paridade, KCV, exportação sob KEK AES e as recusas.
 ✅ **Validado na placa em 2026-11-15**: `tdes-confere` com 10 voltas, dentro da
 regressão.
 
+## Etapa 8.4: formato 0 e tradução entre formatos
+
+Estado: pronto. Na placa em 2026-11-15: `hsmtool build` respondeu `v0.8.4` e CONFERE; `regressao.py` passou nos 17 passos em 232 s, com 50 voltas do `pin-confere` em 64,5 s. Firmware de 47 916 bytes (73% da IMEM). Timing +0,572 ns, 0 critical warnings.
+
+O `P0` passa a aceitar o formato 0 da ISO 9564-1, com chave de PIN 3DES, e a
+traduzir entre o formato 0 e o formato 4, nos dois sentidos. A teoria está no
+manual: seção 33.1 (o formato, com exemplo numérico), 34.2 (a tradução entre
+formatos e o que a norma restringe) e 34.3 (o que o erro `14` revela).
+
+### As peças
+
+| Arquivo | O que mudou |
+|---|---|
+| `fw/src/pinblock.c` | `pinblock_campo_pan0()`; `pinblock_f0_para_f4()`, que confere um campo formato 0 e o converte; `pinblock_f4_para_f0()`, o caminho de volta. A conferência dos dois formatos é uma função só, com o controle e o enchimento como parâmetros |
+| `fw/src/keystore.c` | `keystore_pin_abre()` e `keystore_pin_fecha()` ganham o parâmetro `formato`. `pin_passada0()` é a cifra do formato 0, com o 3DES de `des.c`. `uso_pin()` passa a exigir o algoritmo do formato |
+| `fw/src/cmd_ascii.c` | o `P0` lê os dois formatos, monta o campo do PAN de cada lado e aceita PIN block de 16 ou de 32 caracteres |
+| `host/pinblock.py` | o formato 0 em Python: `cifra0()`, `decifra0()` e os campos |
+| `host/hsmhost.py` | `pin-traduz --formatos`, e o `pin-confere` com os dois formatos |
+
+### Decisões de implementação
+
+- **Dentro do key store o PIN tem uma forma só**, a do campo do formato 4.
+  Abrir um bloco formato 0 converte para ela; fechar em formato 0 converte de
+  volta. `g_pin` não mudou de tamanho nem de regra: continua sendo o único lugar
+  do PIN em claro.
+- **A conversão não desvia pelo valor do PIN.** O tamanho decide, por máscara, o
+  que é dígito e o que é enchimento, como na conferência.
+- **O algoritmo da chave é conferido com o formato**, em `uso_pin()`: AES para o
+  4, 3DES para o 0. A recusa é `11`, a mesma de uma chave que não é de PIN.
+- **As subchaves do 3DES são derivadas a cada execução** e apagadas na saída.
+  É o equivalente, no motor em C, de carregar a chave de novo no coprocessador
+  antes de cada uma das duas contas (fase 6).
+- **Um PAN por pedido**, para a origem e para o destino. Um segundo PAN faria do
+  comando uma forma de amarrar o PIN de uma conta a outra.
+- **PAN de 13 a 19 dígitos no formato 0.** A norma define enchimento com zeros
+  para PAN mais curto; a implementação de referência dos valores conhecidos
+  recusa, e o equipamento também. Cartão de pagamento tem 13 dígitos ou mais.
+- **Formatos 1 e 3 ficaram fora.** O 1 não leva o PAN, e a tradução para ele é a
+  que a norma restringe. O 3 é o 0 com enchimento aleatório.
+
+### O checklist do `P0`, refeito
+
+O `CLAUDE.md` pedia para refazer o item de vazamento quando entrasse outro
+formato. Os outros itens não mudaram: `OPERATIONAL`, sem dual control, nenhuma
+chave sai, log antes.
+
+**Vazamento.** Com o formato 0, o erro `14` revela parte do PIN a quem pode
+informar um PAN alterado. Medido por `host/test_pinblock.py`, com 108 pedidos
+por bloco:
+
+| O que sai | Quanto |
+|---|---|
+| O tamanho do PIN | sempre |
+| Cada dígito, do terceiro em diante | de 10 candidatos sobram 3,92 em média; 2 quando o dígito do PAN na mesma posição é 8 ou 9 |
+| Os dois primeiros dígitos | nada |
+| O último bit de cada dígito | nada |
+
+Não há conserto dentro do formato, e o equipamento não tenta um: fundir o `14`
+com outro código não muda o que o atacante vê, que é sucesso ou recusa. O
+controle é o log, que registra cada pedido recusado, e o acesso à porta host. É
+o que a categoria faz. O handler tem a conta escrita no comentário.
+
+Outro ponto, que não é vazamento do comando e sim do formato: o formato 0 não
+tem aleatório. Quem vê dois PIN blocks iguais sob a mesma chave e o mesmo PAN
+sabe que o PIN é o mesmo.
+
+### Vetores
+
+Onze valores do formato 0, do mesmo arquivo de terceiros do formato 4 (mesmo
+commit e mesmo hash no `MANIFEST.txt`), extraídos sem cálculo por
+`scripts/_extrai_pinblock.py` para `vectors/pinblock/iso9564_f0.rsp`. São blocos
+**em claro**: seis bem formados e cinco malformados. A cifra é um bloco de 3DES,
+coberta pelos vetores do NIST.
+
+### Medidas
+
+| Medida | Valor |
+|---|---|
+| Firmware | 47 916 bytes de código, 972 a mais |
+| RTL | sem mudança |
+
+### Testes
+
+| Teste | O que prova | Tempo |
+|---|---|---|
+| `host/test_pinblock.py` | **no PC**: os onze valores de terceiros; ida e volta com 3DES duplo e triplo, para todo tamanho de PIN e de PAN; o dígito verificador não entra; o C do firmware contra o Python no campo do PAN, na conferência e nas duas conversões; a medida do vazamento | 3 s |
+| `tb_pin0` | pela UART, com o firmware real. Formato 0 para 0, de 3DES dupla para tripla, e formato 4 para 0: o bloco de saída é igual, byte a byte, ao que o Python calculou. Formato 0 para 4: o `C2` abre o bloco e o campo do PIN confere. Dígito verificador trocado: mesmo bloco. Bloco adulterado e PAN trocado (`14`); algoritmo da chave diferente do formato, nos quatro casos (`11`); PAN de 12 dígitos e formato `1` (`16`) | 2 h 21, 730 ms simulados |
+| `tb_pin` | os passos da etapa 8.1, com o código novo | 1 h 27 |
+| `tb_tdes` | sem mudança; roda de novo porque o código vizinho mudou | 1 h 08 |
+
+`hsmhost.py pin-confere --lmk LMK [-n N]` é a prova na placa. A cada volta,
+além dos passos do formato 4: tradução `00` com o bloco de saída previsto pelo
+Python, `04` aberta pelo Python, `40` de volta ao bloco original, e doze recusas.
+
 ## PKCS#8 no key block
 
 Decisão do usuário em 2026-11-14: o conteúdo do key block de uma chave RSA ou de
@@ -293,7 +387,7 @@ Estado: pronto. Na placa em 2026-11-15, `hsmtool build` respondeu `v0.8.3` e o h
 
 - **`fw/include/versao.h`** é o único lugar do número. `MINOR` é a fase e `PATCH`
   é a etapa entregue. O `GET_VERSION`, o `GET_BUILD` e o `D0` leem dali. A versão
-  atual é a `0.8.3`.
+  atual é a `0.8.4`.
 - **Comando novo no console, `0x04 GET_BUILD`:** devolve a versão e o SHA-256 dos
   64 KB da memória de código, calculado na hora pelo coprocessador. Responde em
   todo estado normal, sem dual control e fora do log, como os outros informativos.

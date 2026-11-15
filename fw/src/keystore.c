@@ -548,12 +548,18 @@ int keystore_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
 /* PIN block (fase 8)                                                  */
 /* ------------------------------------------------------------------ */
 
-/* 1 se o `uso` do slot e P0, chave de PIN. O codigo exato: uma chave de
- * dados que abrisse PIN blocks seria o C2 decifrando PINs. */
-static int uso_pin(int i)
+/* 1 se o `uso` do slot e P0, chave de PIN, e o algoritmo e o do formato:
+ * AES para o formato 4, 3DES para o formato 0. O codigo exato do uso: uma
+ * chave de dados que abrisse PIN blocks seria o C2 decifrando PINs. */
+static int uso_pin(int i, uint8_t formato)
 {
-    /* O formato 4 e AES. A chave de PIN 3DES e do formato 0 (etapa 8.4). */
-    return (g_slots[i].algoritmo == KS_ALG_AES) &&
+    uint8_t alg = (formato == (uint8_t)PIN_FORMATO_0) ? (uint8_t)KS_ALG_TDES
+                                                      : (uint8_t)KS_ALG_AES;
+    if ((formato != (uint8_t)PIN_FORMATO_0) &&
+        (formato != (uint8_t)PIN_FORMATO_4)) {
+        return 0;
+    }
+    return (g_slots[i].algoritmo == alg) &&
            (g_slots[i].uso[0] == (uint8_t)KS_USO_PIN[0]) &&
            (g_slots[i].uso[1] == (uint8_t)KS_USO_PIN[1]);
 }
@@ -565,9 +571,9 @@ static int uso_pin(int i)
  *   decifrar:  saida = D( D(entrada) ^ pan )      saida   = campo do PIN
  *
  * FRONTEIRA: dentro. `meio` e um valor intermediario e sai apagado. */
-static int pin_passada(int i, const uint8_t pan[PIN_BLOCO],
-                       const uint8_t entrada[PIN_BLOCO],
-                       uint8_t saida[PIN_BLOCO], int cifrar)
+static int pin_passada4(int i, const uint8_t pan[PIN_BLOCO],
+                        const uint8_t entrada[PIN_BLOCO],
+                        uint8_t saida[PIN_BLOCO], int cifrar)
 {
     static const uint8_t zero[AES_BLOCO] = { 0u };
     uint8_t  meio[PIN_BLOCO];
@@ -588,10 +594,47 @@ static int pin_passada(int i, const uint8_t pan[PIN_BLOCO],
     return r;
 }
 
-/* 1 se o slot e chave de PIN e o `modo` permite `precisa` (CIFRA/DECIFRA). */
-static int pin_pode(int i, uint8_t precisa)
+/* Uma passada do formato 0 sob a chave 3DES do slot. As subchaves sao
+ * derivadas AQUI, a cada chamada, e apagadas na saida: e o equivalente de
+ * carregar a chave de novo no coprocessador.
+ *
+ *   cifrar:    saida = E( entrada ^ pan )         entrada = campo do PIN
+ *   decifrar:  saida = D( entrada ) ^ pan         saida   = campo do PIN
+ *
+ * FRONTEIRA: dentro. `meio` e o campo do PIN misturado ao PAN. */
+static int pin_passada0(int i, const uint8_t pan[PIN_BLOCO_0],
+                        const uint8_t entrada[PIN_BLOCO_0],
+                        uint8_t saida[PIN_BLOCO_0], int cifrar)
 {
-    if (!uso_pin(i)) {
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    uint8_t  meio[PIN_BLOCO_0];
+    uint32_t j;
+    int      r = -1;
+
+    if (tdes_prepara(ctx, g_slots[i].chave, g_slots[i].key_len) == 0) {
+        if (cifrar) {
+            for (j = 0u; j < PIN_BLOCO_0; j++) {
+                meio[j] = (uint8_t)(entrada[j] ^ pan[j]);
+            }
+            tdes_bloco(ctx, meio, saida, 1);
+        } else {
+            tdes_bloco(ctx, entrada, meio, 0);
+            for (j = 0u; j < PIN_BLOCO_0; j++) {
+                saida[j] = (uint8_t)(meio[j] ^ pan[j]);
+            }
+        }
+        r = 0;
+    }
+    tdes_apaga(ctx);
+    wipe(meio, sizeof meio);
+    return r;
+}
+
+/* 1 se o slot e chave de PIN do formato pedido, e o `modo` permite
+ * `precisa` (CIFRA/DECIFRA). */
+static int pin_pode(int i, uint8_t formato, uint8_t precisa)
+{
+    if (!uso_pin(i, formato)) {
         return 0;
     }
     return ((g_slots[i].modo == KS_MODO_AMBOS) ||
@@ -604,35 +647,58 @@ void keystore_pin_apaga(void)
     g_pin_ok = 0u;
 }
 
+/* Abre o bloco uma vez, e deixa em `campo4` o PIN na forma do formato 4.
+ * Devolve 0, ou -3 em erro interno. `*valido` diz se o formato confere.
+ *
+ * FRONTEIRA: dentro. */
+static int pin_abre_uma(int i, uint8_t formato, const uint8_t *pan_campo,
+                        const uint8_t *bloco, uint8_t campo4[PIN_BLOCO],
+                        int *valido)
+{
+    uint8_t campo0[PIN_BLOCO_0];
+    int     r;
+
+    if (formato == (uint8_t)PIN_FORMATO_4) {
+        r = pin_passada4(i, pan_campo, bloco, campo4, 0);
+        *valido = (r == 0) ? pinblock_campo_valido(campo4) : 0;
+        return (r == 0) ? 0 : -3;
+    }
+    r = pin_passada0(i, pan_campo, bloco, campo0, 0);
+    *valido = (r == 0) ? pinblock_f0_para_f4(campo0, campo4) : 0;
+    wipe(campo0, sizeof campo0);
+    return (r == 0) ? 0 : -3;
+}
+
 /* FRONTEIRA: dentro. O campo do PIN em claro fica em g_pin e nas duas copias
  * locais, que saem apagadas em todo caminho. */
-int keystore_pin_abre(ks_handle_t h, const uint8_t pan_campo[PIN_BLOCO],
-                      const uint8_t bloco[PIN_BLOCO])
+int keystore_pin_abre(ks_handle_t h, uint8_t formato,
+                      const uint8_t *pan_campo, const uint8_t *bloco)
 {
     int      i = indice(h);
     uint8_t  a[PIN_BLOCO], b[PIN_BLOCO];
     uint32_t j;
     uint8_t  dif = 0u;
+    int      va = 0, vb = 0;
     int      r;
 
     keystore_pin_apaga();
     if ((i < 0) || (pan_campo == 0) || (bloco == 0)) {
         return -3;
     }
-    if (!pin_pode(i, KS_MODO_DECIFRA)) {
+    if (!pin_pode(i, formato, KS_MODO_DECIFRA)) {
         return -1;
     }
-    if ((pin_passada(i, pan_campo, bloco, a, 0) != 0) ||
-        (pin_passada(i, pan_campo, bloco, b, 0) != 0)) {
+    if ((pin_abre_uma(i, formato, pan_campo, bloco, a, &va) != 0) ||
+        (pin_abre_uma(i, formato, pan_campo, bloco, b, &vb) != 0)) {
         r = -3;
     } else {
         for (j = 0u; j < PIN_BLOCO; j++) {
             dif |= (uint8_t)(a[j] ^ b[j]);
         }
-        if (dif != 0u) {
+        if ((dif != 0u) || (va != vb)) {
             erro_grave_marca();
             r = -2;
-        } else if (!pinblock_campo_valido(a)) {
+        } else if (!va) {
             r = -4;
         } else {
             for (j = 0u; j < PIN_BLOCO; j++) {
@@ -649,13 +715,29 @@ int keystore_pin_abre(ks_handle_t h, const uint8_t pan_campo[PIN_BLOCO],
     return r;
 }
 
+/* Fecha g_pin uma vez sob a chave do slot. FRONTEIRA: dentro. */
+static int pin_fecha_uma(int i, uint8_t formato, const uint8_t *pan_campo,
+                         uint8_t *bloco)
+{
+    uint8_t campo0[PIN_BLOCO_0];
+    int     r;
+
+    if (formato == (uint8_t)PIN_FORMATO_4) {
+        return pin_passada4(i, pan_campo, g_pin, bloco, 1);
+    }
+    pinblock_f4_para_f0(g_pin, campo0);
+    r = pin_passada0(i, pan_campo, campo0, bloco, 1);
+    wipe(campo0, sizeof campo0);
+    return r;
+}
+
 /* FRONTEIRA: dentro ate a ultima linha. O que sai em `bloco` e criptograma. */
-int keystore_pin_fecha(ks_handle_t h, const uint8_t pan_campo[PIN_BLOCO],
-                       uint8_t bloco[PIN_BLOCO])
+int keystore_pin_fecha(ks_handle_t h, uint8_t formato,
+                       const uint8_t *pan_campo, uint8_t *bloco)
 {
     int      i = indice(h);
     uint8_t  segunda[PIN_BLOCO];
-    uint32_t j;
+    uint32_t j, tam;
     uint8_t  dif = 0u;
     int      r;
 
@@ -663,21 +745,25 @@ int keystore_pin_fecha(ks_handle_t h, const uint8_t pan_campo[PIN_BLOCO],
         keystore_pin_apaga();
         return -3;
     }
-    if (!pin_pode(i, KS_MODO_CIFRA)) {
+    if (!pin_pode(i, formato, KS_MODO_CIFRA)) {
         keystore_pin_apaga();
         return -1;
     }
-    /* Os 8 bytes aleatorios sao NOVOS: o bloco de saida nao herda os do
-     * bloco de entrada. Sem isso, traduzir o mesmo bloco duas vezes para a
-     * mesma chave daria o mesmo resultado, e o host saberia que dois blocos
-     * de origens diferentes levam o mesmo campo. */
+    tam = (formato == (uint8_t)PIN_FORMATO_0) ? PIN_BLOCO_0 : PIN_BLOCO;
+    /* Formato 4: os 8 bytes aleatorios sao NOVOS: o bloco de saida nao herda
+     * os do bloco de entrada. Sem isso, traduzir o mesmo bloco duas vezes
+     * para a mesma chave daria o mesmo resultado, e o host saberia que dois
+     * blocos de origens diferentes levam o mesmo campo.
+     *
+     * O formato 0 nao tem aleatorio: mesmo PIN, mesmo PAN e mesma chave dao
+     * sempre o mesmo bloco. E do formato, e nao ha o que fazer aqui. */
     if (drbg_dispositivo_bytes(&g_pin[PIN_BLOCO / 2u], PIN_BLOCO / 2u) != 0) {
         r = -3;
-    } else if ((pin_passada(i, pan_campo, g_pin, bloco, 1) != 0) ||
-               (pin_passada(i, pan_campo, g_pin, segunda, 1) != 0)) {
+    } else if ((pin_fecha_uma(i, formato, pan_campo, bloco) != 0) ||
+               (pin_fecha_uma(i, formato, pan_campo, segunda) != 0)) {
         r = -3;
     } else {
-        for (j = 0u; j < PIN_BLOCO; j++) {
+        for (j = 0u; j < tam; j++) {
             dif |= (uint8_t)(bloco[j] ^ segunda[j]);
         }
         if (dif != 0u) {
@@ -690,7 +776,7 @@ int keystore_pin_fecha(ks_handle_t h, const uint8_t pan_campo[PIN_BLOCO],
     }
     wipe(segunda, sizeof segunda);
     if (r != 0) {
-        wipe(bloco, PIN_BLOCO);
+        wipe(bloco, tam);
     }
     keystore_pin_apaga();
     (void)hsm_cfs_wipe();
