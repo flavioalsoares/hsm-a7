@@ -60,6 +60,7 @@ ERROS = {
     14: "PIN block invalido",
     15: "dados invalidos",
     16: "parametro invalido",
+    17: "tabela de decimalizacao nao autorizada",
     20: "estado nao permite",
     21: "comando desconhecido",
     22: "mensagem malformada",
@@ -294,6 +295,42 @@ class Host:
                   + bloco.hex().upper())
         _, c = self.pede("P0", campos.encode())
         return bytes.fromhex(c[:(16 if formatos[1] == "0" else 32)].decode())
+
+    # -- verificacao de PIN (fase 8, etapa 8.5) -----------------------
+    @staticmethod
+    def _pin_comum(kpin, pvk, formato, pan, bloco):
+        return kpin + pvk + formato + "%02d" % len(pan) + pan \
+            + bloco.hex().upper()
+
+    def offset_gera(self, kpin, pvk, formato, pan, bloco, tabela, dados_v):
+        """V0. `tabela`: o bloco autorizado, 32 caracteres. `dados_v`: os
+        dados de validacao, 8 bytes. Devolve o offset."""
+        campos = (self._pin_comum(kpin, pvk, formato, pan, bloco) + tabela
+                  + dados_v.hex().upper())
+        _, c = self.pede("V0", campos.encode())
+        n = int(c[:2])
+        return c[2:2 + n].decode()
+
+    def offset_verifica(self, kpin, pvk, formato, pan, bloco, tabela,
+                        dados_v, offset):
+        """V2: sai um bit."""
+        campos = (self._pin_comum(kpin, pvk, formato, pan, bloco) + tabela
+                  + dados_v.hex().upper() + "%02d" % len(offset) + offset)
+        erro, _ = self.pede("V2", campos.encode(), aceita=(0, 1))
+        return erro == 0
+
+    def pvv_gera(self, kpin, pvk, formato, pan, bloco, indice):
+        """V4. Devolve o PVV, 4 digitos."""
+        campos = self._pin_comum(kpin, pvk, formato, pan, bloco) + indice
+        _, c = self.pede("V4", campos.encode())
+        return c[:4].decode()
+
+    def pvv_verifica(self, kpin, pvk, formato, pan, bloco, indice, pvv):
+        """V6: sai um bit."""
+        campos = (self._pin_comum(kpin, pvk, formato, pan, bloco) + indice
+                  + pvv)
+        erro, _ = self.pede("V6", campos.encode(), aceita=(0, 1))
+        return erro == 0
 
 
 # --------------------------------------------------------------------
@@ -811,6 +848,140 @@ def tdes_confere(h, lmk, n):
     return 0
 
 
+def pinv_confere(h, lmk, n, bloco_console=None, kcv_console=None):
+    """Verificacao de PIN (V0, V2, V4, V6), conferida com o pinverif.py. O
+    Python faz o papel do terminal, que cifra o PIN, e o do emissor, que
+    refaz a conta com a chave de verificacao em claro.
+
+    A tabela autorizada e calculada AQUI, com a LMK e o KCV da chave V1: e a
+    prova de que o equipamento e o Python derivam a mesma chave de MAC. Com
+    `bloco_console` (o que `hsmtool tabela-autoriza` devolveu) e o KCV da
+    chave para a qual ele foi feito, confere tambem esse.
+
+    ⚠ PRECISA DA LMK. E o brinquedo aparecendo, como no `confere`.
+    ⚠ Os PANs sao inventados (prefixo 999999). Nenhum PAN real, nunca."""
+    import des
+    import pinblock
+    import pinverif
+    import tr31
+    from hsmtool import _kcv_local
+
+    d = h.diag()
+    if d["kcv_lmk"] != _kcv_local(lmk).hex().upper():
+        print("KCV da LMK nao confere: dispositivo %s, informada %s"
+              % (d["kcv_lmk"], _kcv_local(lmk).hex().upper()))
+        return 1
+
+    def recusa(codigo, fn, *args):
+        try:
+            fn(*args)
+        except HostErro as e:
+            assert e.codigo == codigo, "%s: %d, esperado %d" % (
+                fn.__name__, e.codigo, codigo)
+        else:
+            raise AssertionError("%s aceito, esperado %d"
+                                 % (fn.__name__, codigo))
+
+    if bloco_console is not None:
+        if kcv_console is None:
+            print("--tabela pede --kcv, o KCV da chave V1 da tabela")
+            return 2
+        esperado = pinverif.tabela_autoriza(lmk, bloco_console[:16],
+                                            bytes.fromhex(kcv_console))
+        assert bloco_console.upper() == esperado, \
+            "o MAC do console nao e o do Python: %s" % esperado
+        print("tabela do console: o MAC confere com o Python")
+
+    tabelas = [pinverif.TABELA_PADRAO, "1234567890123456", "9876543210987654"]
+    for volta in range(n):
+        tab = tabelas[volta % len(tabelas)]
+        f = "0" if volta % 2 else "4"
+        np = pinblock.PIN_MIN + volta % (pinblock.PIN_MAX - pinblock.PIN_MIN + 1)
+        na = 13 + volta % 7
+        pin = "".join(str(b % 10) for b in os.urandom(np))
+        pan = "999999" + "".join(str(b % 10) for b in os.urandom(na - 6))
+        dados_v = bytes.fromhex(pan[-16:].rjust(16, "F"))
+
+        kp_b, _ = h.gen("P0", "B", "E", ("T2" if volta % 4 == 1 else "T3")
+                        if f == "0" else "")
+        kp, _ = tr31.desembrulha(lmk, kp_b)
+        bloco = (pinblock.cifra0 if f == "0" else pinblock.cifra)(kp, pin, pan)
+
+        # ---- offset ------------------------------------------------
+        v1_b, _ = h.gen("V1", "C", "E", "T2" if volta % 2 else "T3")
+        v1, _ = tr31.desembrulha(lmk, v1_b)
+        tab_b = pinverif.tabela_autoriza(lmk, tab, des.kcv(v1))
+        off = h.offset_gera(kp_b, v1_b, f, pan, bloco, tab_b, dados_v)
+        assert off == pinverif.offset_gera(v1, tab, dados_v, pin), "V0: offset"
+        assert h.offset_verifica(kp_b, v1_b, f, pan, bloco, tab_b, dados_v,
+                                 off), "V2: recusou o offset certo"
+        for k in range(np):                     # um digito errado por vez
+            ruim = off[:k] + str((int(off[k]) + 1 + volta % 9) % 10) + off[k + 1:]
+            assert not h.offset_verifica(kp_b, v1_b, f, pan, bloco, tab_b,
+                                         dados_v, ruim), "V2: aceitou %d" % k
+        if np > 4:                              # offset mais curto que o PIN
+            assert not h.offset_verifica(kp_b, v1_b, f, pan, bloco, tab_b,
+                                         dados_v, off[:-1]), "V2: tamanho"
+        outros = bytes([dados_v[0] ^ 0x10]) + dados_v[1:]
+        assert h.offset_gera(kp_b, v1_b, f, pan, bloco, tab_b, outros) == \
+            pinverif.offset_gera(v1, tab, outros, pin), "V0: outros dados"
+
+        # a tabela: so com o MAC certo
+        mac_ruim = tab_b[:-1] + ("0" if tab_b[-1] != "0" else "1")
+        recusa(17, h.offset_gera, kp_b, v1_b, f, pan, bloco, mac_ruim, dados_v)
+        outra = tabelas[(volta + 1) % len(tabelas)] + tab_b[16:]
+        recusa(17, h.offset_verifica, kp_b, v1_b, f, pan, bloco, outra,
+               dados_v, off)
+        # a mesma tabela, autorizada para OUTRA chave V1: nao vale com esta
+        v1o_b, _ = h.gen("V1", "C", "E", "T2")
+        v1o, _ = tr31.desembrulha(lmk, v1o_b)
+        tab_outra = pinverif.tabela_autoriza(lmk, tab, des.kcv(v1o))
+        recusa(17, h.offset_gera, kp_b, v1_b, f, pan, bloco, tab_outra,
+               dados_v)
+        assert h.offset_gera(kp_b, v1o_b, f, pan, bloco, tab_outra,
+                             dados_v) == \
+            pinverif.offset_gera(v1o, tab, dados_v, pin), "V0: outra chave"
+        # modos e usos
+        so_v, _ = h.gen("V1", "V", "E", "T2")
+        recusa(11, h.offset_gera, kp_b, so_v, f, pan, bloco, tab_b, dados_v)
+        so_g, _ = h.gen("V1", "G", "E", "T2")
+        recusa(11, h.offset_verifica, kp_b, so_g, f, pan, bloco, tab_b,
+               dados_v, off)
+
+        # ---- PVV ---------------------------------------------------
+        v2_b, _ = h.gen("V2", "C", "E", "T3" if volta % 2 else "T2")
+        v2, _ = tr31.desembrulha(lmk, v2_b)
+        ind = str(volta % 10)
+        pvv = h.pvv_gera(kp_b, v2_b, f, pan, bloco, ind)
+        assert pvv == pinverif.pvv_gera(v2, pan, ind, pin), "V4: PVV"
+        assert h.pvv_verifica(kp_b, v2_b, f, pan, bloco, ind, pvv), \
+            "V6: recusou o PVV certo"
+        for k in range(4):
+            ruim = pvv[:k] + str((int(pvv[k]) + 1 + volta % 9) % 10) + pvv[k + 1:]
+            assert not h.pvv_verifica(kp_b, v2_b, f, pan, bloco, ind, ruim), \
+                "V6: aceitou %d" % k
+        outro_i = str((volta + 1) % 10)
+        assert h.pvv_gera(kp_b, v2_b, f, pan, bloco, outro_i) == \
+            pinverif.pvv_gera(v2, pan, outro_i, pin), "V4: outro indice"
+        # as chaves nao trocam de metodo
+        recusa(11, h.pvv_gera, kp_b, v1_b, f, pan, bloco, ind)
+        recusa(11, h.offset_gera, kp_b, v2_b, f, pan, bloco, tab_b, dados_v)
+        recusa(11, h.pvv_gera, kp_b, kp_b, f, pan, bloco, ind)
+        v2_v, _ = h.gen("V2", "V", "E", "T2")
+        recusa(11, h.pvv_gera, kp_b, v2_v, f, pan, bloco, ind)
+        aes_v, _ = h.gen("V2", "C", "E")
+        recusa(11, h.pvv_gera, kp_b, aes_v, f, pan, bloco, ind)
+        # PIN block adulterado
+        ruim_b = bytes([bloco[0] ^ 1]) + bloco[1:]
+        recusa(14, h.pvv_gera, kp_b, v2_b, f, pan, ruim_b, ind)
+        recusa(14, h.offset_verifica, kp_b, v1_b, f, pan, ruim_b, tab_b,
+               dados_v, off)
+        print("volta %d: V0 V2 V4 V6 conferidos (formato %s, PIN de %d, "
+              "PAN de %d)" % (volta + 1, f, np, na))
+    print("%d de %d voltas conferidas" % (n, n))
+    return 0
+
+
 def pin_confere(h, lmk, n):
     """Traducao de PIN (P0), conferida com o pinblock.py. O Python faz o
     papel do terminal, que cifra o PIN sob a chave de origem, e o do
@@ -995,6 +1166,14 @@ def main(argv=None):
     p = sub.add_parser("pin-confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
+    p = sub.add_parser("pinv-confere")
+    p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
+    p.add_argument("-n", type=int, default=10)
+    p.add_argument("--tabela", default=None,
+                   help="bloco de tabela autorizada que o console devolveu; "
+                        "confere que o MAC e o que o Python calcula")
+    p.add_argument("--kcv", default=None,
+                   help="com --tabela: o KCV da chave V1 da tabela")
     p = sub.add_parser("confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
@@ -1078,6 +1257,8 @@ def main(argv=None):
                                a.formatos).hex().upper())
         elif a.cmd == "pin-confere":
             return pin_confere(h, bytes.fromhex(a.lmk), a.n)
+        elif a.cmd == "pinv-confere":
+            return pinv_confere(h, bytes.fromhex(a.lmk), a.n, a.tabela, a.kcv)
         elif a.cmd == "confere":
             return confere(h, bytes.fromhex(a.lmk), a.n)
     except HostErro as e:

@@ -309,9 +309,26 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   `gcc` para comparar a forma dos campos e as conversões, e mede o que o
   veredito do formato 0 revela a quem altera o PAN (manual, seção 34.3).
 
+- **`host/pinverif.py`** é a verificação de PIN em Python: o método do offset,
+  o PVV e o MAC da tabela de decimalização autorizada. Faz o papel do emissor
+  nos testes. Calcula com a chave de verificação e com a LMK em claro.
+- **`hsmtool.py tabela-autoriza TABELA KCV`** pede ao console o MAC de uma
+  tabela de decimalização para a chave de verificação `V1` daquele KCV. Exige
+  os dois botões. Mostra o bloco de 32 caracteres que os comandos `V0` e `V2`
+  pedem, e que só vale com aquela chave.
+- **`hsmhost.py pinv-confere --lmk LMK [-n N] [--tabela BLOCO --kcv KCV]`** gera chaves
+  de PIN e de verificação, cifra um PIN no Python e pede `V0`, `V2`, `V4` e
+  `V6`. Confere o offset e o PVV com o `pinverif.py`, troca cada dígito para
+  cobrar a recusa, e cobra os erros `17`, `11` e `14`, inclusive a tabela
+  autorizada para outra chave. O MAC da tabela é calculado no Python, com a
+  LMK e o KCV.
+- **`host/test_pinverif.py`** não fala com a placa. Confere o Python contra os
+  24 valores de terceiros e compila `fw/src/pinverif.c` com `gcc` para
+  comparar as contas (manual, seção 41.3).
+
 - **`host/regressao.py --lmk LMK [--rapido]`** é a regressão na placa: roda o
   `ping`, o `post`, os sensores, todos os `confere`, os vetores do CAVP e o
-  log, e dá um veredito. Leva cerca de 4 minutos; com `--rapido`, menos de 1.
+  log, e dá um veredito. Leva cerca de 5 minutos; com `--rapido`, menos de 1.
   Exige a placa em `OPERATIONAL`. Não substitui a simulação: ver "Quanto
   simular antes de gravar a placa", no `CLAUDE.md`.
 

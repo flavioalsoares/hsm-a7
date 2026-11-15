@@ -115,6 +115,7 @@ CMD_MAC_GENERATE = 0x29
 CMD_MAC_VERIFY = 0x2A
 CMD_DELETE_KEY = 0x2B
 CMD_KEY_FROM_COMPONENTS = 0x2C
+CMD_TABELA_AUTORIZA = 0x80     # fase 8, etapa 8.5
 CMD_ZEROIZE = 0x2F
 CMD_AUDIT_READ = 0x2D
 CMD_ENV_READ = 0x2E
@@ -936,6 +937,38 @@ def cmd_delete_key(client, args):
     return 0
 
 
+def cmd_tabela_autoriza(client, args):
+    """Autoriza uma tabela de decimalizacao para UMA chave de verificacao
+    (fase 8, etapa 8.5).
+
+    Devolve a tabela com o MAC, em 32 caracteres. E esse bloco que o host
+    manda nos comandos V0 e V2, com a chave V1 daquele KCV. O equipamento nao
+    julga a tabela: quem autoriza uma tabela ruim abre o ataque de
+    decimalizacao.
+    """
+    t = args.tabela
+    if len(t) != 16 or not t.isdigit() or not t.isascii():
+        print("a tabela tem 16 digitos de 0 a 9", file=sys.stderr)
+        return 2
+    try:
+        kcv = bytes.fromhex(args.kcv)
+    except ValueError:
+        kcv = b""
+    if len(kcv) != 3:
+        print("o KCV tem 6 caracteres hex (o K2 da porta host o mostra)",
+              file=sys.stderr)
+        return 2
+    _pede_dual_control("Autorizar a tabela de decimalizacao %s para a chave "
+                       "de verificacao de KCV %s." % (t, kcv.hex().upper()))
+    p = client.command(CMD_TABELA_AUTORIZA, t.encode("ascii") + kcv)
+    if len(p) != 27 or p[:19] != t.encode("ascii") + kcv:
+        print("payload inesperado: %r" % p)
+        return 1
+    print("chave V1 (KCV)    : %s" % kcv.hex().upper())
+    print("tabela autorizada : %s%s" % (t, p[19:].hex().upper()))
+    return 0
+
+
 # Nomes dos opcodes, para o log. 0x00 nao e opcode: e o registro de boot.
 OPCODE_NAMES = {
     0x00: "BOOT", 0x15: "SELFTEST", 0x20: "LMK_LOAD_COMPONENT",
@@ -943,7 +976,7 @@ OPCODE_NAMES = {
     0x26: "SET_STATE", 0x27: "ENCRYPT", 0x28: "DECRYPT",
     0x29: "MAC_GENERATE", 0x2A: "MAC_VERIFY", 0x2B: "DELETE_KEY",
     0x2C: "KEY_FROM_COMPONENTS", 0x2F: "ZEROIZE", 0x2E: "ENV_READ",
-    0x0F: "TAMPER",
+    0x0F: "TAMPER", 0x80: "TABELA_AUTORIZA",
 }
 ESTADO_NOMES = {0: "Uni", 1: "Aut", 2: "OPE", 3: "tPr"}
 
@@ -1424,6 +1457,13 @@ def main(argv=None):
 
     sub.add_parser("env", help="temperatura, tensoes e alarmes de ambiente")
 
+    p_tab = sub.add_parser("tabela-autoriza",
+                           help="autoriza uma tabela de decimalizacao "
+                                "(dual control)")
+    p_tab.add_argument("tabela", help="16 digitos, por exemplo "
+                                      "0123456789012345")
+    p_tab.add_argument("kcv", help="KCV da chave de verificacao V1, 6 hex")
+
     p_aud = sub.add_parser("audit", help="le o log de auditoria (fase 4)")
     p_aud.add_argument("--desde", type=int, default=0,
                        help="seq inicial (padrao: o mais antigo guardado)")
@@ -1473,6 +1513,7 @@ def main(argv=None):
         "key-info": cmd_key_info,
         "delete-key": cmd_delete_key,
         "comp-load": cmd_comp_load,
+        "tabela-autoriza": cmd_tabela_autoriza,
         "mac": cmd_mac,
         "mac-verify": cmd_mac_verify,
         "encrypt": cmd_encrypt,

@@ -30,6 +30,7 @@
 #include "keystore.h"
 #include "state.h"
 #include "pinblock.h"
+#include "pinverif.h"
 #include "des.h"
 #include "kat.h"
 #include "tr31.h"
@@ -1030,6 +1031,26 @@ static uint8_t pan_dos_dois(const uint8_t *pan, uint32_t n, uint8_t formato,
     return (v == 0) ? ASCII_OK : ASCII_PARAM;
 }
 
+/* Abre o key block da chave de PIN, abre com ela o PIN block, e tira a chave
+ * do slot efemero. O PIN fica no key store (g_pin). E o unico lugar que liga
+ * o resultado de keystore_pin_abre() a um codigo ASCII: o 14 e o oraculo de
+ * formato, e o P0 e os V* tem de responder igual ao mesmo PIN block. */
+static uint8_t abre_pin(const uint8_t *kb, uint16_t kbn, uint8_t formato,
+                        const uint8_t *pan_campo, const uint8_t *bloco)
+{
+    ks_info_t info;
+    uint8_t   r;
+    int       v;
+
+    if ((r = abre_bloco(kb, kbn, &info)) != ASCII_OK) { return r; }
+    v = keystore_pin_abre(KS_HANDLE_EFEMERA, formato, pan_campo, bloco);
+    keystore_efemera_apaga();
+    if (v == 0)  { return ASCII_OK; }
+    if (v == -1) { return ASCII_MODO; }
+    if (v == -2) { return ASCII_ERRO_GRAVE; }
+    return (v == -4) ? ASCII_PIN_INVAL : ASCII_INTERNO;
+}
+
 static uint8_t h_p0(leitor_t *in, escritor_t *out)
 {
     const uint8_t *ko = 0, *kd = 0;
@@ -1072,14 +1093,7 @@ static uint8_t h_p0(leitor_t *in, escritor_t *out)
 
     /* Uma chave por vez no slot efemero: a de origem sai antes de a de
      * destino entrar. Entre as duas, o campo do PIN fica no key store. */
-    if ((r = abre_bloco(ko, kon, &info)) != ASCII_OK)   { return r; }
-    v = keystore_pin_abre(KS_HANDLE_EFEMERA, fo, pan_o, bloco);
-    keystore_efemera_apaga();
-    if (v != 0) {
-        if (v == -1) { return ASCII_MODO; }
-        if (v == -2) { return ASCII_ERRO_GRAVE; }
-        return (v == -4) ? ASCII_PIN_INVAL : ASCII_INTERNO;
-    }
+    if ((r = abre_pin(ko, kon, fo, pan_o, bloco)) != ASCII_OK) { return r; }
     if ((r = abre_bloco(kd, kdn, &info)) != ASCII_OK)   { return r; }
     v = keystore_pin_fecha(KS_HANDLE_EFEMERA, fd, pan_d, saida);
     if (v != 0) {
@@ -1089,6 +1103,227 @@ static uint8_t h_p0(leitor_t *in, escritor_t *out)
     poe_hex(out, saida, nd);
     return ASCII_OK;
 }
+
+/* ------------------------------------------------------------------ */
+/* Verificacao de PIN (fase 8, etapa 8.5)                              */
+/* ------------------------------------------------------------------ */
+
+/* V0 -- gerar offset:     COMUM . tabela autorizada(32) . dados de
+ *                         validacao(16 hex)  ->  tamanho(2) . offset
+ * V2 -- verificar offset: COMUM . tabela autorizada(32) . dados de
+ *                         validacao(16 hex) . tamanho(2) . offset
+ *                         ->  00 confere, 01 nao confere
+ * V4 -- gerar PVV:        COMUM . indice da chave(1)  ->  PVV(4)
+ * V6 -- verificar PVV:    COMUM . indice da chave(1) . PVV(4)
+ *                         ->  00 confere, 01 nao confere
+ *
+ *   COMUM = bloco da chave de PIN . bloco da chave de verificacao .
+ *           formato(1) . tamanho do PAN(2) . PAN . PIN block(16 ou 32)
+ *
+ * O PIN chega cifrado, num PIN block, e e aberto dentro do key store; o
+ * equipamento nunca recebe PIN em claro. A chave de PIN e a do P0 (uso P0,
+ * modo 'D' ou 'B'). A chave de verificacao e 3DES, de uso V1 (offset) ou V2
+ * (PVV); gerar pede modo 'G' ou 'C', verificar pede 'V' ou 'C'. Senao, 11.
+ *
+ * A tabela autorizada sao os 16 digitos da tabela de decimalizacao e os 16
+ * caracteres do MAC que o console devolveu (TABELA_AUTORIZA). O MAC amarra a
+ * tabela a UMA chave de verificacao, pelo KCV dela. MAC errado, ou MAC feito
+ * para outra chave: 17.
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao. Quem tem dual control e a autorizacao da
+ *                tabela, no console.
+ *   vazamento    V2 e V6 devolvem UM BIT, e e o servico. Com ele, quem tem
+ *                um PIN block e escolhe o offset (ou o PVV) acha o offset
+ *                certo em ate 10^n tentativas: e a busca que o metodo
+ *                admite, e o controle e de fora (contador de tentativas no
+ *                sistema do emissor, e o log, que registra cada 01).
+ *
+ *                O ATALHO e a tabela de decimalizacao (Bond e Zielinski,
+ *                2003): com a tabela a escolha do chamador, o bit de V2
+ *                entrega um PIN de 4 digitos em 15 pedidos em media, e
+ *                conferir a FORMA da tabela nao fecha -- a variante do
+ *                offset usa tabelas quase iguais a legitima. Por isso a
+ *                tabela so vale com MAC, o host nao fabrica o MAC, e o MAC
+ *                vale so para a chave V1 para a qual foi autorizado: duas
+ *                tabelas autorizadas para chaves diferentes nao se
+ *                combinam.
+ *
+ *                Os dados de validacao sao do host, e nao sao protegidos.
+ *                Troca-los muda o PIN natural para outro valor que o host
+ *                tambem nao conhece: nao e atalho.
+ *
+ *                O 14 e o mesmo oraculo de formato do P0, com o mesmo
+ *                custo no formato 0. Ver o comentario de la.
+ *
+ *                V0 e V4 sao funcoes de EMISSAO. Quem pode chama-las com
+ *                um PIN block de PIN conhecido aprende o PIN natural
+ *                (PIN - offset), e dai o PIN de qualquer conta de que tenha
+ *                o offset. Nao ha conserto dentro do metodo: o offset e
+ *                publico por construcao. O controle e o modo da chave: o
+ *                bloco entregue a quem so verifica tem modo 'V', e com ele
+ *                V0 e V4 respondem 11.
+ *
+ *                O tamanho do PIN sai em V0, no tamanho do offset. E do
+ *                metodo: o offset tem um digito por digito de PIN.
+ *   exportability nao se aplica: nenhuma chave sai, e o PIN tambem nao.
+ *   log          sim, antes; o 01 fica registrado.
+ *
+ * FRONTEIRA: dentro. O handler ve o PIN block cifrado, o offset e o PVV,
+ * que sao publicos. O PIN e o PIN natural ficam em keystore.c. */
+typedef struct {
+    const uint8_t *kp, *kv;
+    uint16_t       kpn, kvn;
+    const uint8_t *pan;
+    uint32_t       pan_n;
+    uint8_t        formato;
+    uint8_t        pan_campo[PIN_BLOCO];
+    uint8_t        bloco[PIN_BLOCO];
+} pin_pedido_t;
+
+static uint8_t le_pin_pedido(leitor_t *in, pin_pedido_t *p)
+{
+    int32_t pn;
+    uint8_t r;
+
+    if ((r = le_bloco(in, &p->kp, &p->kpn)) != ASCII_OK) { return r; }
+    if ((r = le_bloco(in, &p->kv, &p->kvn)) != ASCII_OK) { return r; }
+    if ((uint32_t)in->pos + 1u > in->n)            { return ASCII_MALFORMADA; }
+    p->formato = in->p[in->pos];
+    if ((p->formato != (uint8_t)PIN_FORMATO_0) &&
+        (p->formato != (uint8_t)PIN_FORMATO_4)) {
+        return ASCII_PARAM;
+    }
+    in->pos = (uint16_t)(in->pos + 1u);
+    pn = le_dec(in, 2u);
+    if (pn == -1)                                  { return ASCII_MALFORMADA; }
+    if ((pn < 1) || (pn > (int32_t)PIN_PAN_MAX))   { return ASCII_PARAM; }
+    if ((uint32_t)in->pos + (uint32_t)pn > in->n)  { return ASCII_MALFORMADA; }
+    p->pan   = &in->p[in->pos];
+    p->pan_n = (uint32_t)pn;
+    if ((r = pan_dos_dois(p->pan, p->pan_n, p->formato, p->pan_campo))
+        != ASCII_OK) {
+        return r;
+    }
+    in->pos = (uint16_t)(in->pos + (uint16_t)pn);
+    return le_hex(in, p->bloco, (p->formato == (uint8_t)PIN_FORMATO_0)
+                                    ? PIN_BLOCO_0 : PIN_BLOCO);
+}
+
+/* Abre o PIN no key store e deixa a chave de verificacao no slot efemero.
+ * Uma chave por vez: a de PIN sai antes de a outra entrar. */
+static uint8_t pin_e_pvk(const pin_pedido_t *p)
+{
+    ks_info_t info;
+    uint8_t   r;
+
+    if ((r = abre_pin(p->kp, p->kpn, p->formato, p->pan_campo, p->bloco))
+        != ASCII_OK) {
+        return r;
+    }
+    return abre_bloco(p->kv, p->kvn, &info);
+}
+
+/* O codigo ASCII do resultado de keystore_pin_offset() e _pvv(). */
+static uint8_t pinv_codigo(int v)
+{
+    if (v == 0)  { return ASCII_OK; }
+    if (v == 1)  { return ASCII_VERIF_FALHOU; }
+    if (v == -1) { return ASCII_MODO; }
+    if (v == -5) { return ASCII_TABELA; }
+    return (v == -2) ? ASCII_ERRO_GRAVE : ASCII_INTERNO;
+}
+
+/* Le `n` digitos decimais ASCII. */
+static uint8_t le_digitos(leitor_t *in, uint8_t *out, uint32_t n)
+{
+    uint32_t i;
+
+    if ((uint32_t)in->pos + n > in->n) {
+        return ASCII_MALFORMADA;
+    }
+    for (i = 0u; i < n; i++) {
+        uint8_t c = in->p[in->pos + i];
+        if ((c < (uint8_t)'0') || (c > (uint8_t)'9')) {
+            return ASCII_PARAM;
+        }
+        out[i] = c;
+    }
+    in->pos = (uint16_t)(in->pos + n);
+    return ASCII_OK;
+}
+
+static uint8_t offset_cmd(leitor_t *in, escritor_t *out, int gerar)
+{
+    pin_pedido_t p;
+    uint8_t      tab[PINV_TABELA], mac[KS_TABELA_MAC], dados[PINV_DADOS];
+    uint8_t      offset[PIN_MAX];
+    uint32_t     n = 0u, i;
+    int32_t      v;
+    uint8_t      r;
+
+    if ((r = le_pin_pedido(in, &p)) != ASCII_OK)             { return r; }
+    if ((r = le_digitos(in, tab, PINV_TABELA)) != ASCII_OK)  { return r; }
+    if ((r = le_hex(in, mac, sizeof mac)) != ASCII_OK)       { return r; }
+    if ((r = le_hex(in, dados, sizeof dados)) != ASCII_OK)   { return r; }
+    if (!gerar) {
+        v = le_dec(in, 2u);
+        if (v == -1)                                   { return ASCII_MALFORMADA; }
+        if ((v < (int32_t)PIN_MIN) || (v > (int32_t)PIN_MAX)) { return ASCII_PARAM; }
+        n = (uint32_t)v;
+        if ((r = le_digitos(in, offset, n)) != ASCII_OK)     { return r; }
+    }
+    if ((r = fim(in)) != ASCII_OK)                           { return r; }
+
+    /* A tabela e conferida no key store, contra o KCV da chave de
+     * verificacao que entrou no slot: ela so vale para a chave para a qual o
+     * console a autorizou. */
+    if ((r = pin_e_pvk(&p)) != ASCII_OK)                     { return r; }
+    r = pinv_codigo(keystore_pin_offset(KS_HANDLE_EFEMERA, gerar, tab, mac,
+                                        dados, offset, &n));
+    if (gerar && (r == ASCII_OK)) {
+        poe_dec(out, n, 2u);
+        for (i = 0u; i < n; i++) {
+            poe(out, offset[i]);
+        }
+    }
+    return r;
+}
+
+static uint8_t h_v0(leitor_t *in, escritor_t *out) { return offset_cmd(in, out, 1); }
+static uint8_t h_v2(leitor_t *in, escritor_t *out) { return offset_cmd(in, out, 0); }
+
+static uint8_t pvv_cmd(leitor_t *in, escritor_t *out, int gerar)
+{
+    pin_pedido_t p;
+    uint8_t      ind[1], pvv[PINV_PVV];
+    uint32_t     i;
+    uint8_t      r;
+
+    if ((r = le_pin_pedido(in, &p)) != ASCII_OK)             { return r; }
+    if ((r = le_digitos(in, ind, 1u)) != ASCII_OK)           { return r; }
+    if (!gerar) {
+        if ((r = le_digitos(in, pvv, PINV_PVV)) != ASCII_OK) { return r; }
+    }
+    if ((r = fim(in)) != ASCII_OK)                           { return r; }
+    /* O PVV usa 11 digitos do PAN antes do verificador. */
+    if (p.pan_n < PINV_PVV_PAN) {
+        return ASCII_PARAM;
+    }
+    if ((r = pin_e_pvk(&p)) != ASCII_OK)                     { return r; }
+    r = pinv_codigo(keystore_pin_pvv(KS_HANDLE_EFEMERA, gerar, p.pan, p.pan_n,
+                                     (uint8_t)(ind[0] - (uint8_t)'0'), pvv));
+    if (gerar && (r == ASCII_OK)) {
+        for (i = 0u; i < PINV_PVV; i++) {
+            poe(out, pvv[i]);
+        }
+    }
+    return r;
+}
+
+static uint8_t h_v4(leitor_t *in, escritor_t *out) { return pvv_cmd(in, out, 1); }
+static uint8_t h_v6(leitor_t *in, escritor_t *out) { return pvv_cmd(in, out, 0); }
 
 /* ------------------------------------------------------------------ */
 /* Tabela                                                              */
@@ -1118,6 +1353,10 @@ static const ascii_entry_t g_ascii[] = {
     { 'M', '0', ST_OPER,   h_m0, L },
     { 'M', '2', ST_OPER,   h_m2, L },
     { 'P', '0', ST_OPER,   h_p0, L },
+    { 'V', '0', ST_OPER,   h_v0, L },
+    { 'V', '2', ST_OPER,   h_v2, L },
+    { 'V', '4', ST_OPER,   h_v4, L },
+    { 'V', '6', ST_OPER,   h_v6, L },
     { 'R', '0', ST_OPER,   h_r0, L },
     { 'R', '2', ST_OPER,   h_r2, L },
     { 'R', '4', ST_OPER,   h_r4, L },

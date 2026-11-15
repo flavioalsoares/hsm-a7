@@ -342,6 +342,40 @@ def pin():
     # PIN block sob a origem (8) . PIN block esperado sob o destino (8)
     escreve("pin0_dados", ["%02x" % x for x in entrada0 + saida0], 2)
 
+    # ---- tb_pinv: verificacao de PIN, offset e PVV (etapa 8.5) ----------
+    # O PIN block e o do formato 0 acima, sob ko3. As chaves de verificacao
+    # sao 3DES; o offset, o PVV e o MAC da tabela saem do host/pinverif.py.
+    import pinverif
+    v1 = des.paridade_impar(hashlib.sha256(b"tb_pinv: offset").digest()[:16])
+    v2 = des.paridade_impar(hashlib.sha256(b"tb_pinv: pvv").digest()[:24])
+
+    def bloco_v(chave, uso, modo):
+        b = tr31.embrulha(lmk, chave, uso=uso, algoritmo="T", modo=modo,
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != 112:
+            raise SystemExit("PINV: key block de %d caracteres" % len(b))
+        return ["%02x" % ord(c) for c in b]
+
+    escreve("pinv_v1", bloco_v(v1, "V1", "C"), 2)
+    escreve("pinv_v1v", bloco_v(v1, "V1", "V"), 2)      # so verifica
+    escreve("pinv_v2", bloco_v(v2, "V2", "C"), 2)
+    tab = pinverif.TABELA_PADRAO
+    tab_b = pinverif.tabela_autoriza(lmk, tab, des.kcv(v1))
+    dv = bytes.fromhex(pan)                 # dados de validacao: o PAN, BCD
+    off = pinverif.offset_gera(v1, tab, dv, pin_)
+    pvv = pinverif.pvv_gera(v2, pan, "1", pin_)
+    if not pinverif.offset_confere(v1, tab, dv, pin_, off) or len(off) != 5:
+        raise SystemExit("PINV: offset falhou no Python")
+    # O MAC da mesma tabela, autorizada para a chave do PVV (outro KCV): o
+    # tb_pinv o usa com a chave do offset e espera 17.
+    tab_o = pinverif.tabela_autoriza(lmk, tab, des.kcv(v2))
+    # tabela (16 ASCII) . MAC (8) . dados de validacao (8) . offset (5 ASCII)
+    # . PVV (4 ASCII) . KCV de v1 (3) . KCV de v2 (3) . MAC para v2 (8)
+    escreve("pinv_dados", ["%02x" % x for x in
+                           tab.encode() + bytes.fromhex(tab_b[16:]) + dv
+                           + off.encode() + pvv.encode() + des.kcv(v1)
+                           + des.kcv(v2) + bytes.fromhex(tab_o[16:])], 2)
+
 
 def tdes():
     """Vetores do tb_tdes: chaves 3DES conhecidas, embrulhadas sob a LMK do tb

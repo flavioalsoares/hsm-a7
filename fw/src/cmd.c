@@ -1351,6 +1351,43 @@ static hsm_status_t h_env_read(const uint8_t *in, uint16_t in_len,
     return STATUS_OK;
 }
 
+/* TABELA_AUTORIZA -- ver o checklist em cmd.h.
+ *
+ * A ordem e a do KEY_FROM_COMPONENTS: forma do payload, depois dual control.
+ * Autorizar antes de validar gastaria o aperto num pedido malformado.
+ *
+ * FRONTEIRA: dentro. A tabela e o MAC sao publicos; a chave do MAC nao sai
+ * de keystore.c. */
+static hsm_status_t h_tabela_autoriza(const uint8_t *in, uint16_t in_len,
+                                      uint8_t *out, uint16_t *out_len)
+{
+    uint16_t k;
+    int      v;
+
+    *out_len = 0u;
+    if (in_len != (uint16_t)(CMD_TABELA_LEN + KS_KCV_LEN)) {
+        return STATUS_BAD_PARAM;
+    }
+    for (k = 0u; k < CMD_TABELA_LEN; k++) {
+        if ((in[k] < (uint8_t)'0') || (in[k] > (uint8_t)'9')) {
+            return STATUS_BAD_PARAM;
+        }
+    }
+    if (!dualctl_autoriza()) {
+        return STATUS_NOT_AUTHORIZED;
+    }
+    v = keystore_tabela_autoriza(in, &in[CMD_TABELA_LEN],
+                                 &out[CMD_TABELA_LEN + KS_KCV_LEN]);
+    if (v != 0) {
+        return (v == -2) ? STATUS_CRYPTO_FAIL : STATUS_INTERNAL_ERROR;
+    }
+    for (k = 0u; k < (uint16_t)(CMD_TABELA_LEN + KS_KCV_LEN); k++) {
+        out[k] = in[k];
+    }
+    *out_len = (uint16_t)(CMD_TABELA_LEN + KS_KCV_LEN + KS_TABELA_MAC);
+    return STATUS_OK;
+}
+
 /* AUDIT_READ -- ver o checklist em cmd.h. */
 static hsm_status_t h_audit_read(const uint8_t *in, uint16_t in_len,
                                  uint8_t *out, uint16_t *out_len)
@@ -1485,6 +1522,10 @@ static const cmd_entry_t g_cmds[] = {
 
     /* Fase 6. Sensores de ambiente -- ver cmd.h. */
     { CMD_ENV_READ,   ST_NORMAL | ST_TAMPERED, h_env_read, I },
+
+    /* Fase 8, etapa 8.5. Autoriza uma tabela de decimalizacao; dual control
+     * dentro do handler -- ver cmd.h. */
+    { CMD_TABELA_AUTORIZA, ST_OPER, h_tabela_autoriza, L },
 };
 
 #undef L

@@ -15,7 +15,7 @@ pagamento.
 | 8.2 | Motor DES e 3DES, com autoteste nos vetores do NIST | pronta, validada na placa em 2026-11-15 |
 | 8.3 | Chave 3DES no key store: algoritmo `T` no key block, paridade, KCV | pronta, validada na placa em 2026-11-15 |
 | 8.4 | PIN block formato 0, tradução entre formatos e entre chaves | pronta, validada na placa em 2026-11-15 |
-| 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | a fazer |
+| 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | validada na placa em 2026-11-15 |
 | 8.6 | CVV: gerar e verificar | a fazer |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | a fazer |
 | 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | a fazer |
@@ -297,6 +297,129 @@ coberta pelos vetores do NIST.
 além dos passos do formato 4: tradução `00` com o bloco de saída previsto pelo
 Python, `04` aberta pelo Python, `40` de volta ao bloco original, e doze recusas.
 
+## Etapa 8.5: verificação de PIN, offset e PVV
+
+Estado: pronto. Na placa em 2026-11-15: `hsmtool build` respondeu `v0.8.5` e CONFERE; `regressao.py` passou nos 18 passos em 311 s, com o `pinv-confere` em 46,5 s. Firmware de 51 336 bytes (78% da IMEM). Timing +0,572 ns, 0 critical warnings.
+
+Quatro comandos na porta host (`V0` gerar offset, `V2` verificar offset, `V4`
+gerar PVV, `V6` verificar PVV) e um no console (`0x80 TABELA_AUTORIZA`). A
+teoria está no manual: seção 35 (os dois métodos, com exemplo numérico, o
+ataque de decimalização e a defesa) e 41.3 (os testes e a matemática deles).
+
+### As peças
+
+| Arquivo | O que faz |
+|---|---|
+| `fw/src/pinverif.c` | as contas sem chave: decimalização, soma e subtração do offset, montagem do bloco de entrada do PVV e extração do PVV. Tudo por máscara, sem desvio pelo valor |
+| `fw/src/keystore.c` | `keystore_pin_offset()` e `keystore_pin_pvv()`, sobre o PIN que `keystore_pin_abre()` deixou em `g_pin`; `keystore_tabela_autoriza()` e `keystore_tabela_confere()`, o MAC da tabela sob chave derivada da LMK |
+| `fw/src/cmd_ascii.c` | os handlers `V0`, `V2`, `V4` e `V6`, e o erro `17` |
+| `fw/src/cmd.c` | o handler do `TABELA_AUTORIZA`, com dual control |
+| `host/pinverif.py` | os dois métodos e o MAC da tabela, em Python |
+| `host/hsmtool.py` | `tabela-autoriza` |
+| `host/hsmhost.py` | os quatro comandos, e o `pinv-confere` |
+
+### Decisões
+
+- **A tabela de decimalização só vale autorizada** (decisão do usuário,
+  2026-11-15). O console devolve a tabela com um MAC, com dual control, e a
+  porta host recusa tabela sem MAC válido (`17`). A primeira proposta era
+  conferir a forma da tabela. O relatório de Bond e Zieliński (2003), seção 6,
+  diz que essa conferência barra as duas primeiras variantes do ataque e não
+  barra a terceira, que usa a tabela legítima com uma entrada alterada. A
+  proteção completa, segundo o relatório, é a tabela protegida por criptografia.
+- **A tabela autorizada vale para UMA chave de verificação** (decisão do usuário,
+  2026-11-15, depois da revisão de código). O MAC cobre a tabela e o KCV da
+  chave `V1`, e o `V0`/`V2` o conferem contra o KCV da chave que abriram. Sem o
+  KCV, duas tabelas autorizadas sob a mesma LMK se combinariam na variante 3 do
+  ataque, e uma tabela autorizada não teria como ser revogada sem trocar a LMK.
+  Revogar uma tabela passa a ser trocar a chave de verificação.
+- **O equipamento não julga a tabela, nem lembra o que autorizou.** Ele exige 16
+  dígitos decimais e os dois botões. Duas tabelas diferentes autorizadas para a
+  mesma chave reabrem a variante 3 para ela: isso fica com os custodiantes.
+- **A chave do MAC é derivada da LMK com rótulo próprio** (`HSM-A7 DECTAB`),
+  pela SP 800-108 em modo contador com CMAC, que é a construção do key block. O
+  MAC são os 8 primeiros bytes do CMAC da tabela seguida do KCV. Trocar a LMK
+  invalida as tabelas autorizadas.
+- **O PIN chega sempre em PIN block.** Não há comando que receba PIN em claro.
+  Cada pedido leva dois key blocks, o da chave de PIN e o da chave de
+  verificação, que passam um por vez pelo slot efêmero.
+- **Usos `V1` (offset) e `V2` (PVV), só 3DES.** São os códigos da X9.143 para os
+  dois métodos. O modo é do grupo de MAC: `G` gera, `V` verifica, `C` os dois.
+  Uma chave `V1` não calcula PVV, e o contrário.
+- **O offset tem o tamanho do PIN**, de 4 a 12 dígitos. No `V2`, offset de
+  tamanho diferente do PIN responde `01`, o mesmo código do PIN errado.
+- **O PVV usa os 4 primeiros dígitos do PIN** e os 11 dígitos do PAN antes do
+  verificador. PAN com menos de 12 dígitos: `16`.
+- **Os dados de validação vêm do host**, em 16 dígitos hexadecimais. A regra
+  de montagem a partir do PAN é do emissor.
+- **Cada veredito é calculado duas vezes**, como o do `M2` (fase 6): a
+  conferência do MAC da tabela, com a chave do MAC derivada de novo; a cifra,
+  com as subchaves derivadas de novo; e a comparação final do `V2` e do `V6`,
+  uma a partir de cada cifra. O offset e o PVV gerados também saem de duas
+  contas. Discordou: `91`, nada sai, erro grave marcado. A primeira versão
+  dobrava só a cifra; a revisão de código apontou que uma falha na comparação
+  única viraria um `01` em `00`, ou deixaria passar uma tabela não autorizada.
+- **A abertura do PIN block mora numa função só**, `abre_pin()` em
+  `cmd_ascii.c`, usada pelo `P0` e pelos `V*`. Ela é o único lugar que liga o
+  resultado de `keystore_pin_abre()` a um código ASCII: o `14` é o oráculo de
+  formato, e o mesmo PIN block tem de dar a mesma resposta nos dois comandos.
+- **O opcode do console é `0x80`.** A faixa `0x20` a `0x2F` está cheia, e a
+  faixa `0x30` a `0x7E` é do protocolo ASCII.
+
+### O checklist
+
+| Item | `V0` a `V6` | `TABELA_AUTORIZA` |
+|---|---|---|
+| Estados | `OPERATIONAL` | `OPERATIONAL` |
+| Dual control | não: é operação | sim, com aperto novo |
+| Exportabilidade | não se aplica: nenhuma chave sai | não se aplica |
+| Log | antes; o `01` fica registrado | antes |
+
+**Vazamento.**
+
+- `V2` e `V6` devolvem um bit. Com um PIN block na mão, quem escolhe o offset
+  acha o certo em até 10ⁿ pedidos. É a busca que o método admite; o controle é
+  o contador de tentativas do emissor e o log.
+- O atalho era a tabela: 15 pedidos em média, pelo relatório. Com a tabela
+  autorizada, ele depende de os custodiantes assinarem uma tabela ruim.
+- `V0` e `V4` são funções de emissão. Quem as chama com um PIN block de PIN
+  conhecido aprende o PIN natural. O controle é o modo da chave: com modo `V`
+  elas respondem `11`.
+- O `14` é o oráculo de formato do `P0`, com o mesmo custo no formato 0.
+- O tamanho do PIN sai no `V0`. É do método.
+- O `TABELA_AUTORIZA` entrega um MAC de 64 bits por par (tabela, chave `V1`), e
+  só com os botões. O KCV já é público.
+
+### Vetores
+
+24 valores de terceiros, do arquivo de testes da mesma biblioteca aberta dos
+PIN blocks, no mesmo commit, com hash no `MANIFEST.txt`:
+`vectors/pinverif/psec_pin.rsp`. O `MANIFEST.txt` diz o que eles cobrem e o que
+não cobrem. O PAN deles é um padrão de teste do arquivo de origem.
+
+### Medidas
+
+| Medida | Valor |
+|---|---|
+| Firmware | 51 336 bytes de código, 3 420 a mais (78% da IMEM) |
+| RTL | sem mudança |
+
+### Testes
+
+| Teste | O que prova | Tempo |
+|---|---|---|
+| `host/test_pinverif.py` | **no PC**: os 24 valores de terceiros; o C do firmware contra o Python na decimalização, nos 100 pares de dígitos do offset, no bloco de entrada do PVV e na extração, com 5 100 blocos construídos para toda quantidade de decimais; ida e volta com chave dupla e tripla; o MAC da tabela | 2 s |
+| `tb_pinv` | pela UART, com o firmware real. `TABELA_AUTORIZA` sem botões (recusa), com letra na tabela e sem o KCV (recusa sem gastar o aperto) e com botões: o MAC é o do Python, feito com a LMK e o KCV. `V0`: offset igual ao do Python. `V2`: certo, um dígito trocado e tamanho errado. Tabela alterada, MAC alterado e MAC da mesma tabela feito para outra chave (`17`). `V4` igual ao do Python; `V6` certo e errado. Chave só de verificar no `V0`, chave do offset no `V4` (`11`); PIN block adulterado (`14`). `V6` com PIN block formato 4 | 3 h 21 |
+| `tb_pin0` | os passos da etapa 8.4; o `P0` passou a abrir o PIN pela função comum | 2 h 26 |
+| `tb_pin` | os passos da etapa 8.1, pelo mesmo motivo | 1 h 27 |
+| `tb_keystore` | o console, com o comando novo na tabela (rodada anterior, sem mudança no console desde então) | 1 h 47 |
+
+`hsmhost.py pinv-confere --lmk LMK [-n N]` é a prova na placa. A cada volta:
+os quatro comandos conferidos com o Python, nos formatos 0 e 4, com três
+tabelas; a tabela autorizada para outra chave `V1`, recusada (`17`), e aceita
+com a chave dela; cada dígito do offset e do PVV trocado; e as recusas `17`, `11` e `14`.
+Com `--tabela BLOCO --kcv KCV`, confere também um bloco que o console devolveu.
+
 ## PKCS#8 no key block
 
 Decisão do usuário em 2026-11-14: o conteúdo do key block de uma chave RSA ou de
@@ -416,8 +539,8 @@ Decisões:
 
 Desde 2026-11-14, uma mudança só de firmware não espera a suíte completa. Ela
 passa pelo testbench novo e pelos que cobrem o código alterado, e a regressão
-do resto roda na placa, com `host/regressao.py`: 17 passos em 219 s (medido em 2026-11-15, com o 3DES, o
-PKCS#8 e a conferência do firmware). A suíte
+do resto roda na placa, com `host/regressao.py`: 18 passos em 311 s (medido em 2026-11-15, com o 3DES, o
+PKCS#8, a conferência do firmware e a verificação de PIN). A suíte
 completa roda quando o RTL muda e no fim da fase. A tabela está no `CLAUDE.md`.
 
 A suíte completa de 2026-11-15 tem 28 testbenches e levou 11 h 46, com 3 por vez.

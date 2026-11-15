@@ -77,6 +77,8 @@ typedef uint8_t ks_handle_t;
 #define KS_USO_DADOS    "D0"   /* chave de dados        */
 #define KS_USO_MAC      "M0"   /* chave de MAC          */
 #define KS_USO_PIN      "P0"   /* chave de PIN -- fase 8 */
+#define KS_USO_PVK_OFFSET "V1" /* verificacao de PIN, metodo do offset */
+#define KS_USO_PVK_PVV    "V2" /* verificacao de PIN, PVV              */
 #define KS_USO_ASSINA   "S0"   /* par assimetrico de assinatura -- fase 7 */
 
 #define KS_ALG_AES      'A'
@@ -251,6 +253,50 @@ int  keystore_pin_abre(ks_handle_t h, uint8_t formato,
 int  keystore_pin_fecha(ks_handle_t h, uint8_t formato,
                         const uint8_t *pan_campo, uint8_t *bloco);
 void keystore_pin_apaga(void);
+
+/* Verificacao de PIN (fase 8, etapa 8.5) -- sobre o PIN que
+ * `keystore_pin_abre()` deixou aberto. As duas apagam o PIN ao sair, em todo
+ * caminho.
+ *
+ * `keystore_pin_offset()`: metodo do offset. `tab` e a tabela de
+ * decimalizacao (16 digitos ASCII) e `mac` o MAC que o console deu a ela para
+ * ESTA chave de verificacao; a funcao confere o MAC contra o KCV da chave do
+ * slot. `dados` sao os dados de validacao. Com `gerar`, escreve em `offset`
+ * os digitos ASCII e em `*offset_n` quantos sao (o tamanho do PIN). Sem
+ * `gerar`, confere o offset dado, de `*offset_n` digitos.
+ *
+ * `keystore_pin_pvv()`: PVV. `pan` em ASCII, de 12 a 19 digitos; `indice_pvk`
+ * de 0 a 9 (valor, nao caractere). Com `gerar`, escreve os 4 digitos ASCII em
+ * `pvv`; sem, confere os que estao la.
+ *
+ * A chave do slot precisa ser 3DES, de uso V1 (offset) ou V2 (PVV). Gerar
+ * pede modo 'G' ou 'C'; conferir, 'V' ou 'C'. A cifra, o MAC da tabela e o
+ * veredito final sao calculados duas vezes.
+ *
+ * Devolvem 0 (gerado, ou conferiu); 1 se nao conferiu; -1 se o uso, o
+ * algoritmo ou o modo proibe; -2 se duas execucoes discordaram (erro grave
+ * marcado); -3 em erro interno ou parametro invalido; -5 (so a do offset) se
+ * a tabela nao tem o MAC desta chave. */
+#define KS_TABELA_MAC  8u
+int keystore_pin_offset(ks_handle_t h, int gerar, const uint8_t tab[16],
+                        const uint8_t mac[KS_TABELA_MAC],
+                        const uint8_t dados[8], uint8_t *offset,
+                        uint32_t *offset_n);
+int keystore_pin_pvv(ks_handle_t h, int gerar, const uint8_t *pan,
+                     uint32_t pan_n, uint8_t indice_pvk, uint8_t pvv[4]);
+
+/* Tabela de decimalizacao autorizada. A tabela e o parametro do ataque de
+ * Bond e Zielinski (2003): quem escolhe a tabela acha o PIN em cerca de 15
+ * pedidos. Por isso ela so vale com MAC, e o MAC so sai do console, com dual
+ * control (comando TABELA_AUTORIZA).
+ *
+ * `keystore_tabela_autoriza()` calcula o MAC de `tab` (16 digitos ASCII)
+ * amarrado a `kcv`, o KCV da chave de verificacao V1, sob uma chave derivada
+ * da LMK. Devolve 0; -1 se a tabela nao tem a forma ou nao ha LMK; -2 se as
+ * duas execucoes discordaram. A conferencia mora em keystore_pin_offset(). */
+int keystore_tabela_autoriza(const uint8_t tab[16],
+                             const uint8_t kcv[KS_KCV_LEN],
+                             uint8_t mac[KS_TABELA_MAC]);
 
 /* MAC sob a chave de um slot -- CMAC-AES-256, SP 800-38B.
  *

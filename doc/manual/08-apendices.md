@@ -333,6 +333,17 @@ violação de ambiente, com a causa no argumento.
 
 Os quatro valores são códigos de 12 bits do XADC, e `hsmtool env` os converte.
 
+### Comando da Fase 8 — tabela de decimalização
+
+| Opcode | Nome | Pedido | Resposta | Estados |
+|---|---|---|---|---|
+| `0x80` | `TABELA_AUTORIZA` | tabela (16 dígitos ASCII) ‖ KCV da chave V1 (3) | tabela (16) ‖ KCV (3) ‖ MAC (8) | `OPERATIONAL` |
+
+Exige os dois botões. `hsmtool tabela-autoriza TABELA KCV` mostra a resposta
+em 32 caracteres, que é o bloco que os comandos `V0` e `V2` da porta host
+pedem. O bloco vale só com a chave `V1` daquele KCV. A seção 35.4 explica por
+que a tabela precisa de autorização, e por que o KCV entra.
+
 ### Porta host — command set ASCII (Fase 5)
 
 Tudo acima é o **console**. A porta **host** usa a mesma UART com mensagens
@@ -369,11 +380,18 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `E2` | `E3` | key block ‖ digest(64) | r(64) ‖ s(64) | `OPERATIONAL` |
 | `E4` | `E5` | Qx(64) ‖ Qy(64) ‖ digest(64) ‖ r(64) ‖ s(64) | — (o veredito é o erro) | `OPERATIONAL` |
 | `P0` | `P1` | bloco da chave de origem ‖ bloco da chave de destino ‖ formato de origem(1) ‖ formato de destino(1) ‖ tamanho do PAN(2) ‖ PAN ‖ PIN block(16 ou 32) | PIN block(16 ou 32) | `OPERATIONAL` |
+| `V0` | `V1` | COMUM ‖ tabela autorizada(32) ‖ dados de validação(16) | tamanho(2) ‖ offset | `OPERATIONAL` |
+| `V2` | `V3` | COMUM ‖ tabela autorizada(32) ‖ dados de validação(16) ‖ tamanho(2) ‖ offset | — (o veredito é o erro) | `OPERATIONAL` |
+| `V4` | `V5` | COMUM ‖ índice da chave(1) | PVV(4) | `OPERATIONAL` |
+| `V6` | `V7` | COMUM ‖ índice da chave(1) ‖ PVV(4) | — (o veredito é o erro) | `OPERATIONAL` |
+
+COMUM = bloco da chave de PIN ‖ bloco da chave de verificação ‖ formato(1) ‖
+tamanho do PAN(2) ‖ PAN ‖ PIN block(16 ou 32).
 
 Erros: `00` sem erro · `01` verificação falhou · `10` key block inválido ·
 `11` o uso ou o modo do bloco não permite · `12` chave não exportável · `13` o
 bloco de proteção não é KEK · `14` PIN block inválido · `15` dados inválidos · `16` parâmetro
-inválido · `20` estado não permite · `21` comando desconhecido · `22`
+inválido · `17` tabela de decimalização não autorizada · `20` estado não permite · `21` comando desconhecido · `22`
 mensagem malformada · `27` falha no log · `90` erro interno · `91` erro grave. Os códigos de
 comando e de erro são deste projeto.
 
@@ -392,6 +410,15 @@ a chave tem de ser do algoritmo do formato; se não é, a resposta é `11`. O
 tamanho do PAN vai em dois dígitos decimais, e o PAN, em dígitos ASCII: de 1
 a 19, e de 13 a 19 quando um dos formatos é o `0`. As seções 34.1 a 34.3
 explicam o comando.
+
+`V0` a `V6` são a verificação de PIN (seção 35). O PIN chega num PIN block,
+formato `0` ou `4`, sob uma chave de uso `P0`. A chave de verificação é 3DES,
+de uso `V1` para o offset (`V0`, `V2`) e `V2` para o PVV (`V4`, `V6`); gerar
+pede modo `G` ou `C`, e verificar pede `V` ou `C`. A tabela autorizada são os
+16 dígitos da tabela e os 16 caracteres do MAC que o `TABELA_AUTORIZA` do
+console devolveu para aquela chave `V1`. Os dados de validação vão em 16 dígitos hexadecimais. O
+offset tem de 4 a 12 dígitos, e o tamanho vai em dois dígitos decimais. No
+PVV o PAN tem de 12 a 19 dígitos.
 
 `K4` e `K6` trocam chave com outra instituição sob uma **KEK** — chave de
 uso `K0` que as duas têm, formada por componentes no console
@@ -1128,8 +1155,9 @@ que não foi escrito:
 ### Ataques
 
 - Bond, M. — *Attacks on Cryptoprocessor Transaction Sets* (2001)
-- Bond, M. e Zieliński, P. — *Decimalisation Table Attacks for PIN Cracking*
-  (2003)
+- Bond, M. e Zieliński, P. — *Decimalisation Table Attacks for PIN Cracking*,
+  relatório técnico UCAM-CL-TR-560, University of Cambridge (2003) — o
+  ataque, as três variantes e a seção de prevenção
 - Clulow, J. — *The Design and Analysis of Cryptographic Application
   Programming Interfaces for Security Devices*, dissertação de mestrado,
   University of Natal, Durban (2003) — ataques a PIN blocks

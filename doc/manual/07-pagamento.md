@@ -419,58 +419,263 @@ mesmo que um equipamento comercial tem.
 
 ---
 
-## 35. Verificação de PIN — PVV e IBM 3624
+## 35. Verificação de PIN — o offset e o PVV
 
-O emissor precisa decidir se o PIN digitado está certo. Guardar os PINs
-numa base seria insano, então guarda-se um **valor derivado** de quatro
-dígitos, e a verificação recalcula e compara.
+O emissor precisa decidir se o PIN digitado está certo. Ele não guarda os
+PINs. Ele guarda, para cada conta, um **valor de referência** de poucos
+dígitos, que não é segredo. Na hora de verificar, o equipamento refaz uma
+conta com uma chave secreta e compara.
 
-Duas famílias dominam.
+Dois métodos dominam o mercado. Os dois usam um bloco de 3DES sob uma chave
+própria, a **chave de verificação de PIN**. Este equipamento faz os dois.
 
-### 35.1 PVV (Visa)
+| | Método do offset | PVV |
+|---|---|---|
+| Origem | o caixa eletrônico dos anos 1970 | bandeira de cartão |
+| Entra na cifra | dados de validação, tirados da conta | conta, índice da chave e **PIN** |
+| O PIN entra na cifra? | não | sim, os 4 primeiros dígitos |
+| Valor de referência | offset, um dígito por dígito de PIN | PVV, sempre 4 dígitos |
+| Parâmetro delicado | tabela de decimalização | nenhum |
+| Uso da chave no key block | `V1` | `V2` |
 
-Combinam-se dígitos do PAN, um índice de chave e o PIN; cifra-se o conjunto
-com um par de chaves PVK; **decimaliza-se** o resultado; guardam-se quatro
-dígitos. Para verificar, o emissor refaz a conta com o PIN apresentado e
-compara.
+### 35.1 O método do offset
 
-Repare no que ele **não** faz: não guarda o PIN e não permite recuperá-lo.
-Quatro dígitos de PVV não determinam o PIN — várias entradas colidem, e é
-proposital.
+A ideia original era o caixa eletrônico calcular o PIN a partir do número da
+conta, com uma chave só, sem consultar ninguém.
 
-### 35.2 IBM 3624 e o *offset*
+1. **Dados de validação.** O emissor tira 16 dígitos hexadecimais do número
+   da conta. A regra de montagem é do emissor.
+2. **Cifra.** Um bloco de 3DES sob a chave de verificação. Saem 16 dígitos
+   hexadecimais.
+3. **Decimalização.** Um teclado numérico não tem as letras de `A` a `F`.
+   Uma tabela leva cada dígito hexadecimal a um decimal. O resultado é o
+   **PIN natural**.
+4. **Offset.** O cliente quer escolher o PIN. O emissor guarda a diferença,
+   dígito a dígito e módulo 10, entre o PIN escolhido e o PIN natural.
 
-Cifra-se um dado de validação derivado do PAN, decimaliza-se, e obtêm-se
-alguns dígitos: o **PIN natural**. Como o cliente quer escolher o próprio
-PIN, guarda-se o **offset** — a diferença dígito a dígito, módulo 10, entre
-o PIN escolhido e o natural.
+```
+   natural = tabela( 3DES( dados de validação ) )
+   offset  = PIN − natural      dígito a dígito, módulo 10
+   PIN     = natural + offset   idem
+```
 
-O offset **não é secreto**: ele pode ser impresso, transportado, guardado em
-claro. Sem a chave, ele não diz nada sobre o PIN.
-
-### 35.3 A decimalização, e por que ela é o ponto fraco
-
-Cifrar produz **hexadecimal**. PIN é **decimal**. A ponte entre os dois é
-uma tabela:
+A tabela usual:
 
 ```
    hex:    0 1 2 3 4 5 6 7 8 9 A B C D E F
    tabela: 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
 ```
 
-Essa tabela, que parece detalhe de formatação, é a origem do ataque mais
-instrutivo da literatura de HSM — **Bond e Zieliński, 2003**. Algumas APIs
-deixavam o *chamador* fornecê-la. Fornecendo tabelas degeneradas e
-observando apenas "verificou / não verificou", recupera-se um PIN de quatro
-dígitos em cerca de **quinze chamadas**, contra cinco mil de força bruta.
+**Exemplo, com os valores conferidos por programa** (`host/test_pinverif.py`).
+A chave é `0123456789ABCDEF FEDCBA9876543210`, o PIN é `48213` e os dados de
+validação são `9999990123456789`:
 
-O ataque está detalhado na **seção 15.2**. Aqui só o alerta que ele deixa:
+```
+   dados de validação    9999990123456789
+   cifrado               C391C921EB0FE15C
+   decimalizado          2391292141054152     C→2, B→1, F→5, E→4
+   PIN natural           23912                os 5 primeiros: o PIN tem 5
+   PIN do cliente        48213
+   offset                25301                4−2, 8−3, 2−9+10, 1−1, 3−2
+```
+
+Para verificar, o equipamento soma o offset ao PIN natural e compara com o
+PIN que chegou no PIN block: `23912 + 25301 = 48213`, dígito a dígito, sem
+vai-um.
+
+**O offset não é segredo.** Ele fica na base do emissor e já foi gravado na
+tarja do cartão. Sem a chave, ele não diz nada sobre o PIN. A consequência é
+que **o PIN natural vale tanto quanto o PIN**: quem conhece o natural de uma
+conta e lê o offset dela tem o PIN.
+
+**O PIN natural não é uniforme.** A tabela usual leva 16 valores a 10: os
+dígitos de 0 a 5 saem com probabilidade 2/16 cada um, e os de 6 a 9 com
+1/16.
+
+```
+   entropia de um dígito natural   3,25 bits     (uniforme: 3,32)
+   tentativas até acertar, média   3 307         (uniforme: 5 000)
+   chance de acertar em 3          7,3 em 10 000 (uniforme: 3 em 10 000)
+```
+
+O offset escolhido pelo cliente esconde esse desvio. Num emissor que entrega
+o PIN natural ao cliente, sem offset, ele fica exposto.
+
+### 35.2 O PVV
+
+O PVV põe o PIN **dentro** da cifra, e dispensa a tabela.
+
+1. Monta-se um bloco de 16 dígitos: os 11 dígitos da conta antes do dígito
+   verificador, um dígito de **índice da chave**, e os 4 primeiros dígitos do
+   PIN.
+2. Cifra-se com 3DES sob a chave de verificação.
+3. Percorrem-se os 16 dígitos hexadecimais do resultado, da esquerda para a
+   direita, e tomam-se os **4 primeiros que são decimais**.
+4. Se não houver 4, percorre-se de novo, tomando as letras, com `A`→0 até
+   `F`→5.
+
+**Exemplo**, com a mesma chave, o PAN inventado `9999990123456789`, índice 1
+e PIN `48213`:
+
+```
+   conta, 11 dígitos     99012345678
+   índice                1
+   PIN, 4 dígitos        4821
+   bloco de entrada      9901234567814821
+   cifrado               6368D8454667BA39
+   PVV                   6368                os 4 primeiros decimais
+```
+
+O índice permite ao emissor trocar de chave aos poucos: cada cartão diz com
+qual chave o PVV dele foi feito.
+
+**A segunda passada é rara.** Um dígito hexadecimal é decimal com
+probabilidade 10/16. A chance de um bloco de 16 ter menos de 4 decimais é a
+cauda de uma binomial:
+
+```
+   soma, k de 0 a 3, de  C(16,k) · (10/16)^k · (6/16)^(16−k)  =  1 em 2 214
+```
+
+Por isso o teste de PC não espera o acaso: ele constrói blocos com toda
+quantidade de decimais, de 0 a 16 (seção 41.3).
+
+**O PVV não determina o PIN.** Há 10 000 PINs de 4 dígitos e 10 000 PVVs,
+e a cifra espalha uns sobre os outros ao acaso. Para um PIN qualquer, a
+chance de outro PIN dar o mesmo PVV é `1 − (1 − 1/10 000)^9 999 = 63%`. Quem
+acerta o PVV por tentativa pode ter achado um PIN que não é o do cliente, e
+ele funciona do mesmo jeito.
+
+**Só 4 dígitos do PIN entram.** Num PIN de 6 dígitos, os dois últimos não
+mudam o PVV.
+
+### 35.3 A decimalização, e por que ela é o ponto fraco
+
+A tabela parece detalhe de formatação. Ela é a origem do ataque mais
+instrutivo da literatura de HSM: **Bond e Zieliński, 2003** (seção 15.2).
+
+Nas APIs da época, o chamador mandava a tabela em cada pedido de
+verificação. O ataque usa isso:
+
+- Com uma tabela que leva um dígito a 1 e todos os outros a 0, o veredito
+  "confere / não confere" diz se aquele dígito aparece no PIN natural.
+- Em poucos pedidos sai o conjunto de dígitos, e em mais alguns, a posição
+  de cada um.
+
+Os números do relatório, para um PIN de 4 dígitos:
+
+| Variante | O que o atacante precisa | Pedidos, média | Pior caso |
+|---|---|---|---|
+| Inicial | PIN blocks de PINs de teste | cerca de 24 | 46 |
+| Adaptativa | idem | 15 | 24 |
+| Pelo offset | **um** PIN block capturado, e o offset | 16,5 | não informado |
+| Força bruta, para comparar | | 5 000 | 10 000 |
+
+A terceira variante é a que importa para a defesa. Ela não usa tabelas
+absurdas: usa a tabela legítima com **uma** entrada alterada, e compensa no
+offset. Uma conferência de forma ("a tabela tem dígitos variados?") barra as
+duas primeiras e deixa passar a terceira. O relatório conclui que a proteção
+completa é a tabela **protegida por criptografia**, para que só tabela
+autorizada seja aceita.
 
 > Um parâmetro que parece configuração inofensiva pode ser a superfície de
 > ataque inteira.
 
-E é por isso que o checklist deste projeto pergunta, para todo comando
-novo, *o que ele vaza se for chamado em laço com entradas escolhidas*.
+### 35.4 A verificação neste equipamento
+
+Quatro comandos na porta host, e um no console.
+
+| Comando | Faz | Devolve |
+|---|---|---|
+| `V0` | gera o offset de um PIN | o offset |
+| `V2` | verifica um PIN pelo offset | `00` confere, `01` não confere |
+| `V4` | gera o PVV de um PIN | o PVV |
+| `V6` | verifica um PIN pelo PVV | `00` confere, `01` não confere |
+| `TABELA_AUTORIZA` (console) | autoriza uma tabela de decimalização para uma chave de verificação | a tabela com um MAC |
+
+**O PIN nunca chega em claro.** Ele vem num PIN block, formato 0 ou 4, sob
+uma chave de PIN, como no `P0`. O equipamento abre o bloco dentro do key
+store, faz a conta e apaga o PIN. O pedido leva dois key blocks: o da chave
+de PIN e o da chave de verificação.
+
+**A tabela autorizada.** Os comandos `V0` e `V2` só aceitam tabela com MAC
+válido, e o MAC vale para **uma** chave de verificação. O MAC sai do console,
+com os dois botões. O operador informa a tabela e o KCV da chave `V1`, que o
+`K2` da porta host mostra:
+
+```bash
+python3 host/hsmtool.py tabela-autoriza 0123456789012345 <KCV da chave V1>
+```
+
+```
+chave V1 (KCV)    : <KCV>
+tabela autorizada : 0123456789012345<16 caracteres de MAC>
+```
+
+O host guarda esse bloco de 32 caracteres e o manda em cada pedido, junto
+com a chave `V1` daquele KCV. O equipamento confere o MAC contra o KCV da
+chave que ele abriu do key block, e não contra um KCV que o host informe.
+Tabela alterada, MAC alterado, ou MAC feito para outra chave: erro `17`.
+
+```
+   MAC = 8 primeiros bytes de CMAC_K( tabela (16) ‖ KCV da chave V1 (3) )
+   K   = chave derivada da LMK com o rótulo "HSM-A7 DECTAB"
+```
+
+**Por que o KCV entra.** Sem ele, uma tabela autorizada valeria para toda
+chave. Com duas tabelas autorizadas sob a mesma LMK, o host combinaria as
+duas. Isso acontece sem má-fé: uma troca de tabela, ou uma tabela digitada
+errado e depois corrigida. Se a segunda difere da primeira em uma entrada,
+ela é exatamente a tabela da variante 3 do ataque (seção 35.3), e o PIN sai
+em algumas dezenas de pedidos. Com o KCV no MAC:
+
+- uma tabela vale só para a chave para a qual foi autorizada;
+- revogar uma tabela é trocar a chave de verificação, como se troca
+  qualquer chave;
+- a tabela errada autorizada para uma chave não serve para outra.
+
+O que continua com os custodiantes: autorizar **duas** tabelas diferentes
+para a **mesma** chave reabre a variante 3 para aquela chave. O equipamento
+não lembra o que já autorizou.
+
+- A chave do MAC é derivada da LMK só para isso, com um rótulo próprio. Um
+  MAC de tabela não serve de MAC de key block.
+- O equipamento **não julga** a tabela. Ele exige 16 dígitos decimais e
+  dois custodiantes. Quem autoriza uma tabela ruim reabre o ataque.
+- O MAC não é segredo. Trocar a LMK invalida todas as tabelas autorizadas.
+
+**Cada veredito é calculado duas vezes.** A conferência do MAC da tabela, a
+cifra e a comparação final do `V2` e do `V6` rodam duas vezes, cada uma a
+partir da sua própria conta. Se discordam, nada sai, a resposta é `91` e o
+erro grave fica marcado (seção 44.2). Um veredito é o que uma falha
+provocada quer inverter: um `01` que vira `00`, ou uma tabela recusada que
+passa.
+
+**O modo da chave separa quem emite de quem verifica.** A chave de
+verificação tem modo `G` (só gera), `V` (só verifica) ou `C` (os dois).
+
+- `V0` e `V4` são funções de **emissão**. Quem as chama com um PIN block de
+  PIN conhecido aprende o PIN natural (PIN − offset), e daí o PIN de toda
+  conta de que tenha o offset. Não há conserto dentro do método.
+- O controle é o modo: o sistema que só autoriza transações recebe a chave
+  com modo `V`, e com ela `V0` e `V4` respondem `11`.
+- Uma chave `V1` não calcula PVV, e uma `V2` não calcula offset: `11`.
+
+**O que `V2` e `V6` revelam.** Um bit por pedido. Com um PIN block na mão,
+quem escolhe o offset acha o offset certo em até 10ⁿ pedidos. É a busca que
+o método admite. O controle é de fora: o contador de tentativas no sistema
+do emissor, e o log, que registra cada `01`.
+
+**O tamanho do PIN aparece em `V0`**, no tamanho do offset. É do método.
+
+**Exemplo de uso**, com as ferramentas de teste:
+
+```bash
+python3 host/hsmhost.py --serial pinv-confere --lmk <LMK em hex> -n 24
+```
+
+Cada volta gera chaves, cifra um PIN, pede os quatro comandos e confere os
+resultados com uma segunda implementação em Python.
 
 ---
 
@@ -531,10 +736,10 @@ de vetor de teste**.
 | Chaves 3DES: gerar, conferir, exportar | **feito** | motor em software, com vetores oficiais (seção 38.8) |
 | PIN block formato 0 e 3 | **planejado** | a cifra é o 3DES, que entra no equipamento |
 | Tradução de PIN | **feita** (`P0`, só formato 4) | o valor está no formato do comando e no oráculo, não na cifra |
-| Verificação de PIN e ataque de decimalização | **planejado, e é o melhor item** | é ataque de **API**, sobre o método real |
+| Verificação de PIN e ataque de decimalização | **feito** (seção 35) | é ataque de **API**, sobre o método real |
 | DUKPT AES (X9.24-3) | **planejado** | é AES |
 | CVV / CVC | **planejado** | inerentemente 3DES; não há variante AES em uso |
-| PVV | **planejado** | idem |
+| PVV | **feito** (seção 35.2) | idem |
 | DUKPT TDES (X9.24-1) | **planejado** | idem |
 | Criptogramas EMV, emissão de PIN | fora, por enquanto | são funções de emissor, maiores que as demais |
 

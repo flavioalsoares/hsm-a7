@@ -62,9 +62,15 @@ por exemplo, toda de zeros exceto uma posição — o atacante aprende, a cada
 consulta, se um determinado dígito aparece no PIN. Poucas consultas revelam
 o conjunto de dígitos; poucas mais revelam a ordem.
 
-O resultado: recuperação de um PIN de quatro dígitos em cerca de **quinze
-chamadas de API**, contra as cinco mil de uma busca exaustiva. E cada chamada
-é perfeitamente legítima.
+O resultado, para um PIN de quatro dígitos: **15 chamadas em média** na
+variante adaptativa, e 24 no pior caso, contra as cinco mil de uma busca
+exaustiva. E cada chamada é perfeitamente legítima.
+
+Uma terceira variante usa a tabela legítima com uma entrada alterada, e
+compensa no offset: 16,5 chamadas em média, com um único PIN block
+capturado. Por causa dela, conferir a forma da tabela não basta. A defesa
+completa é aceitar só tabela **autorizada**, protegida por criptografia. A
+seção 35 mostra as contas e o que este equipamento faz.
 
 **A lição de projeto:** todo parâmetro controlado pelo chamador é uma
 entrada de ataque, inclusive os que parecem configuração inofensiva. É a

@@ -13,6 +13,7 @@
 #include "ecc.h"
 #include "tr31.h"
 #include "pinblock.h"
+#include "pinverif.h"
 #include "des.h"
 #include "pkcs8.h"
 #include "wipe.h"
@@ -783,6 +784,235 @@ int keystore_pin_fecha(ks_handle_t h, uint8_t formato,
     return r;
 }
 
+/* ------------------------------------------------------------------ */
+/* Verificacao de PIN: offset e PVV (fase 8, etapa 8.5)                */
+/* ------------------------------------------------------------------ */
+
+static int tabela_confere(const uint8_t tab[PINV_TABELA],
+                          const uint8_t kcv[KS_KCV_LEN],
+                          const uint8_t mac[KS_TABELA_MAC]);
+
+/* 1 se o slot e chave de verificacao de PIN do metodo `metodo` ('1' offset,
+ * '2' PVV), 3DES, e o `modo` permite `precisa` (GERA/VERIFICA; 'C' permite
+ * as duas). O codigo exato do uso: uma chave do offset que calculasse PVV
+ * seria a mesma chave em dois metodos, e o que um revela ajudaria o outro. */
+static int pvk_pode(int i, uint8_t metodo, uint8_t precisa)
+{
+    if ((g_slots[i].algoritmo != (uint8_t)KS_ALG_TDES) ||
+        (g_slots[i].uso[0] != (uint8_t)KS_USO_PVK_OFFSET[0]) ||
+        (g_slots[i].uso[1] != metodo)) {
+        return 0;
+    }
+    return modo_mac_ok(g_slots[i].modo, precisa);
+}
+
+/* Um bloco de 3DES sob a chave do slot. As subchaves sao derivadas AQUI, a
+ * cada chamada, e apagadas na saida. FRONTEIRA: dentro. */
+static int pvk_cifra(int i, const uint8_t entrada[DES_BLOCO],
+                     uint8_t saida[DES_BLOCO])
+{
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    int         r = -1;
+
+    if (tdes_prepara(ctx, g_slots[i].chave, g_slots[i].key_len) == 0) {
+        tdes_bloco(ctx, entrada, saida, 1);
+        r = 0;
+    }
+    tdes_apaga(ctx);
+    return r;
+}
+
+/* Os digitos do PIN aberto, em valores, e o tamanho. g_pin tem a forma do
+ * campo do formato 4: controle, tamanho, e os digitos a partir do terceiro
+ * meio-byte. As 12 posicoes sao copiadas sempre; as que passam do tamanho
+ * levam enchimento, e ninguem as usa. FRONTEIRA: dentro. */
+static uint32_t pin_digitos(uint8_t pin[PIN_MAX])
+{
+    uint32_t k;
+
+    for (k = 0u; k < PIN_MAX; k++) {
+        uint8_t b = g_pin[(2u + k) >> 1];
+        pin[k] = (uint8_t)((((2u + k) & 1u) == 0u) ? (b >> 4) : (b & 0x0Fu));
+    }
+    return (uint32_t)(g_pin[0] & 0x0Fu);
+}
+
+/* FRONTEIRA: dentro. O PIN natural e tao bom quanto o PIN, porque o offset e
+ * publico: as copias saem apagadas em todo caminho.
+ *
+ * A tabela e conferida AQUI, contra o KCV da chave que esta no slot, e nao
+ * contra um KCV que o host informe: so assim ela vale para a chave para a
+ * qual foi autorizada. O veredito final e calculado duas vezes, cada um a
+ * partir de uma das duas cifras: uma falha na comparacao nao vira 00. */
+int keystore_pin_offset(ks_handle_t h, int gerar,
+                        const uint8_t tab[PINV_TABELA],
+                        const uint8_t mac[KS_TABELA_MAC],
+                        const uint8_t dados[PINV_DADOS],
+                        uint8_t *offset, uint32_t *offset_n)
+{
+    int      i = indice(h);
+    uint8_t  ca[DES_BLOCO], cb[DES_BLOCO];
+    uint8_t  na[PINV_NATURAL], nb[PINV_NATURAL];
+    uint8_t  pin[PIN_MAX], off[PIN_MAX];
+    uint32_t n, j;
+    uint8_t  dif = 0u;
+    int      r, va, vb;
+
+    if ((i < 0) || (tab == 0) || (mac == 0) || (dados == 0) ||
+        (offset == 0) || (offset_n == 0) || (g_pin_ok == 0u)) {
+        keystore_pin_apaga();
+        return -3;
+    }
+    if (!pvk_pode(i, (uint8_t)KS_USO_PVK_OFFSET[1],
+                  gerar ? KS_MODO_GERA : KS_MODO_VERIFICA)) {
+        keystore_pin_apaga();
+        return -1;
+    }
+    r = tabela_confere(tab, g_slots[i].kcv, mac);
+    if (r != 1) {
+        keystore_pin_apaga();
+        return (r == 0) ? -5 : r;
+    }
+    n = pin_digitos(pin);
+    if ((pvk_cifra(i, dados, ca) != 0) || (pvk_cifra(i, dados, cb) != 0)) {
+        r = -3;
+    } else {
+        for (j = 0u; j < DES_BLOCO; j++) {
+            dif |= (uint8_t)(ca[j] ^ cb[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        } else {
+            pinv_decimaliza(ca, tab, na);
+            pinv_decimaliza(cb, tab, nb);
+            g_slots[i].contador_uso++;
+            if (gerar) {
+                /* O offset sai das duas contas, e sai so se concordam. */
+                pinv_offset(pin, na, n, off);
+                pinv_offset(pin, nb, n, offset);
+                dif = 0u;
+                for (j = 0u; j < n; j++) {
+                    dif |= (uint8_t)(off[j] ^ offset[j]);
+                    offset[j] = (uint8_t)(off[j] + (uint8_t)'0');
+                }
+                if (dif != 0u) {
+                    erro_grave_marca();
+                    wipe(offset, n);
+                    r = -2;
+                } else {
+                    *offset_n = n;
+                    r = 0;
+                }
+            } else if (*offset_n != n) {
+                /* Tamanho diferente: nao confere. O mesmo codigo do PIN
+                 * errado, para o host nao separar um caso do outro. */
+                r = 1;
+            } else {
+                for (j = 0u; j < n; j++) {
+                    off[j] = (uint8_t)(offset[j] - (uint8_t)'0');
+                }
+                va = pinv_offset_confere(pin, na, off, n);
+                vb = pinv_offset_confere(pin, nb, off, n);
+                if (va != vb) {
+                    erro_grave_marca();
+                    r = -2;
+                } else {
+                    r = va ? 0 : 1;
+                }
+            }
+        }
+    }
+    wipe(ca, sizeof ca);
+    wipe(cb, sizeof cb);
+    wipe(na, sizeof na);
+    wipe(nb, sizeof nb);
+    wipe(pin, sizeof pin);
+    wipe(off, sizeof off);
+    keystore_pin_apaga();
+    return r;
+}
+
+/* FRONTEIRA: dentro. O TSP leva quatro digitos do PIN; o resultado da cifra
+ * e segredo ate virar PVV. */
+int keystore_pin_pvv(ks_handle_t h, int gerar, const uint8_t *pan,
+                     uint32_t pan_n, uint8_t indice_pvk,
+                     uint8_t pvv[PINV_PVV])
+{
+    int      i = indice(h);
+    uint8_t  tsp[PINV_DADOS], ca[DES_BLOCO], cb[DES_BLOCO];
+    uint8_t  pin[PIN_MAX], calc[PINV_PVV], calc2[PINV_PVV];
+    uint32_t j;
+    uint8_t  dif = 0u;
+    int      r, va, vb;
+
+    if ((i < 0) || (pan == 0) || (pvv == 0) || (g_pin_ok == 0u)) {
+        keystore_pin_apaga();
+        return -3;
+    }
+    if (!pvk_pode(i, (uint8_t)KS_USO_PVK_PVV[1],
+                  gerar ? KS_MODO_GERA : KS_MODO_VERIFICA)) {
+        keystore_pin_apaga();
+        return -1;
+    }
+    (void)pin_digitos(pin);
+    if (pinv_pvv_tsp(pan, pan_n, indice_pvk, pin, tsp) != 0) {
+        r = -3;
+    } else if ((pvk_cifra(i, tsp, ca) != 0) || (pvk_cifra(i, tsp, cb) != 0)) {
+        r = -3;
+    } else {
+        for (j = 0u; j < DES_BLOCO; j++) {
+            dif |= (uint8_t)(ca[j] ^ cb[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        } else {
+            /* Uma extracao de cada cifra: a comparacao final tambem e
+             * feita duas vezes. */
+            pinv_pvv_extrai(ca, calc);
+            pinv_pvv_extrai(cb, calc2);
+            g_slots[i].contador_uso++;
+            if (gerar) {
+                dif = 0u;
+                for (j = 0u; j < PINV_PVV; j++) {
+                    dif |= (uint8_t)(calc[j] ^ calc2[j]);
+                    pvv[j] = (uint8_t)(calc[j] + (uint8_t)'0');
+                }
+                if (dif != 0u) {
+                    erro_grave_marca();
+                    wipe(pvv, PINV_PVV);
+                    r = -2;
+                } else {
+                    r = 0;
+                }
+            } else {
+                uint8_t da = 0u, db = 0u;
+                for (j = 0u; j < PINV_PVV; j++) {
+                    da |= (uint8_t)(calc[j]  ^ (uint8_t)(pvv[j] - (uint8_t)'0'));
+                    db |= (uint8_t)(calc2[j] ^ (uint8_t)(pvv[j] - (uint8_t)'0'));
+                }
+                va = (da == 0u) ? 1 : 0;
+                vb = (db == 0u) ? 1 : 0;
+                if (va != vb) {
+                    erro_grave_marca();
+                    r = -2;
+                } else {
+                    r = va ? 0 : 1;
+                }
+            }
+        }
+    }
+    wipe(tsp, sizeof tsp);
+    wipe(ca, sizeof ca);
+    wipe(cb, sizeof cb);
+    wipe(pin, sizeof pin);
+    wipe(calc, sizeof calc);
+    wipe(calc2, sizeof calc2);
+    keystore_pin_apaga();
+    return r;
+}
+
 int keystore_cmac(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
                   uint8_t tag[CMAC_TAG_LEN])
 {
@@ -1083,6 +1313,150 @@ int lmk_deriva_kb(uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX])
         return -1;
     }
     return tr31_deriva(g_lmk, kbek, kbak);
+}
+
+/* ------------------------------------------------------------------
+ * Tabela de decimalizacao autorizada (fase 8, etapa 8.5)
+ * ------------------------------------------------------------------ */
+
+/* O MAC de uma tabela, amarrado a UMA chave de verificacao, sob uma chave
+ * derivada da LMK so para isto:
+ *
+ *   K   = bloco 1 . bloco 2,  bloco i = CMAC_LMK( [i] . rotulo . 00 . 0100 )
+ *   MAC = 8 primeiros bytes de CMAC_K( tabela(16) . KCV da chave V1 (3) )
+ *
+ * E a SP 800-108 em modo contador, com o CMAC como funcao pseudoaleatoria,
+ * que e tambem o que o key block faz para derivar KBEK e KBAK. O rotulo
+ * separa esta chave das do key block: um MAC de tabela nao serve de MAC de
+ * key block, nem o contrario.
+ *
+ * O KCV entra para a tabela valer so com a chave para a qual foi autorizada
+ * (revisao de 2026-11-15). Sem ele, duas tabelas autorizadas sob a mesma LMK
+ * -- uma troca de tabela, ou uma tabela digitada errado e depois corrigida --
+ * dariam ao host a variante 3 do ataque: a tabela legitima com uma entrada
+ * alterada. Revogar uma tabela passa a ser trocar a chave de verificacao.
+ *
+ * FRONTEIRA: dentro. A segunda funcao deste arquivo que usa g_lmk fora da
+ * cerimonia, e ela tambem a entrega a uma derivacao, nao a um chamador. */
+static int tabela_mac(const uint8_t tab[PINV_TABELA],
+                      const uint8_t kcv[KS_KCV_LEN],
+                      uint8_t mac[KS_TABELA_MAC])
+{
+    static const uint8_t rotulo[13] = {
+        'H', 'S', 'M', '-', 'A', '7', ' ', 'D', 'E', 'C', 'T', 'A', 'B'
+    };
+    uint8_t  msg[1u + sizeof rotulo + 3u];
+    uint8_t  dado[PINV_TABELA + KS_KCV_LEN];
+    uint8_t  k[KS_KEY_MAX], tag[CMAC_TAG_LEN];
+    uint32_t j;
+    int      r = -1;
+
+    if (!lmk_completa()) {
+        return -1;
+    }
+    for (j = 0u; j < sizeof rotulo; j++) {
+        msg[1u + j] = rotulo[j];
+    }
+    msg[1u + sizeof rotulo]      = 0x00u;
+    msg[1u + sizeof rotulo + 1u] = 0x01u;      /* 256 bits */
+    msg[1u + sizeof rotulo + 2u] = 0x00u;
+    for (j = 0u; j < PINV_TABELA; j++) {
+        dado[j] = tab[j];
+    }
+    for (j = 0u; j < KS_KCV_LEN; j++) {
+        dado[PINV_TABELA + j] = kcv[j];
+    }
+    msg[0] = 1u;
+    if (cmac_aes256(g_lmk, msg, sizeof msg, &k[0]) == 0) {
+        msg[0] = 2u;
+        if ((cmac_aes256(g_lmk, msg, sizeof msg, &k[CMAC_TAG_LEN]) == 0) &&
+            (cmac_aes256(k, dado, sizeof dado, tag) == 0)) {
+            for (j = 0u; j < KS_TABELA_MAC; j++) {
+                mac[j] = tag[j];
+            }
+            r = 0;
+        }
+    }
+    wipe(k, sizeof k);
+    wipe(tag, sizeof tag);
+    (void)hsm_cfs_wipe();
+    return r;
+}
+
+int keystore_tabela_autoriza(const uint8_t tab[PINV_TABELA],
+                             const uint8_t kcv[KS_KCV_LEN],
+                             uint8_t mac[KS_TABELA_MAC])
+{
+    uint8_t  segunda[KS_TABELA_MAC];
+    uint32_t j;
+    uint8_t  dif = 0u;
+    int      r = -1;
+
+    if ((tab == 0) || (kcv == 0) || (mac == 0) || !pinv_tabela_forma(tab)) {
+        return -1;
+    }
+    if ((tabela_mac(tab, kcv, mac) == 0) &&
+        (tabela_mac(tab, kcv, segunda) == 0)) {
+        for (j = 0u; j < KS_TABELA_MAC; j++) {
+            dif |= (uint8_t)(mac[j] ^ segunda[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        } else {
+            r = 0;
+        }
+    }
+    if (r != 0) {
+        wipe(mac, KS_TABELA_MAC);
+    }
+    return r;
+}
+
+/* Uma conferencia do MAC da tabela: 1 confere, 0 nao, -1 erro interno. */
+static int tabela_confere_uma(const uint8_t tab[PINV_TABELA],
+                              const uint8_t kcv[KS_KCV_LEN],
+                              const uint8_t mac[KS_TABELA_MAC])
+{
+    uint8_t  calc[KS_TABELA_MAC];
+    uint32_t j;
+    uint8_t  dif = 0u;
+
+    if (tabela_mac(tab, kcv, calc) != 0) {
+        return -1;
+    }
+    for (j = 0u; j < KS_TABELA_MAC; j++) {
+        dif |= (uint8_t)(calc[j] ^ mac[j]);
+    }
+    wipe(calc, sizeof calc);
+    return (dif == 0u) ? 1 : 0;
+}
+
+/* O veredito sobre a tabela e o que uma falha quer inverter: ele e a defesa
+ * inteira contra o ataque de decimalizacao. Calculado duas vezes, com a chave
+ * do MAC derivada de novo, como o veredito do M2 (fase 6).
+ *
+ * Devolve 1 confere, 0 nao confere, -2 se as duas discordaram (erro grave
+ * marcado), -3 em erro interno. */
+static int tabela_confere(const uint8_t tab[PINV_TABELA],
+                          const uint8_t kcv[KS_KCV_LEN],
+                          const uint8_t mac[KS_TABELA_MAC])
+{
+    int a, b;
+
+    if (!pinv_tabela_forma(tab)) {
+        return 0;
+    }
+    a = tabela_confere_uma(tab, kcv, mac);
+    b = tabela_confere_uma(tab, kcv, mac);
+    if ((a < 0) || (b < 0)) {
+        return -3;
+    }
+    if (a != b) {
+        erro_grave_marca();
+        return -2;
+    }
+    return a;
 }
 
 /* ------------------------------------------------------------------

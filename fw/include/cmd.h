@@ -356,6 +356,40 @@
  *   log          nao, como os demais comandos de leitura. */
 #define CMD_ENV_READ            0x2Eu
 
+/* TABELA_AUTORIZA -- autoriza uma tabela de decimalizacao para UMA chave de
+ * verificacao. Fase 8, etapa 8.5.
+ *
+ *   pedido    tabela(16) || kcv(3)        16 caracteres de '0' a '9', e o KCV
+ *                                         da chave de verificacao V1
+ *   resposta  tabela(16) || kcv(3) || mac(8)
+ *
+ * A porta host so aceita, nos comandos V0 e V2, tabela com este MAC, e so com
+ * a chave V1 deste KCV. O MAC e calculado sob uma chave derivada da LMK so
+ * para isto. O operador le o KCV da chave com o K2 da porta host.
+ *
+ * Por que existe: a tabela de decimalizacao e o parametro do ataque de Bond
+ * e Zielinski (2003). Com a tabela a escolha do host, a verificacao de PIN
+ * entrega um PIN de 4 digitos em 15 pedidos em media. Conferir a forma da
+ * tabela nao fecha o ataque; so tabela autorizada fecha. E o KCV fecha a
+ * combinacao de duas tabelas autorizadas: uma tabela vale para uma chave, e
+ * revogar a tabela e trocar a chave.
+ *
+ * Checklist:
+ *   estados      ST_OPER: precisa da LMK.
+ *   dual control SIM, com aperto novo. E decisao de politica do emissor,
+ *                como uma cerimonia: quem autoriza uma tabela ruim abre o
+ *                ataque. O equipamento NAO julga a tabela; so exige a forma.
+ *   vazamento    um MAC de 64 bits por par (tabela, KCV). Em laco, com os
+ *                botoes, sai o MAC de quantos pares os custodiantes quiserem
+ *                assinar: o controle sao eles. O MAC nao e segredo, e o KCV
+ *                ja e publico.
+ *   exportability nao se aplica.
+ *   log          sim, antes.
+ *
+ * ⚠ O opcode fica fora de 0x30..0x7E, que e a faixa do protocolo ASCII. */
+#define CMD_TABELA_AUTORIZA     0x80u
+#define CMD_TABELA_LEN          16u
+
 
 void         cmd_init(void);
 void         cmd_poll(void);

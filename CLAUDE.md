@@ -89,7 +89,7 @@ python3 host/test_hsmtool.py        # transporte (pty + modelo do dispositivo)
 python3 host/test_tr31.py           # key block X9.143 (precisa de `cryptography`)
 python3 host/hsmtool.py ping
 python3 host/hsmtool.py post        # reroda o POST no dispositivo
-python3 host/regressao.py --lmk <hex>   # regressao na PLACA, cerca de 4 min
+python3 host/regressao.py --lmk <hex>   # regressao na PLACA, cerca de 5 min
 ```
 
 ### Quanto simular antes de gravar a placa
@@ -808,7 +808,7 @@ Não trocar por desvio condicional.
 Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vigor
 está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
 DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos (**feita**), 8.5
-verificação de PIN e o ataque de decimalização, 8.6 CVV, 8.7 troca de chaves 3DES,
+verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV, 8.7 troca de chaves 3DES,
 8.8 DUKPT, 8.9 MAC e dados com 3DES.
 
 ⚠ **O 3DES entra, por decisão do usuário (2026-11-14), e o critério é o mercado de
@@ -900,6 +900,46 @@ segundo: traduzir trocando o PAN amarra o PIN de uma conta a outra. Os formatos 
 ⚠ **O formato 0 não tem aleatório**: o bloco de saída é previsível, e o `tb_pin0` o
 compara inteiro com o do Python. Mexer no formato 0 exige mexer nos dois:
 `fw/src/pinblock.c` e `host/pinblock.py`.
+
+**Etapa 8.5 (verificação de PIN, offset e PVV): ✅ validada em hardware 2026-11-15.** `tb_pinv` 3 h 21, `tb_pin0` 2 h 26, `tb_pin` 1 h 27; `regressao.py` com 18 passos em 311 s, `pinv-confere` em 46,5 s. Firmware `0.8.5`, 51 336 bytes. Próxima: etapa 8.6. Comandos ASCII
+`V0` (gerar offset), `V2` (verificar offset), `V4` (gerar PVV) e `V6` (verificar
+PVV); comando de console `0x80 TABELA_AUTORIZA`, com dual control. As contas sem
+chave estão em `fw/src/pinverif.c`; a cifra e o PIN, em `keystore.c`.
+
+⚠ **A tabela de decimalização só vale com MAC** (decisão do usuário, 2026-11-15).
+O MAC sai do console, sob chave derivada da LMK, e `V0`/`V2` recusam tabela sem ele
+(`17`). Conferir só a forma da tabela NÃO fecha o ataque de Bond e Zieliński: a
+variante do offset usa a tabela legítima com uma entrada alterada (relatório
+UCAM-CL-TR-560, seção 6). Não trocar o MAC por uma checagem de forma, e não
+acrescentar comando que aceite tabela em claro.
+
+⚠ **O MAC da tabela cobre o KCV da chave `V1`**, e `keystore_pin_offset()` o confere
+contra o KCV da chave do SLOT, nunca contra um KCV vindo do host (decisão do
+usuário, 2026-11-15, depois da revisão de código). Sem isso, duas tabelas
+autorizadas sob a mesma LMK se combinam na variante 3 do ataque. Não tirar o KCV
+do MAC, e não mover a conferência para fora do key store.
+
+⚠ **Os vereditos de `V2`, `V6` e da tabela são calculados duas vezes**, como o do
+`M2`: a revisão de código achou a primeira versão com comparação única. Não
+"simplificar" para uma comparação. O `P0` e os `V*` abrem o PIN pela mesma função,
+`abre_pin()`: o `14` tem de ser o mesmo nos dois.
+
+⚠ **Não há comando que receba PIN em claro**, e não é para criar um. O PIN chega em
+PIN block. Um comando de cifrar PIN em claro entrega ao host PIN blocks de PIN
+conhecido, que é o insumo dos ataques.
+
+⚠ **`V0` e `V4` são funções de emissão**: quem as chama com um PIN block de PIN
+conhecido aprende o PIN natural. O controle é o modo da chave de verificação (`G`
+gera, `V` verifica, `C` os dois), conferido em `pvk_pode()`. Uma chave `V1` não
+calcula PVV, e uma `V2` não calcula offset.
+
+⚠ **O PIN natural e o resultado da cifra do PVV são segredo.** `pinverif.c` escolhe
+por máscara e não indexa a tabela pelo valor secreto. Mexer nele exige mexer em
+`host/pinverif.py`, e rodar `host/test_pinverif.py` (2 s).
+
+⚠ **Os valores de offset e de PVV são de terceiros**, e não cobrem PIN com mais de
+4 dígitos nem a segunda passada do PVV. Esses casos são conferidos entre o C e o
+Python.
 
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 

@@ -74,6 +74,12 @@ TDES_MMT_SHA="04db93728ebf994330b0ba4555d397f8f03c29fd8547d9d586219fabe00e8c78"
 PIN_URL="https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_pinblock.py"
 PIN_SHA="6d1880ab9cfdee975452de6905c5172465ee5ea89a528450dfb3e88b1685667e"
 
+# Verificacao de PIN, offset e PVV: os metodos estao em norma paga e em
+# documentacao de bandeira. Valores do arquivo de testes da mesma biblioteca,
+# no mesmo commit. Fonte secundaria.
+PINV_URL="https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_pin.py"
+PINV_SHA="4abfa08f7934fdba39b3182bd8ac3f183f546bede28b317dec2e1eb75b1e2938"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -112,7 +118,7 @@ fetch() {
     fi
 }
 
-mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa,pinblock,tdes}
+mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa,pinblock,pinverif,tdes}
 
 echo "=== baixando"
 fetch "$AES_URL"  "$AES_SHA"  "$TMP/KAT_AES.zip"
@@ -122,6 +128,7 @@ fetch "$DRBG_URL" "$DRBG_SHA" "$TMP/drbgtestvectors.zip"
 fetch "$CMAC_URL" "$CMAC_SHA" "$TMP/cmactestvectors.zip"
 fetch "$TR31_URL" "$TR31_SHA" "$TMP/psec_test_tr31.py"
 fetch "$PIN_URL" "$PIN_SHA" "$TMP/psec_test_pinblock.py"
+fetch "$PINV_URL" "$PINV_SHA" "$TMP/psec_test_pin.py"
 fetch "$TDES_KAT_URL" "$TDES_KAT_SHA" "$TMP/KAT_TDES.zip"
 fetch "$TDES_MMT_URL" "$TDES_MMT_SHA" "$TMP/tdesmmt.zip"
 fetch "$RSA_URL" "$RSA_SHA" "$TMP/186-3rsatestvectors.zip"
@@ -179,6 +186,10 @@ unzip -qjo "$TMP/tdesmmt.zip" 'TECBMMT2.rsp' 'TECBMMT3.rsp' \
 python3 "$ROOT/scripts/_extrai_pinblock.py" \
         "$TMP/psec_test_pinblock.py" "$VEC/pinblock/iso9564_f4.rsp" \
         "$VEC/pinblock/iso9564_f0.rsp"
+
+# Verificacao de PIN: 24 valores copiados literalmente.
+python3 "$ROOT/scripts/_extrai_pinverif.py" \
+        "$TMP/psec_test_pin.py" "$VEC/pinverif/psec_pin.rsp"
 
 # CTR_DRBG vem num zip dentro do zip, e o arquivo completo tem 785 KB com
 # 3DES e AES-128/192 que este projeto nao usa. Filtra para [AES-256 ...].

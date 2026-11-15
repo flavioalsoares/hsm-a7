@@ -619,7 +619,7 @@ trabalha". As decisões:*
 | 8.2 | Motor DES e 3DES, com autoteste nos vetores do NIST | validada na placa em 2026-11-15 |
 | 8.3 | Chave 3DES no key store: algoritmo `T` no key block, paridade, KCV | validada na placa em 2026-11-15 |
 | 8.4 | PIN block formato 0, tradução entre formatos e entre chaves | validada na placa em 2026-11-15 |
-| 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | a fazer |
+| 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | validada na placa em 2026-11-15 |
 | 8.6 | CVV: gerar e verificar | a fazer |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | a fazer |
 | 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | a fazer |
@@ -636,6 +636,12 @@ mensagem a 3072 bytes e a memória de dados a 32 KB.*
 ⚠ **Rever o plano e a decisão sobre vetores de terceiros ao terminar o DUKPT**
 (etapa 8.8). O usuário pediu, em 2026-11-14, a revisão das decisões ao fim da
 etapa que então se chamava 8.4, o DUKPT AES.
+
+Na mesma revisão, decidir se o ARQC entra no plano (pedido do usuário em
+2026-11-15). O ARQC é o criptograma EMV que o chip calcula a cada transação, e o
+emissor o confere no HSM. Numa compra com o cartão presente, ele é hoje o controle
+principal, à frente do CVV da tarja. A pergunta para a revisão: entra como etapa
+da Fase 8, ou continua como candidato para depois.
 
 ⚠ **Nenhum PAN real, nunca**, pela mesma razão que nenhuma chave de
 produção. Gerar CVV ou PIN para um número de cartão que existe deixa de ser

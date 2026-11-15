@@ -131,6 +131,34 @@ url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validat
 sha256 5f7e5658ebd5b4e6785a7b12fa32333511d2acc2f2d9c5ae1ffa16b699377769
 nota   arquivo interno drbgvectors_no_reseed.zip -> CTR_DRBG.rsp
 
+[Verificação de PIN: offset e PVV]  valores conhecidos de TERCEIROS
+url    https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_pin.py
+sha256 4abfa08f7934fdba39b3182bd8ac3f183f546bede28b317dec2e1eb75b1e2938
+extrai 24 valores, pelo scripts/_extrai_pinverif.py
+uso    fase 8, etapa 8.5. Baixado em 2026-11-15.
+
+       ⚠ PROCEDÊNCIA: FONTE SECUNDÁRIA, como a do PIN block.
+
+       Os dois métodos estão em norma paga e em documentação de bandeira,
+       e não há vetor oficial público. Estes valores vêm do arquivo de
+       testes da biblioteca `psec` (MIT), no mesmo commit dos de PIN block.
+
+       O que eles cobrem: o método do offset nos dois sentidos (10 valores
+       de offset para PIN, 10 de PIN para offset), com uma chave 3DES de
+       comprimento duplo, uma tabela de decimalização e PINs de 4 dígitos;
+       e 4 valores de PVV, com dois índices de chave e três PANs.
+
+       O que NÃO cobrem: PIN com mais de 4 dígitos; outra tabela; chave de
+       comprimento triplo; no PVV, o caso em que o resultado da cifra tem
+       menos de 4 dígitos decimais e a segunda passada entra. Esses casos
+       são conferidos só entre o C e o Python.
+
+       O PAN destes valores (`1122334455667788`) é do arquivo de origem.
+       Não é número de cartão: é um padrão de teste.
+
+       A tabela destes valores (`1234567890123456`) não é a tabela padrão
+       do método. Ela serve para conferir a conta.
+
 # =====================================================================
 # ARQUIVOS NO REPOSITÓRIO (hash do que está versionado)
 # =====================================================================
@@ -159,6 +187,7 @@ f0e4a23c88630ab5f35cce8f6ad10b5ced08ae5745c4cccf652aa881a8046292  rsa/KeyGen_186
 39d78f2653758bfbdc78e6188ddfda134097cd83198cfc9e0105f0684c8ef9ab  tr31/x9143_D_AES256.rsp
 884959d3b61c4a9af5fd5bb3619d78958f92ac17145a43585aae9facaf7bd1e2  pinblock/iso9564_f4.rsp
 98b88b6037af73855532a0ebdd01b7a93e73ab24553b0c200183a7797763fc78  pinblock/iso9564_f0.rsp
+62cf7c4db04055b3e84e7b4c7439f80563b795cdb28c970ab4cd47d077ae8018  pinverif/psec_pin.rsp
 4d4969210c1d61550a908818b4f61d01f8b6048a40afa9ae09a788a96965d36c  tdes/TCBCMMT2.rsp
 0ea39ced9720b3855c8d517e1b0a9493b9b515eaa426d6580f592024685590c6  tdes/TCBCMMT3.rsp
 ff3b3f84784e1e4f11d23a9a9497d9bf95bd60b474259c28b979543556f80fbd  tdes/TCBCinvperm.rsp

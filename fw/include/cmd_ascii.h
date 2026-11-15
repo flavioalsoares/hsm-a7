@@ -41,6 +41,7 @@
 #define ASCII_PIN_INVAL     14u   /* fase 8: o PIN block aberto nao e do formato dito */
 #define ASCII_DADOS         15u
 #define ASCII_PARAM         16u
+#define ASCII_TABELA        17u   /* etapa 8.5: tabela de decimalizacao sem MAC valido */
 #define ASCII_ESTADO        20u
 #define ASCII_DESCONHECIDO  21u
 #define ASCII_MALFORMADA    22u

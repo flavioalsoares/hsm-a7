@@ -22,7 +22,7 @@ Este projeto usa quatro tipos, do mais forte ao mais fraco:
 | Referência | Exemplo | O que garante |
 |---|---|---|
 | Vetor oficial | arquivos do CAVP, do NIST | o algoritmo é o da norma |
-| Vetor de terceiros | o key block, o PIN block nos formatos 0 e 4 | uma implementação independente concorda |
+| Vetor de terceiros | o key block, o PIN block nos formatos 0 e 4, o offset e o PVV | uma implementação independente concorda |
 | Segunda implementação | o Python do host contra o C do firmware | duas leituras da mesma norma concordam |
 | Propriedade | ida e volta, um bit trocado tem de reprovar | o comportamento é coerente, sem dizer que é o da norma |
 
@@ -311,7 +311,69 @@ conhecido do formato, e não um defeito do equipamento. Ele existe para o
 número do manual sair de um programa, e para acusar se uma mudança no código
 alterar o que o veredito revela.
 
-### 41.3 O PKCS#8
+### 41.3 A verificação de PIN
+
+O método do offset e o PVV estão em norma paga e em documentação de
+bandeira. A referência é de terceiros: 24 valores de uma biblioteca aberta,
+fixados por hash.
+
+| Valores | Cobrem | Não cobrem |
+|---|---|---|
+| 10 de offset para PIN, 10 de PIN para offset | a cifra dos dados de validação, a decimalização, a soma e a subtração módulo 10 | PIN com mais de 4 dígitos, outra tabela, chave tripla |
+| 4 de PVV | a montagem do bloco de entrada, com dois índices e três contas, e a primeira passada da extração | a segunda passada |
+
+O que os valores não cobrem é coberto pela comparação entre o C do firmware
+e o Python, com casos escolhidos.
+
+**Soma e subtração módulo 10.** Há 100 pares de dígitos (PIN, natural). O
+teste percorre os 100, confere o offset de cada um, e confere que os outros
+9 offsets são recusados: 100 aceitações e 900 recusas. Não sobra par sem
+teste.
+
+**A extração do PVV.** A segunda passada só entra quando o bloco cifrado tem
+menos de 4 dígitos decimais. Um dígito hexadecimal é decimal com chance
+10/16, e a chance de um bloco de 16 ter menos de 4 é
+
+```
+   P = soma, k de 0 a 3, de  C(16,k) · (10/16)^k · (6/16)^(16−k) = 1/2 214
+```
+
+Um teste de 5 000 sorteios veria o caso duas vezes, em média, e a chance de
+não ver nenhuma seria `(1 − 1/2 214)^5 000 = 10%`. Por isso o teste não
+depende do sorteio: ele **constrói** 300 blocos para cada quantidade de
+decimais, de 0 a 16, com as posições sorteadas. São 5 100 blocos, e 1 200
+deles exercitam a segunda passada.
+
+**Tempo constante.** O PIN natural e o resultado da cifra do PVV são
+segredo. O código de decimalização lê as 16 entradas da tabela em toda
+volta e escolhe por máscara; a extração do PVV faz sempre as mesmas 128
+voltas. O teste confere o **resultado** dessas funções, e não o tempo: a
+propriedade está no código, por construção, e não tem medida aqui.
+
+**A tabela autorizada.** O testbench pede a tabela ao console, com os
+botões, para a chave do offset, e compara o MAC com o que o Python calcula
+com a LMK e o KCV. São duas implementações da derivação e do MAC. Depois ele
+espera o erro `17` em três casos:
+
+| Caso | O que prova |
+|---|---|
+| um dígito da tabela trocado | o MAC cobre a tabela |
+| um bit do MAC trocado | a conferência compara o MAC inteiro |
+| o MAC da mesma tabela, feito para outra chave | o MAC cobre o KCV, e o equipamento usa o KCV da chave que abriu |
+
+Um MAC de 64 bits ao acaso é aceito com chance de 2⁻⁶⁴ por tentativa. Na
+placa, o `pinv-confere` repete o terceiro caso a cada volta, com uma chave
+`V1` nova, e confere que a mesma tabela funciona com a chave certa.
+
+**O veredito duplo** não tem teste que o dispare: provocar a discordância
+pede uma falha de hardware no meio da conta. A seção 44.2 explica como a
+dupla execução é testada nos comandos da fase 6.
+
+**O que o teste não refaz.** A conta do ataque de decimalização (15 pedidos
+em média) é do relatório de Bond e Zieliński, citado na seção 35.3. O
+equipamento é testado pela defesa: tabela sem MAC não entra.
+
+### 41.4 O PKCS#8
 
 A codificação da chave privada é conferida contra uma biblioteca
 independente, nos dois sentidos, e byte a byte: o que o firmware monta tem
@@ -327,7 +389,7 @@ Um byte alterado dentro do **valor** de um inteiro não é recusado, e não
 tem como ser: o resultado é outra chave, bem formada. Quem protege o valor é
 o MAC do key block, que cobre o PKCS#8 inteiro.
 
-### 41.4 O enquadramento da serial
+### 41.5 O enquadramento da serial
 
 Cada mensagem do console leva um CRC-32. Um CRC de 32 bits detecta toda
 rajada de erros de até 32 bits, e deixa passar um erro aleatório com chance
@@ -451,6 +513,8 @@ Cada restrição do cabeçalho do key block tem um teste que tenta violá-la:
 | Tipo | assinar com um key block de chave AES | recusa |
 | Algoritmo | cifrar com AES usando uma chave 3DES | recusa |
 | Papel | exportar sob uma chave de proteção que não é KEK | recusa |
+| Método | calcular PVV com a chave do offset, e o contrário | recusa |
+| Emissão | gerar offset ou PVV com uma chave só de verificar | recusa |
 
 O teste confere também o **código** da recusa. Uma recusa pelo motivo
 errado indica que a checagem que barrou não foi a que deveria.
@@ -591,6 +655,7 @@ implementação independente no PC a refaz ou a desfaz.
 |---|---|---|
 | Chaves simétricas | gera, cifra, decifra, autentica, exporta, importa | abre os blocos com a LMK e refaz AES e CMAC |
 | Tradução de PIN | traduz um PIN block entre duas chaves e entre os formatos 0 e 4 | faz o papel do terminal e o do destino; no formato 0, prevê o bloco de saída |
+| Verificação de PIN | gera e verifica offset e PVV, a partir de um PIN block | faz o papel do terminal e o do emissor; calcula o MAC da tabela com a LMK |
 | Chaves 3DES | gera e devolve o KCV | abre o bloco e confere tamanho, paridade e KCV |
 | RSA e ECDSA | gera pares e assina | verifica só com a chave pública |
 | PKCS#8 | gera, e assina com chave vinda de fora | usa a chave do equipamento numa biblioteca, e o contrário |
