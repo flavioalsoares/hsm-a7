@@ -191,8 +191,10 @@ class Host:
                 "versao": "%d.%d.%d" % (int(c[7:9]), int(c[9:11]),
                                         int(c[11:13]))}
 
-    def gen(self, uso="D0", modo="B", exp="E"):
-        _, c = self.pede("K0", (uso + modo + exp).encode())
+    def gen(self, uso="D0", modo="B", exp="E", alg=""):
+        """K0. `alg` vazio e AES-256; "T2" e 3DES de comprimento duplo,
+        "T3" e 3DES de comprimento triplo, "A4" e AES-256 por extenso."""
+        _, c = self.pede("K0", (uso + modo + exp + alg).encode())
         n = int(c[1:5])
         return c[:n].decode(), c[n:n + 6].decode()
 
@@ -396,9 +398,10 @@ def ecdsa_cavp(h, lmk=None):
     invalida tem de ser recusada com 16. Com a LMK, tambem assina com as
     chaves do SigGen do CAVP e confere aqui."""
     if lmk is not None:
+        import pkcs8
         import tr31
         for i, c in enumerate(ecdsa_vetores("SigGen_P256.txt")[:3]):
-            chave = b"".join(bytes.fromhex(c[k].zfill(64)) for k in ("d", "Qx", "Qy"))
+            chave = pkcs8.ec_der(int(c["d"], 16))
             bloco = tr31.embrulha(lmk, chave, uso="S0", algoritmo="E", modo="S",
                                   exportabilidade="E")
             digest = hashlib.sha256(bytes.fromhex(c["Msg"])).digest()
@@ -441,18 +444,16 @@ def ecdsa_cavp(h, lmk=None):
 
 
 def chave_cavp():
-    """A primeira chave de 2048 bits do KeyGen do CAVP, no layout do key block
-    (tr31.RSA_CHAVE): e p q dp dq qinv. Devolve (chave, n, e, d)."""
+    """A primeira chave de 2048 bits do KeyGen do CAVP, em PKCS#8, que e o
+    conteudo do key block. Devolve (chave, n, e, d)."""
     raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     caminho = os.path.join(raiz, "vectors", "rsa", "KeyGen_RandomProbablyPrime3_3.rsp")
     with open(caminho) as f:
         texto = f.read().split("[mod = 2048]")[1].split("[mod =")[0]
     m = re.search(r"e = (\w+)\s+p = (\w+)\s+q = (\w+)\s+n = (\w+)\s+d = (\w+)", texto)
     e, p, q, n, d = (int(x, 16) for x in m.groups())
-    chave = (e.to_bytes(4, "big") + p.to_bytes(128, "big") + q.to_bytes(128, "big")
-             + (d % (p - 1)).to_bytes(128, "big") + (d % (q - 1)).to_bytes(128, "big")
-             + pow(q, -1, p).to_bytes(128, "big"))
-    return chave, n, e, d
+    import pkcs8
+    return pkcs8.rsa_der(p, q, e, d), n, e, d
 
 
 def em_pkcs1(digest):
@@ -663,6 +664,152 @@ def confere(h, lmk, n):
     return 0
 
 
+def pkcs8_confere(h, lmk, n):
+    """A chave assimetrica no key block e PKCS#8: prova de interoperabilidade
+    com a biblioteca `cryptography`, nos dois sentidos.
+
+      - o equipamento gera o par (R0, E0); o Python abre o bloco com a LMK,
+        carrega o PKCS#8 na biblioteca, assina com ela, e o equipamento
+        verifica (R4, E4). A chave publica da biblioteca tem de ser a que o
+        equipamento devolveu;
+      - a biblioteca gera o par; o Python o embrulha sob a LMK; o
+        equipamento assina (R2, E2), e a biblioteca verifica.
+
+    ⚠ PRECISA DA LMK, como o `confere`."""
+    import pkcs8
+    import tr31
+    from hsmtool import _kcv_local
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa, utils
+
+    d = h.diag()
+    if d["kcv_lmk"] != _kcv_local(lmk).hex().upper():
+        print("KCV da LMK nao confere: dispositivo %s, informada %s"
+              % (d["kcv_lmk"], _kcv_local(lmk).hex().upper()))
+        return 1
+    pre = utils.Prehashed(hashes.SHA256())
+
+    for volta in range(n):
+        digest = os.urandom(32)
+
+        # ---- curva: do equipamento para a biblioteca ----
+        bloco, qx, qy = h.ecdsa_gera()
+        der, cab = tr31.desembrulha(lmk, bloco)
+        assert cab["algoritmo"] == "E" and cab["uso"] == "S0", "cabecalho E0"
+        k = pkcs8.le(der)
+        pub = k.public_key().public_numbers()
+        assert (pub.x, pub.y) == (qx, qy), "E0: chave publica do PKCS#8"
+        r, s = utils.decode_dss_signature(k.sign(digest, ec.ECDSA(pre)))
+        assert h.ecdsa_verifica(qx, qy, digest, r, s), "E4 sobre a biblioteca"
+        # ---- curva: da biblioteca para o equipamento ----
+        k = ec.generate_private_key(ec.SECP256R1())
+        meu = tr31.embrulha(lmk, pkcs8.ec_der(k.private_numbers().private_value),
+                            uso="S0", algoritmo="E", modo="S")
+        r, s = h.ecdsa_assina(meu, digest)
+        k.public_key().verify(utils.encode_dss_signature(r, s), digest,
+                              ec.ECDSA(pre))
+
+        # ---- RSA: da biblioteca para o equipamento ----
+        k = rsa.generate_private_key(65537, 2048)
+        nums = k.private_numbers()
+        meu = tr31.embrulha(lmk, pkcs8.rsa_der(nums.p, nums.q, 65537, nums.d),
+                            uso="S0", algoritmo="R", modo="S")
+        sig = h.rsa_assina(meu, digest)
+        k.public_key().verify(sig.to_bytes(256, "big"), digest,
+                              padding.PKCS1v15(), pre)
+        # ---- RSA: do equipamento para a biblioteca (uma vez: e lento) ----
+        if volta == 0:
+            bloco, mod, e = h.rsa_gera()
+            der, cab = tr31.desembrulha(lmk, bloco)
+            assert cab["algoritmo"] == "R" and cab["uso"] == "S0", "cabecalho R0"
+            k = pkcs8.le(der)
+            pub = k.public_key().public_numbers()
+            assert (pub.n, pub.e) == (mod, e), "R0: chave publica do PKCS#8"
+            sig = int.from_bytes(k.sign(digest, padding.PKCS1v15(), pre), "big")
+            assert h.rsa_verifica(mod, e, digest, sig), "R4 sobre a biblioteca"
+            assert h.rsa_assina(bloco, digest) == sig, "R2 igual a biblioteca"
+        print("volta %d: PKCS#8 conferido nos dois sentidos" % (volta + 1))
+    print("%d de %d voltas conferidas" % (n, n))
+    return 0
+
+
+def tdes_confere(h, lmk, n):
+    """Chaves 3DES pela porta host (K0 com T2/T3, K2, K4), conferidas com o
+    des.py e o tr31.py. O KCV que o equipamento devolve e calculado com o
+    3DES do firmware; o Python o refaz com a chave aberta do bloco.
+
+    ⚠ PRECISA DA LMK, como o `confere`."""
+    import des
+    import tr31
+    from hsmtool import _kcv_local
+
+    d = h.diag()
+    if d["kcv_lmk"] != _kcv_local(lmk).hex().upper():
+        print("KCV da LMK nao confere: dispositivo %s, informada %s"
+              % (d["kcv_lmk"], _kcv_local(lmk).hex().upper()))
+        return 1
+
+    def recusa(codigo, f, *args):
+        try:
+            f(*args)
+        except HostErro as e:
+            assert e.codigo == codigo, "%d, esperado %d" % (e.codigo, codigo)
+        else:
+            raise AssertionError("aceito, esperado %d" % codigo)
+
+    vistas = set()
+    for volta in range(n):
+        for alg, tam in (("T2", 16), ("T3", 24)):
+            bloco, kcv = h.gen("P0", "B", "E", alg)
+            chave, cab = tr31.desembrulha(lmk, bloco)
+            assert cab["algoritmo"] == "T" and cab["uso"] == "P0", "cabecalho"
+            assert len(chave) == tam, "tamanho da chave"
+            assert des.paridade_ok(chave), "paridade"
+            assert chave[:8] != chave[8:16], "K1 = K2"
+            assert des.kcv(chave).hex().upper() == kcv, "KCV do K0"
+            assert chave not in vistas, "chave repetida"
+            vistas.add(chave)
+            info = h.check(bloco)
+            assert info["algoritmo"] == "T" and info["kcv"] == kcv, "K2"
+
+            # O sentido inverso: um bloco que o PYTHON fez.
+            minha = des.paridade_impar(os.urandom(tam))
+            meu = tr31.embrulha(lmk, minha, uso="P0", algoritmo="T", modo="B")
+            assert h.check(meu)["kcv"] == des.kcv(minha).hex().upper(), \
+                "K2 com bloco do Python"
+
+            # A chave 3DES sai sob uma KEK AES: a mais forte protege a mais
+            # fraca.
+            kek_b, _ = h.gen("K0", "B", "E")
+            kek, _ = tr31.desembrulha(lmk, kek_b)
+            fora, kcv_f = h.exporta(kek_b, bloco)
+            aberta, cab_f = tr31.desembrulha(kek, fora)
+            assert aberta == chave and kcv_f == kcv, "K4 com chave 3DES"
+            volta_b, kcv_v = h.importa(kek_b, fora)
+            assert tr31.desembrulha(lmk, volta_b)[0] == chave, "K6"
+
+            # O que a chave 3DES NAO faz, por enquanto ou nunca.
+            iv, texto = bytes(16), bytes(16)
+            d0, _ = h.gen("D0", "B", "E", alg)
+            recusa(11, h.cripto, d0, iv, texto, True)      # C0 e AES
+            m0, _ = h.gen("M0", "C", "E", alg)
+            recusa(11, h.mac, m0, texto)                   # M0 e CMAC-AES
+            k0, _ = h.gen("K0", "B", "E", alg)
+            recusa(13, h.exporta, k0, bloco)               # KEK 3DES: etapa 8.7
+            aes_p, _ = h.gen("P0", "B", "E")
+            recusa(11, h.pin_traduz, bloco, aes_p, "999999012345", bytes(16))
+        recusa(16, h.gen, "P0", "B", "E", "T1")            # DES simples
+        recusa(16, h.gen, "P0", "B", "E", "T4")
+        recusa(16, h.gen, "P0", "B", "E", "A2")            # AES-128
+        recusa(22, h.gen, "P0", "B", "E", "T")
+        b_a4, kcv_a4 = h.gen("D0", "B", "E", "A4")
+        assert _kcv_local(tr31.desembrulha(lmk, b_a4)[0]).hex().upper() \
+            == kcv_a4, "A4"
+        print("volta %d: chaves 3DES duplas e triplas conferidas" % (volta + 1))
+    print("%d de %d voltas conferidas" % (n, n))
+    return 0
+
+
 def pin_confere(h, lmk, n):
     """Traducao de PIN (P0), conferida com o pinblock.py. O Python faz o
     papel do terminal, que cifra o PIN sob a chave de origem, e o do
@@ -758,6 +905,8 @@ def main(argv=None):
     p.add_argument("--uso", default="D0")
     p.add_argument("--modo", default="B", choices=list("EDBGVCN"))
     p.add_argument("--exp", default="E", choices=list("ENS"))
+    p.add_argument("--alg", default="", choices=["", "A4", "T2", "T3"],
+                   help="A4 = AES-256 (padrao), T2/T3 = 3DES duplo/triplo")
     p = sub.add_parser("check"); p.add_argument("bloco")
     for nome in ("export", "import"):
         p = sub.add_parser(nome); p.add_argument("kek"); p.add_argument("bloco")
@@ -783,6 +932,12 @@ def main(argv=None):
     p = sub.add_parser("ecdsa-sign"); p.add_argument("bloco"); p.add_argument("digest")
     p = sub.add_parser("ecdsa-gen"); p.add_argument("--exp", default="E", choices=list("ENS"))
     p = sub.add_parser("ecdsa-confere"); p.add_argument("-n", type=int, default=3)
+    p = sub.add_parser("pkcs8-confere")
+    p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
+    p.add_argument("-n", type=int, default=3)
+    p = sub.add_parser("tdes-confere")
+    p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
+    p.add_argument("-n", type=int, default=5)
     p = sub.add_parser("pin-traduz")
     for c in ("origem", "destino", "pan", "bloco"):
         p.add_argument(c)
@@ -808,7 +963,7 @@ def main(argv=None):
             print("KCV da LMK : %s" % d["kcv_lmk"])
             print("firmware   : v%s" % d["versao"])
         elif a.cmd == "gen":
-            bloco, kcv = h.gen(a.uso, a.modo, a.exp)
+            bloco, kcv = h.gen(a.uso, a.modo, a.exp, a.alg)
             print(bloco)
             print("KCV %s" % kcv, file=sys.stderr)
         elif a.cmd == "check":
@@ -862,6 +1017,10 @@ def main(argv=None):
             return ecdsa_confere(h, a.n)
         elif a.cmd == "ecdsa-sign":
             print("%064X %064X" % h.ecdsa_assina(a.bloco, bytes.fromhex(a.digest)))
+        elif a.cmd == "pkcs8-confere":
+            return pkcs8_confere(h, bytes.fromhex(a.lmk), a.n)
+        elif a.cmd == "tdes-confere":
+            return tdes_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "pin-traduz":
             print(h.pin_traduz(a.origem, a.destino, a.pan,
                                bytes.fromhex(a.bloco)).hex().upper())

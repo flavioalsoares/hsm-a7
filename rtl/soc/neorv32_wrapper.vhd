@@ -135,11 +135,14 @@ begin
     -- 90,7% ao fim da fase 3, e a persistencia e o log de auditoria nao
     -- cabiam; a DMEM ganha o buffer do registro persistente (~2,4 KB).
     -- Custa 6 BRAM36 a mais, de 50.
+    -- Fase 8: 16 -> 32 KB de DMEM. Com a chave RSA em PKCS#8 o key block
+    -- chega a 2512 caracteres, o limite de mensagem foi a 3072 bytes, e os
+    -- tres buffers de mensagem passaram a custar 9 KB.
     -- Fase 7: 32 -> 64 KB de IMEM. O RSA deixou 2,7 KB livres, e o ECDSA
     -- nao cabia. Decisao do usuario, 2026-11-13.
     IMEM_SIZE        => 64*1024,
     DMEM_EN          => true,
-    DMEM_SIZE        => 16*1024,
+    DMEM_SIZE        => 32*1024,
 
     -- ---------------------------------------------------------------
     -- Caches -- DESLIGADAS

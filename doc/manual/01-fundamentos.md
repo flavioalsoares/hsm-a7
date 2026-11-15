@@ -133,8 +133,8 @@ block desta chave para aquela", "gere uma chave de terminal".
 ### HSM de propósito geral
 
 Protege chaves de PKI, assinatura de código, TLS, bancos de dados,
-blockchain. Vários fabricantes, tipicamente validados em FIPS 140-3,
-YubiHSM.
+blockchain. Há vários fabricantes, e os equipamentos são tipicamente
+validados em FIPS 140-3.
 
 A interface padrão é **PKCS#11** — `C_GenerateKey`, `C_Sign`, `C_WrapKey` —
 ou APIs próprias (JCE, CNG, KMIP). O modelo mental é o de um chaveiro com
@@ -143,7 +143,7 @@ com cada chave.
 
 ### HSM em nuvem
 
-AWS CloudHSM, Azure Managed HSM, Google Cloud HSM. Fisicamente são os
+Os grandes provedores de nuvem oferecem HSM como serviço. Fisicamente são os
 mesmos módulos, operados pelo provedor, com o cliente controlando as chaves.
 O interesse conceitual está no problema novo que criam: **como você confia
 num módulo que não está na sua sala?** A resposta envolve atestação remota,
@@ -151,7 +151,8 @@ e é uma área em movimento.
 
 ### Elementos seguros e TPMs
 
-Primos pequenos: TPM na placa-mãe, Secure Enclave, smartcard, YubiKey. Mesma
+Primos pequenos: o TPM da placa-mãe, o elemento seguro de um telefone, o
+smartcard, a chave de autenticação USB. Mesma
 ideia — chave que não sai, operação mediada — com orçamento de área,
 consumo e custo muito menores. Um cartão de crédito com chip é um HSM
 minúsculo cuja produção passa de bilhões de unidades por ano.

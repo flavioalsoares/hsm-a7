@@ -55,11 +55,11 @@ module tb_ecdsa;
     integer erros_antes;
     integer i;
 
-    reg [7:0] resp [0:2047];
+    reg [7:0] resp [0:4095];
     integer   resp_len;
     reg [7:0] st;
 
-    reg [7:0] req [0:2047];
+    reg [7:0] req [0:4095];
     integer   req_len;
 
     reg [7:0] comp0 [0:31];
@@ -70,7 +70,7 @@ module tb_ecdsa;
     reg [7:0] e4p [0:159];     // Qx Qy digest R S: SigVer, resultado P
     reg [7:0] e4f [0:159];     // idem, resultado F (S changed)
     reg [7:0] e4k [0:159];     // chave publica fora da curva (PKV)
-    reg [7:0] e2kb  [0:271];   // key block de uma chave do SigGen, sob a LMK
+    reg [7:0] e2kb  [0:335];   // key block de uma chave do SigGen, sob a LMK
     reg [7:0] e2aes [0:143];   // key block AES D0, sob a mesma LMK
     reg [7:0] e2v   [0:95];    // digest(32) e a chave publica Qx Qy(64)
     reg [7:0] sig   [0:127];   // r e s devolvidos pelo E2, em hex
@@ -343,7 +343,9 @@ module tb_ecdsa;
         reg [7:0] b;
         begin
             inicio("E", "2");
-            nb = aes ? 144 : 272;
+            // o tamanho do bloco assimetrico vem do cabecalho dele (posicoes 1 a 4)
+            nb = aes ? 144 : ((e2kb[1] - 48) * 1000 + (e2kb[2] - 48) * 100 +
+                              (e2kb[3] - 48) * 10 + (e2kb[4] - 48));
             for (k = 0; k < nb; k = k + 1) begin
                 b = aes ? e2aes[k] : e2kb[k];
                 if (troca && k == 100) b = (b == "0") ? "1" : "0";

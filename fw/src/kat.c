@@ -9,6 +9,7 @@
  */
 #include "kat.h"
 #include "rsa.h"
+#include "des.h"
 #include "ecc.h"
 #include "kat_vectors.h"
 #include "cmac.h"
@@ -315,9 +316,10 @@ static unsigned kat_keystore(void)
         }
     }
 
-    /* --- header invalido e recusado: 3DES nao existe neste hardware --- */
+    /* --- chave 3DES num slot do console e recusada: ela so entra pelo
+     *     slot efemero da porta host, e nunca com 32 bytes --- */
     if (falha == 0u) {
-        if (keystore_instala((const uint8_t *)KS_USO_DADOS, KS_ALG_3DES,
+        if (keystore_instala((const uint8_t *)KS_USO_DADOS, KS_ALG_TDES,
                              KS_MODO_AMBOS, KS_EXP_NAO,
                              kat_aes1_key, KS_KEY_MAX) != KS_HANDLE_INVALIDO) {
             falha = KAT_FALHA_KS;
@@ -438,6 +440,50 @@ static unsigned kat_ecdsa(void)
     return falha;
 }
 
+/* DES e 3DES contra o CAVP. Os KATs de substituicao da SP 800-20 exercitam
+ * cada entrada das caixas S; os tres MMT cobrem a chave dupla, a tripla, o
+ * CBC e as duas direcoes. */
+static unsigned kat_tdes(void)
+{
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    uint8_t  chave[TDES_CHAVE_3];
+    uint8_t  saida[KAT_TDES_MMT_MAX];
+    uint32_t i, j;
+    uint8_t  d = 0u;
+
+    for (i = 0u; i < KAT_TDES_SUBTAB_N; i++) {
+        for (j = 0u; j < TDES_CHAVE_3; j++) {
+            chave[j] = kat_tdes_subtab[i].chave[j % DES_CHAVE];
+        }
+        if (tdes_prepara(ctx, chave, TDES_CHAVE_3) != 0) {
+            d |= 1u;
+        }
+        tdes_bloco(ctx, kat_tdes_subtab[i].claro, saida, 1);
+        for (j = 0u; j < DES_BLOCO; j++) {
+            d |= (uint8_t)(saida[j] ^ kat_tdes_subtab[i].cifrado[j]);
+        }
+    }
+    for (i = 0u; i < KAT_TDES_MMT_N; i++) {
+        const kat_tdes_mmt_t *v = &kat_tdes_mmt[i];
+        if ((tdes_prepara(ctx, v->chave, v->chave_n) != 0) ||
+            (tdes_cbc(ctx, v->iv, v->entrada, saida, v->n, v->cifrar) != 0)) {
+            d |= 1u;
+        }
+        for (j = 0u; j < v->n; j++) {
+            d |= (uint8_t)(saida[j] ^ v->saida[j]);
+        }
+    }
+    /* A paridade e a recusa de chave fraca, que a geracao usa. */
+    if ((des_paridade_ok(kat_tdes_subtab[0].chave, DES_CHAVE) != 1) ||
+        (tdes_chave_ruim(chave, TDES_CHAVE_3) != 1)) {
+        d |= 1u;
+    }
+    tdes_apaga(ctx);
+    wipe(chave, sizeof chave);
+    wipe(saida, sizeof saida);
+    return (d != 0u) ? KAT_FALHA_TDES : 0u;
+}
+
 int kat_primeiro_uso(unsigned qual)
 {
     if ((g_uso_feito & qual) == 0u) {
@@ -446,6 +492,8 @@ int kat_primeiro_uso(unsigned qual)
             g_uso_falha |= kat_rsa_assina();
         } else if (qual == KAT_FALHA_ECDSA) {
             g_uso_falha |= kat_ecdsa();
+        } else if (qual == KAT_FALHA_TDES) {
+            g_uso_falha |= kat_tdes();
         } else {
             g_uso_falha |= qual;
         }

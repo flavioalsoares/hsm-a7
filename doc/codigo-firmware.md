@@ -139,6 +139,14 @@ handler, resultado no log. Nenhum comando de cerimônia está nela.
 | `ambiente.c` | responde a sensor fora da faixa e a perda de lock: apaga, registra, vai para `TAMPERED`. Chamado no boot, antes de restaurar da flash, e no laço principal |
 | `state.c` | além da máquina de estados, guarda o flag de erro grave (`erro_grave_marca()`, `erro_grave_ativo()`): marcado quando a dupla execução discorda, vale até o próximo boot e não apaga chave nenhuma |
 
+### Fase 8: criptografia de pagamento
+
+| Arquivo | O que faz |
+|---|---|
+| `des.c` | DES e 3DES (TDEA) em software, direto da FIPS 46-3: uma rotina de permutação de bits, as tabelas da norma, o escalonamento de chave, a operação cifra-decifra-cifra e o CBC. Também a paridade das chaves e a recusa de chaves fracas. É o motor legado das funções de pagamento; o coprocessador continua só com AES-256. `tdes_ctx_comum()` é o único contexto do firmware |
+| `pkcs8.c` | a chave privada RSA-2048 e a P-256 em PKCS#8, DER: é o conteúdo do key block de uma chave assimétrica. Um escritor e um leitor de DER mínimos, e estritos. Calcula o expoente privado `d` ao montar. Só bytes, sem coprocessador |
+| `pinblock.c` | a forma do PIN block ISO 9564-1 formato 4: monta o campo do PAN e confere o campo do PIN, sem desvio pelo valor. Não tem chave nem cifra. A cifra e o campo do PIN em claro ficam em `keystore.c` (`keystore_pin_abre()`, `keystore_pin_fecha()`) |
+
 ### Fase 7: assimétrico
 
 | Arquivo | O que faz |

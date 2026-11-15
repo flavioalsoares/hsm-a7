@@ -85,29 +85,21 @@
 /* Maior chave AES que este dispositivo embrulha: AES-256. */
 #define TR31_CHAVE_MAX     32u
 
-/* Fase 7: a chave RSA privada de 2048 bits, em layout DESTE projeto -- a
- * X9.143 define usos e algoritmo para chave assimetrica, mas a codificacao
- * dela dentro do corpo nao estava acessivel (a norma e paga). Desvio
- * registrado em doc/fase7-notas.md. Campos big-endian, tamanho fixo:
+/* Fase 7, mudado na fase 8: a chave privada RSA-2048 e a de ECDSA P-256 vao
+ * no bloco em PKCS#8, DER (decisao do usuario, 2026-11-14; ver pkcs8.h). Ate
+ * entao o conteudo era um layout deste projeto. O cabecalho segue a norma:
+ * uso S0, algoritmo 'R' ou 'E', modo 'S'.
  *
- *     e(4) || p(128) || q(128) || dp(128) || dq(128) || qinv(128)
- *
- * n nao vai no bloco: o dispositivo o recalcula como p*q no coprocessador.
- * So existe com uso S0, algoritmo 'R' e modo 'S'. */
-#define TR31_RSA_CHAVE     644u
-
-/* Fase 7: a chave privada de ECDSA P-256, tambem em layout DESTE projeto,
- * pelo mesmo motivo. Campos big-endian, 32 bytes cada:
- *
- *     d || Qx || Qy
- *
- * A chave publica vai junto para a assinatura ser verificada antes de
- * sair, sem recalcular Q = d*G a cada comando. So existe com uso S0,
- * algoritmo 'E' e modo 'S'. */
-#define TR31_EC_CHAVE      96u
-#define TR31_ASCII_EC      (TR31_CAB_LEN + 2u * 112u + 2u * TR31_MAC_LEN)
-#define TR31_CHAVE_GRANDE  TR31_RSA_CHAVE
-#define TR31_CORPO_GRANDE  656u   /* 2 + 644, arredondado ao bloco */
+ * O DER tem tamanho variavel, e os valores abaixo sao o teto de cada um. O
+ * formato INTERNO, o que rsa.c e ecc.c usam, continua de tamanho fixo:
+ * 644 bytes (RSA) e 96 (curva). */
+#define TR31_RSA_CHAVE     644u    /* formato interno, fora do bloco */
+#define TR31_EC_CHAVE      96u     /* idem */
+#define TR31_RSA_DER_MAX   1222u   /* = PKCS8_RSA_MAX */
+#define TR31_EC_DER_MAX    138u    /* = PKCS8_EC_MAX  */
+#define TR31_ASCII_EC      (TR31_CAB_LEN + 2u * 144u + 2u * TR31_MAC_LEN)
+#define TR31_CHAVE_GRANDE  TR31_RSA_DER_MAX
+#define TR31_CORPO_GRANDE  1232u   /* 2 + 1222, arredondado ao bloco */
 #define TR31_ASCII_GRANDE  (TR31_CAB_LEN + 2u * TR31_CORPO_GRANDE + 2u * TR31_MAC_LEN)
 
 /* Corpo em claro: 2 bytes de comprimento + chave, arredondado para cima

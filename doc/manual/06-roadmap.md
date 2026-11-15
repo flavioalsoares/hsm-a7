@@ -685,7 +685,9 @@ fraco poderia passar por assinatura sobre um forte.
 
 ⚠ **A verificação reconstrói o `EM` inteiro e compara, em vez de interpretá-lo.**
 Bleichenbacher (2006) mostrou que verificadores que *liam* o bloco — achavam o
-`00`, pulavam os `FF`, extraíam o hash — aceitavam lixo depois do hash. Com
+`00`, pulavam os `FF`, extraíam o hash — aceitavam lixo depois do hash. O
+defeito apareceu em bibliotecas de uso geral e está registrado como
+CVE-2006-4339. Com
 `e = 3`, isso deixava forjar assinaturas com uma raiz cúbica, sem chave
 nenhuma. Quem monta o bloco esperado e compara byte a byte não tem parser para
 enganar. A comparação acumula diferenças, como a de MAC da seção 16.1.
@@ -704,7 +706,8 @@ comprometido diria "conferiu" sobre qualquer coisa.
 
 Como todo resultado que sai ao host, a verificação roda duas vezes, e
 discordância responde `91` (seção 29). Um pedido `R4` tem mais de 1100
-caracteres, e o limite de mensagem é de 2048 bytes.
+caracteres. O limite de mensagem é de 3072 bytes: o maior pedido é o `R2`,
+que leva o key block da chave RSA.
 
 ### O preço no boot
 
@@ -835,14 +838,64 @@ uso `S0` (par assimétrico de assinatura), algoritmo `R` (RSA), modo `S`
 (só assinar). As duas implementações do formato — em C e em Python — recusam
 qualquer outra combinação para `R`.
 
-⚠ **O conteúdo do bloco é um layout deste projeto**, e não da norma: `e`, `p`,
-`q`, `dp`, `dq` e `qinv` em campos fixos, 644 bytes. A X9.143 define os
-códigos de chave assimétrica, mas a forma de codificar a chave dentro do
-bloco não estava acessível — a norma é paga. Se um dia estiver, só esse campo
-muda. O módulo `n` não vai no bloco: o dispositivo o recalcula como `p · q`.
+**O conteúdo do bloco é a chave em PKCS#8**, a codificação pública de chave
+privada (RFC 5958). É o formato que o `openssl` e as bibliotecas de
+criptografia leem e escrevem. Quem abre o bloco, com a chave de proteção,
+tem nas mãos uma chave que qualquer ferramenta entende.
 
-O bloco tem 1360 caracteres, e a chave aberta vive numa área própria do key
-store **só durante o comando** — nunca num slot, nunca na flash. O
+O PKCS#8 é escrito em **DER**, a codificação binária do ASN.1. Cada elemento
+tem três partes: uma **etiqueta** que diz o tipo, o **comprimento**, e o
+**valor**. Os elementos se aninham:
+
+```
+    30 82 04 BE                    SEQUENCE, 1214 bytes     (o PKCS#8)
+       02 01 00                       INTEGER 0             versão
+       30 0D                          SEQUENCE              o algoritmo:
+          06 09 2A 86 48 86 F7 0D 01 01 01    OID           rsaEncryption
+          05 00                               NULL
+       04 82 04 A8                    OCTET STRING, 1192 bytes
+          30 82 04 A4                    SEQUENCE           a chave RSA
+             02 01 00                       versão: dois primos
+             02 82 01 01 00 ...             n      (257 bytes: 00 e o módulo)
+             02 03 01 00 01                 e      65537
+             02 82 01 01 00 ...             d
+             02 81 81 00 ...                p
+             02 81 81 00 ...                q
+             02 81 81 00 ...                dp
+             02 81 80 ...                   dq
+             02 81 80 ...                   qinv
+```
+
+Três detalhes do DER aparecem no exemplo:
+
+- **O comprimento tem forma curta e forma longa.** Até 127, é um byte. Acima
+  disso, o primeiro byte diz quantos bytes de comprimento vêm depois: `81`
+  anuncia um, `82` anuncia dois.
+- **Um inteiro positivo com o bit alto ligado ganha um `00` na frente**,
+  para não ser lido como negativo. Por isso `n` ocupa 257 bytes, e não 256.
+  Como isso depende do valor, o tamanho total varia de chave para chave, em
+  alguns bytes.
+- **Só existe uma forma certa de escrever cada valor.** É a diferença entre
+  o DER e o BER, a variante permissiva. Um leitor de DER recusa comprimento
+  em forma longa sem necessidade, zeros sobrando e lixo depois do fim.
+
+O leitor do equipamento é estrito, e de propósito: aceita exatamente essa
+estrutura, com módulo de 2048 bits e primos de 1024, e recusa todo o resto.
+Um leitor que "tolera" variações é a origem de uma família de ataques
+(seção sobre o PKCS#1 v1.5, acima).
+
+O PKCS#8 leva `n` e `d`, que o equipamento não usa: ele assina pelo Teorema
+Chinês do Resto, com `p`, `q`, `dp`, `dq` e `qinv`. Ao **gerar** uma chave,
+ele calcula `d` para o bloco ficar completo. Ao **receber** uma chave, ele
+lê os cinco números de que precisa e recalcula `n` como `p · q`.
+
+⚠ **A norma do key block é paga, e este projeto não confirmou que é o PKCS#8
+que ela manda usar para chave assimétrica.** O PKCS#8 foi escolhido por ser
+público e por dar interoperabilidade com as ferramentas comuns. Não é
+alegação de conformidade com a X9.143 nesse ponto.
+
+O bloco tem até 2512 caracteres, e a chave aberta vive numa área própria do
+key store **só durante o comando** — nunca num slot, nunca na flash. O
 despachante a apaga no fim de todo comando, como faz com o slot efêmero.
 
 ### Os comandos
@@ -1221,9 +1274,26 @@ que o ponto satisfaz a equação.
 
 A chave privada sai como key block X9.143 sob a LMK, como a do RSA. O
 cabeçalho usa uso `S0`, algoritmo `E` (curva elíptica) e modo `S`. O conteúdo
-é um layout deste projeto: `d`, `Qx` e `Qy`, 32 bytes cada. A chave pública
-vai junto, para o dispositivo verificar a própria assinatura antes de
-entregá-la.
+é a chave em **PKCS#8**, como a do RSA, com 138 bytes:
+
+```
+    30 81 87                       SEQUENCE                 (o PKCS#8)
+       02 01 00                       versão
+       30 13                          o algoritmo:
+          06 07 2A 86 48 CE 3D 02 01        OID   chave de curva elíptica
+          06 08 2A 86 48 CE 3D 03 01 07     OID   a curva P-256
+       04 6D                          OCTET STRING
+          30 6B                          a chave (RFC 5915)
+             02 01 01                       versão
+             04 20 ...                      d, 32 bytes
+             A1 44 03 42 00 04 ...          a chave pública: 04, Qx, Qy
+```
+
+A curva vai no bloco pelo identificador dela, e o equipamento recusa
+qualquer outra. A chave pública é opcional no formato. Quando ela vem, o
+equipamento a usa para verificar a própria assinatura antes de entregá-la.
+Quando não vem, ele a recalcula como `Q = d · G`. O bloco tem 336
+caracteres.
 
 | Pedido | Resposta | Entrada | Saída |
 |---|---|---|---|
@@ -1248,21 +1318,22 @@ fase é a última porque depende de
 tudo o que vem antes: sem hierarquia de chaves (Fase 3) e sem API de serviço
 (Fase 5), não há onde encaixar um comando de tradução de PIN.
 
-O conteúdo dela é a **Parte VII** deste manual. O que decide se um item é
-implementável aqui não é a dificuldade — é o **hardware** e a **procedência
-dos vetores**:
+O equipamento tem a primeira peça: a **tradução de PIN block** no formato 4
+da ISO 9564, comando `P0` (seção 34.1).
 
-- o que é AES cabe (PIN block formato 4, DUKPT AES);
-- o que é inerentemente 3DES não cabe, porque o coprocessador é AES-256 sem
-  caminho de downgrade, e isso é decisão de arquitetura e não tarefa pendente;
-- o que não tem vetor público não entra, ou entra marcado como não
-  verificado — a regra nº 5 exige procedência, e "implementei e parece certo"
-  é exatamente o que ela proíbe.
+O conteúdo dela é a **Parte VII** deste manual. O critério da fase é um só:
+**aproximar o equipamento do mercado de meios de pagamento**. O objetivo não
+é fazer o melhor projeto possível, é aprender como o mercado trabalha.
 
-O melhor item da lista é o **ataque de tabela de decimalização** (seção
-35.3), e por um motivo que vale registrar: ele não precisa de 3DES nem de
-vetor de bandeira nenhuma. O ataque é sobre a **API**, não sobre a cifra, e
-reproduz inteiro num esquema nosso com AES.
+- **O 3DES entra**, como motor legado em software, ao lado do AES do
+  coprocessador (seções 37.2 e 38). É o que a rede de pagamento usa.
+- **Os vetores decidem como cada item entra.** O 3DES tem vetor oficial. As
+  funções de pagamento não têm vetor oficial público, e entram com valores
+  de implementações abertas, fixados por hash e marcados como fonte
+  secundária (seção 37.3).
+
+O item que mais ensina é o **ataque de tabela de decimalização** (seção
+35.3): ele é um ataque sobre a **API**, e não sobre a cifra.
 
 ## 32. Ordem de trabalho, e a regra que a sustenta
 

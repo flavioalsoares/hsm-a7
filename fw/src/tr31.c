@@ -148,20 +148,25 @@ static int cab_valido(const tr31_cab_t *cab, uint32_t chave_n)
          * uma chave de assinar autorizada a fazer outra coisa. */
         return (cab->uso[0] == (uint8_t)'S') && (cab->uso[1] == (uint8_t)'0') &&
                (cab->modo == (uint8_t)KS_MODO_ASSINA) &&
-               (chave_n == TR31_RSA_CHAVE);
+               (chave_n > 0u) && (chave_n <= TR31_RSA_DER_MAX);
     }
     if (cab->algoritmo == (uint8_t)KS_ALG_EC) {
         /* Chave de ECDSA P-256: tambem so de assinatura. */
         return (cab->uso[0] == (uint8_t)'S') && (cab->uso[1] == (uint8_t)'0') &&
                (cab->modo == (uint8_t)KS_MODO_ASSINA) &&
-               (chave_n == TR31_EC_CHAVE);
+               (chave_n > 0u) && (chave_n <= TR31_EC_DER_MAX);
     }
-    if (cab->algoritmo != (uint8_t)KS_ALG_AES) {
-        /* 'T' e valido na norma e NAO neste hardware. Aceitar o byte
-         * seria produzir um bloco que promete 3DES a quem for importar. */
-        return 0;
-    }
-    if (chave_n == 0u || chave_n > TR31_CHAVE_MAX) {
+    if (cab->algoritmo == (uint8_t)KS_ALG_TDES) {
+        /* Fase 8: chave 3DES de comprimento duplo ou triplo. DES simples
+         * (8 bytes) nao existe aqui. */
+        if (chave_n != 16u && chave_n != 24u) {
+            return 0;
+        }
+    } else if (cab->algoritmo == (uint8_t)KS_ALG_AES) {
+        if (chave_n == 0u || chave_n > TR31_CHAVE_MAX) {
+            return 0;
+        }
+    } else {
         return 0;
     }
     /* Os sete modos de uso da X9.143 para chave simetrica, em dois grupos:

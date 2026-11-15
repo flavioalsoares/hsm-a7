@@ -461,6 +461,61 @@ def ecdsa_vetor():
             "digest": hashlib.sha256(bytes.fromhex(c["Msg"])).digest()}
 
 
+def tdes_vetores():
+    """Vetores do autoteste de DES/3DES, do CAVP (vectors/tdes/), copiados.
+
+    subtab: os 19 KATs de substituicao da SP 800-20, na direcao de cifrar.
+    Nesses vetores as tres chaves sao iguais, e cada um exercita entradas
+    diferentes das caixas S.
+    mmt: seis mensagens que cobrem chave dupla e tripla, ECB (um bloco, que
+    e CBC com IV zero) e CBC, cifrando e decifrando.
+    """
+    def casos(arq):
+        saida, modo, atual = [], None, {}
+        for ln in (VEC / "tdes" / arq).read_text().splitlines():
+            ln = ln.strip()
+            if ln in ("[ENCRYPT]", "[DECRYPT]"):
+                modo = ln.strip("[]")
+                continue
+            m = re.match(r"^(\w+) = (\w+)$", ln)
+            if m and m[1] != "COUNT":
+                atual[m[1]] = bytes.fromhex(m[2])
+            elif not ln and atual:
+                saida.append((modo, atual))
+                atual = {}
+        if atual:
+            saida.append((modo, atual))
+        return saida
+
+    subtab = [c for modo, c in casos("TECBsubtab.rsp") if modo == "ENCRYPT"]
+    if len(subtab) != 19:
+        raise SystemExit("TDES: esperava 19 KATs de substituicao, achei %d"
+                         % len(subtab))
+
+    def pega(arq, modo, blocos, duas):
+        for m, c in casos(arq):
+            n = len(c["PLAINTEXT"]) // 8
+            if m == modo and n == blocos:
+                if duas and c["KEY1"] != c["KEY3"]:
+                    raise SystemExit("TDES: MMT2 com KEY3 != KEY1")
+                chave = c["KEY1"] + c["KEY2"] + (b"" if duas else c["KEY3"])
+                cif = modo == "ENCRYPT"
+                return {"chave": chave, "iv": c.get("IV", bytes(8)),
+                        "entrada": c["PLAINTEXT"] if cif else c["CIPHERTEXT"],
+                        "saida": c["CIPHERTEXT"] if cif else c["PLAINTEXT"],
+                        "cifrar": 1 if cif else 0}
+        raise SystemExit("TDES: sem vetor %s %s de %d bloco(s)"
+                         % (arq, modo, blocos))
+
+    mmt = [pega("TECBMMT2.rsp", "DECRYPT", 1, True),
+           pega("TECBMMT3.rsp", "ENCRYPT", 1, False),
+           pega("TECBMMT3.rsp", "DECRYPT", 1, False),
+           pega("TCBCMMT2.rsp", "DECRYPT", 2, True),
+           pega("TCBCMMT3.rsp", "ENCRYPT", 3, False),
+           pega("TCBCMMT3.rsp", "DECRYPT", 2, False)]
+    return subtab, mmt
+
+
 def main():
     aes = aes_vetores()
     sha = sha_vetores()
@@ -580,6 +635,29 @@ def main():
     L.append(carr("kat_ec_k", ec["k"]))
     L.append(carr("kat_ec_digest", ec["digest"]))
     L.append(carr("kat_ec_rs", ec["rs"]))
+    L.append("")
+    subtab, mmt = tdes_vetores()
+    hx = lambda b, n: ", ".join("0x%02X" % x for x in b.ljust(n, b"\0"))
+    L.append("/* DES e 3DES (fase 8): CAVP, vectors/tdes/. Autoteste de primeiro uso. */")
+    L.append("typedef struct { uint8_t chave[8], claro[8], cifrado[8]; } kat_tdes_subtab_t;")
+    L.append(f"#define KAT_TDES_SUBTAB_N {len(subtab)}u")
+    L.append("static const kat_tdes_subtab_t kat_tdes_subtab[KAT_TDES_SUBTAB_N] = {")
+    for c in subtab:
+        L.append("    { { %s }, { %s }, { %s } }," % (
+            hx(c["KEYs"], 8), hx(c["PLAINTEXT"], 8), hx(c["CIPHERTEXT"], 8)))
+    L.append("};")
+    mx = max(len(v["entrada"]) for v in mmt)
+    L.append(f"#define KAT_TDES_MMT_MAX {mx}u")
+    L.append("typedef struct { uint8_t chave[24]; uint8_t chave_n; uint8_t iv[8];")
+    L.append("                 uint8_t entrada[KAT_TDES_MMT_MAX], saida[KAT_TDES_MMT_MAX];")
+    L.append("                 uint8_t n; uint8_t cifrar; } kat_tdes_mmt_t;")
+    L.append(f"#define KAT_TDES_MMT_N {len(mmt)}u")
+    L.append("static const kat_tdes_mmt_t kat_tdes_mmt[KAT_TDES_MMT_N] = {")
+    for v in mmt:
+        L.append("    { { %s }, %du, { %s },\n      { %s },\n      { %s }, %du, %du }," % (
+            hx(v["chave"], 24), len(v["chave"]), hx(v["iv"], 8),
+            hx(v["entrada"], mx), hx(v["saida"], mx), len(v["entrada"]), v["cifrar"]))
+    L.append("};")
     L.append("")
     L.append(carr("kat_tr31_kbpk", tr31["kbpk"]))
     L.append(carr("kat_tr31_key", tr31["key"]))

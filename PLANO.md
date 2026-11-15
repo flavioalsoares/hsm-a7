@@ -580,6 +580,10 @@ vetores**, não a dificuldade.
 | **PVV** | **não sem 3DES** | idem. O *ataque* sobre ele é ensinável sem ele |
 | **DUKPT TDES (X9.24-1)** | **não sem 3DES** | idem |
 
+*O esboço acima é de 2026-08-08. A tabela e o parágrafo seguinte foram superados em
+2026-11-14: o 3DES entra, e os itens "não sem 3DES" passam a ser etapas. O plano em
+vigor vem depois deles.*
+
 **O 3DES é uma decisão de arquitetura, não uma tarefa.** O CFS tem `keylen`
 fixo em AES-256 **sem caminho de downgrade**, de propósito (§3). Um core DES
 contradiz isso. É defensável como engine separado e rotulado como legado —
@@ -592,6 +596,46 @@ estão atrás de paywall (ANSI X9.24-3) ou dentro de manual de fabricante.
 Sem vetor autoritativo não há KAT, e "implementei e parece certo" é
 exatamente o que a regra proíbe. Onde não houver vetor público, o item
 **não entra** — ou entra explicitamente marcado como não verificado.
+
+*Planejada em 2026-11-14, e replanejada no mesmo dia, quando o usuário decidiu que
+**o 3DES entra**. O critério dele: "que se aproxime o máximo do mercado de meios de
+pagamento, o objetivo não é ser o melhor, o objetivo é aprender como o mercado
+trabalha". As decisões:*
+
+- *3DES em todos os papéis em que o mercado o usa: chaves de trabalho, chaves de
+  troca entre instituições e dados. Motor em C, no firmware. Chaves de comprimento
+  duplo e triplo; DES simples fica fora.*
+- *A LMK continua AES-256, que é a configuração atual do mercado. A LMK antiga, em
+  3DES com variantes, é ideia registrada.*
+- *Uma chave nunca sai embrulhada por outra mais fraca: uma chave de troca 3DES não
+  transporta chave AES.*
+- *Vetores de terceiros valem onde não há vetor oficial público, fixados por hash no
+  `MANIFEST.txt` e marcados como tal. O 3DES tem vetor oficial do NIST.*
+- *A verificação de PIN usa o método real, sobre DES. A versão com AES saiu do plano.*
+
+| Etapa | Entrega | Situação |
+|---|---|---|
+| 8.1 | PIN block formato 4 e tradução de PIN (`P0`) | validada na placa em 2026-11-14 |
+| 8.2 | Motor DES e 3DES, com autoteste nos vetores do NIST | validada na placa em 2026-11-15 |
+| 8.3 | Chave 3DES no key store: algoritmo `T` no key block, paridade, KCV | validada na placa em 2026-11-15 |
+| 8.4 | PIN block formato 0, tradução entre formatos e entre chaves | a fazer |
+| 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | a fazer |
+| 8.6 | CVV: gerar e verificar | a fazer |
+| 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | a fazer |
+| 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | a fazer |
+| 8.9 | MAC de mensagem e cifra de dados com 3DES | a fazer |
+
+*Candidatos para depois, fora desta lista: criptogramas EMV do chip e emissão de PIN.*
+
+*Decisão do usuário em 2026-11-14: o conteúdo do key block de uma chave RSA ou de
+ECDSA passa do layout próprio para **PKCS#8** (RFC 5958), em DER, para a chave ser
+legível por outras ferramentas. A norma do key block é paga, e este projeto não
+confirmou que é essa a codificação que ela manda usar. A mudança leva o limite de
+mensagem a 3072 bytes e a memória de dados a 32 KB.*
+
+⚠ **Rever o plano e a decisão sobre vetores de terceiros ao terminar o DUKPT**
+(etapa 8.8). O usuário pediu, em 2026-11-14, a revisão das decisões ao fim da
+etapa que então se chamava 8.4, o DUKPT AES.
 
 ⚠ **Nenhum PAN real, nunca**, pela mesma razão que nenhuma chave de
 produção. Gerar CVV ou PIN para um número de cartão que existe deixa de ser

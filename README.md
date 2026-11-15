@@ -20,7 +20,9 @@ producao entra aqui.
   VI     o caminho ate a fase 7
   VII    criptografia de pagamento: PIN blocks ISO 9564 (formatos 0, 1, 3
          e 4), traducao de PIN, PVV e IBM 3624, decimalizacao, DUKPT TDES
-         e AES -- e o que deste dominio da para ensinar aqui, e o que nao
+         e AES, DES e 3DES -- e o que o equipamento faz deste dominio
+  VIII   como o equipamento e testado: o que cada teste prova, o que nao
+         prova, e a matematica por tras
 
 Fonte do manual em [`doc/manual/`](doc/manual/) (Markdown); o PDF sai de
 `./scripts/mkpdf.sh`. Roteiro de leitura completo em

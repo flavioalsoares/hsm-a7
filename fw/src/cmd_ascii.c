@@ -21,6 +21,7 @@
 #include "rsa.h"
 #include "ecc.h"
 #include "kat.h"
+#include "versao.h"
 #include "aes_modos.h"
 #include "audit_log.h"
 #include "cmac.h"
@@ -29,6 +30,8 @@
 #include "keystore.h"
 #include "state.h"
 #include "pinblock.h"
+#include "des.h"
+#include "kat.h"
 #include "tr31.h"
 #include "wipe.h"
 
@@ -190,6 +193,8 @@ static uint8_t fim(const leitor_t *r)
  * zerada. Malformado, MAC errado, feito sob outra chave de protecao ou
  * com cabecalho que o key store recusa: tudo e ASCII_BLOCO_INVAL --
  * distinguir seria o oraculo de padding (ver IMPORT_KEY em cmd.c). */
+static uint8_t primeiro_uso(unsigned qual);
+
 static uint8_t abre_sob(const uint8_t kbek[KS_KEY_MAX],
                         const uint8_t kbak[KS_KEY_MAX],
                         const uint8_t *b, uint16_t bn, ks_info_t *info)
@@ -202,6 +207,13 @@ static uint8_t abre_sob(const uint8_t kbek[KS_KEY_MAX],
     if (tr31_desembrulha(kbek, kbak, (const char *)b, bn,
                          &cab, chave, &klen) != 0) {
         r = ASCII_BLOCO_INVAL;
+        goto sai;
+    }
+    /* Chave 3DES: o autoteste de primeiro uso roda antes de a chave ser
+     * usada, e ja a instalacao a usa, para o KCV. */
+    if ((cab.algoritmo == (uint8_t)KS_ALG_TDES) &&
+        (primeiro_uso(KAT_FALHA_TDES) != ASCII_OK)) {
+        r = ASCII_ERRO_GRAVE;
         goto sai;
     }
     if (keystore_efemera(cab.uso, cab.algoritmo, cab.modo,
@@ -284,14 +296,23 @@ static uint8_t h_d0(leitor_t *in, escritor_t *out)
     }
     poe(out, (uint8_t)('0' + (uint8_t)state_get()));
     poe_hex(out, kcv, KS_KCV_LEN);
-    poe_dec(out, 0u, 2u);               /* major */
-    poe_dec(out, 1u, 2u);               /* minor */
-    poe_dec(out, 0u, 2u);               /* patch */
+    poe_dec(out, HSM_VERSAO_MAJOR, 2u);
+    poe_dec(out, HSM_VERSAO_MINOR, 2u);
+    poe_dec(out, HSM_VERSAO_PATCH, 2u);
     return ASCII_OK;
 }
 
 /* K0 -- gerar chave: uso(2) . modo(1) . exportabilidade(1)
+ *       [. algoritmo(1) . comprimento(1)]
  *       -> key block sob a LMK . KCV(6)
+ *
+ * Os dois ultimos campos sao opcionais, e vem juntos. Sem eles, a chave e
+ * AES-256. "A4" e AES-256; "T2" e 3DES de comprimento duplo (16 bytes);
+ * "T3" e 3DES de comprimento triplo (24 bytes). O digito e o tamanho da
+ * chave em blocos de 8 bytes. Outro valor: 16.
+ *
+ * A chave 3DES sai com paridade impar em todo byte, e a geracao sorteia de
+ * novo se cair numa chave fraca ou com partes iguais (SP 800-67).
  *
  * Checklist:
  *   estados      OPERATIONAL.
@@ -316,8 +337,9 @@ static uint8_t h_k0(leitor_t *in, escritor_t *out)
     tr31_cab_t cab;
     ks_info_t  info;
     uint8_t    uso[2], modo, exp;
+    uint8_t    alg = KS_ALG_AES, klen = KS_KEY_MAX;
     uint8_t    r = ASCII_INTERNO;
-    uint32_t   i;
+    uint32_t   i, tenta;
 
     if (((uint32_t)in->pos + 4u) > in->n) {
         return ASCII_MALFORMADA;
@@ -327,14 +349,47 @@ static uint8_t h_k0(leitor_t *in, escritor_t *out)
     modo   = in->p[in->pos + 2u];
     exp    = in->p[in->pos + 3u];
     in->pos = (uint16_t)(in->pos + 4u);
-    if (fim(in) != ASCII_OK) {
-        return ASCII_MALFORMADA;
+    if (in->pos != in->n) {
+        uint8_t a, c;
+        if (((uint32_t)in->pos + 2u) != in->n) {
+            return ASCII_MALFORMADA;
+        }
+        a = in->p[in->pos];
+        c = in->p[in->pos + 1u];
+        in->pos = (uint16_t)(in->pos + 2u);
+        if ((a == (uint8_t)KS_ALG_AES) && (c == (uint8_t)'4')) {
+            alg = KS_ALG_AES;  klen = KS_KEY_MAX;
+        } else if ((a == (uint8_t)KS_ALG_TDES) && (c == (uint8_t)'2')) {
+            alg = KS_ALG_TDES; klen = TDES_CHAVE_2;
+        } else if ((a == (uint8_t)KS_ALG_TDES) && (c == (uint8_t)'3')) {
+            alg = KS_ALG_TDES; klen = TDES_CHAVE_3;
+        } else {
+            return ASCII_PARAM;
+        }
     }
 
-    if (drbg_dispositivo_bytes(chave, KS_KEY_MAX) != 0) {
+    if (alg == KS_ALG_TDES) {
+        if (primeiro_uso(KAT_FALHA_TDES) != ASCII_OK) {
+            return ASCII_ERRO_GRAVE;
+        }
+        /* Sorteia de novo se a chave for fraca. A chance e desprezivel; o
+         * limite existe para o laco terminar se o DRBG falhar em silencio. */
+        for (tenta = 0u; tenta < 8u; tenta++) {
+            if (drbg_dispositivo_bytes(chave, klen) != 0) {
+                goto sai;
+            }
+            des_paridade_ajusta(chave, klen);
+            if (!tdes_chave_ruim(chave, klen)) {
+                break;
+            }
+        }
+        if (tenta == 8u) {
+            goto sai;
+        }
+    } else if (drbg_dispositivo_bytes(chave, klen) != 0) {
         goto sai;
     }
-    if (keystore_efemera(uso, KS_ALG_AES, modo, exp, chave, KS_KEY_MAX)
+    if (keystore_efemera(uso, alg, modo, exp, chave, klen)
         != KS_HANDLE_EFEMERA) {
         r = ASCII_PARAM;
         goto sai;
@@ -350,12 +405,12 @@ static uint8_t h_k0(leitor_t *in, escritor_t *out)
     }
     cab.uso[0]          = uso[0];
     cab.uso[1]          = uso[1];
-    cab.algoritmo       = KS_ALG_AES;
+    cab.algoritmo       = alg;
     cab.modo            = modo;
     cab.versao_chave[0] = (uint8_t)'0';
     cab.versao_chave[1] = (uint8_t)'0';
     cab.exportabilidade = exp;
-    if (tr31_embrulha(kbek, kbak, &cab, chave, KS_KEY_MAX,
+    if (tr31_embrulha(kbek, kbak, &cab, chave, klen,
                       enchimento, (uint8_t)sizeof enchimento,
                       bloco, &bn) != 0) {
         goto sai;
@@ -922,9 +977,12 @@ sai:
  *   vazamento    o erro 14 diz ao host se um bloco, aberto sob aquela
  *                chave e aquele PAN, e um formato 4 bem formado. E
  *                inerente ao servico: sem isso o host traduziria lixo sem
- *                saber. Com 8 bytes aleatorios e enchimento fixo, um bloco
- *                forjado passa com chance desprezivel, e o veredito nao
- *                separa um PIN de outro. O bloco de saida leva aleatorio
+ *                saber. Um bloco ao acaso passa na conferencia cerca de
+ *                uma vez em 2^24 (domina o PIN de 12 digitos, que deixa
+ *                so dois nibbles de enchimento; manual, secao 41.2). Nao
+ *                e barreira contra quem pergunta milhoes de vezes: o
+ *                controle e o log. O veredito nao separa um PIN de
+ *                outro. O bloco de saida leva aleatorio
  *                novo: dois pedidos iguais dao saidas diferentes. O que o
  *                comando NAO faz e devolver o PIN, nem aceitar chave que
  *                nao seja P0 -- uma chave de dados aqui seria o C2

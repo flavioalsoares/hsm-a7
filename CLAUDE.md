@@ -89,7 +89,25 @@ python3 host/test_hsmtool.py        # transporte (pty + modelo do dispositivo)
 python3 host/test_tr31.py           # key block X9.143 (precisa de `cryptography`)
 python3 host/hsmtool.py ping
 python3 host/hsmtool.py post        # reroda o POST no dispositivo
+python3 host/regressao.py --lmk <hex>   # regressao na PLACA, cerca de 4 min
 ```
+
+### Quanto simular antes de gravar a placa
+
+*Decidido pelo usuário em 2026-11-14.* A suíte completa leva cerca de 12 horas, e a
+placa roda os mesmos comandos em minutos. A regra nº 4 continua valendo: código novo
+passa pela simulação antes da placa. O que muda é quanto da suíte roda a cada vez.
+
+| Mudança | Antes de gravar a placa | Regressão |
+|---|---|---|
+| RTL novo ou alterado | suíte completa (`./scripts/sim.sh`) | `host/regressao.py` |
+| Só firmware | o testbench novo, e os que cobrem o código alterado | `host/regressao.py` |
+| Fim de fase | suíte completa | `host/regressao.py` |
+
+⚠ **`host/regressao.py` não substitui a simulação.** Ele não provoca falhas (fonte
+travada, tensão, perda de lock, flash corrompida, POST reprovado), não vê sinais
+internos e não aperta os botões: exige a placa já em `OPERATIONAL`. Comando novo
+entra nele junto com o testbench.
 
 Após qualquer mudança de RTL, arquivar utilização e timing em `doc/`. Regressão
 de recursos é sinal de alerta num projeto com orçamento apertado de fabric.
@@ -747,9 +765,15 @@ nada sai, erro grave marcado. Não remover: a conferência pega também erro de 
 ⚠ **`metade()` em `rsa.c` usa `g_a` e `g_b` como rascunho.** Valor que precisa
 sobreviver a ela fica em `g_sq`.
 
-⚠ **A chave RSA no key block tem layout PRÓPRIO** (decisão do usuário, 2026-11-08):
-`e(4) p q dp dq qinv` (128 cada), 644 bytes, bloco de 1360 caracteres. `n` não entra.
-Mudar exige mexer nos dois parsers (`tr31.c` e `tr31.py`).
+⚠ **A chave RSA e a de ECDSA vão no key block em PKCS#8, DER** (decisão do usuário,
+2026-11-14; antes era um layout próprio). `fw/src/pkcs8.c` monta e lê; do lado do
+host é a biblioteca `cryptography` (`host/pkcs8.py`). O layout `e(4) p q dp dq qinv`
+(644 bytes) e `d Qx Qy` (96) é só o formato INTERNO de `rsa.c` e `ecc.c`. Bloco RSA
+de até 2512 caracteres; de ECDSA, 336. Ver `doc/fase8-notas.md`.
+
+⚠ **O leitor de PKCS#8 é estrito, e não é para "tolerar".** Só DER, só a estrutura
+exata, só RSA-2048 de dois primos e P-256. Mexeu em `pkcs8.c`: rode
+`host/test_pkcs8.py`, que o confronta com a biblioteca.
 
 ⚠ **A geração de ponta a ponta só se prova na placa.** Na simulação ela é provada por
 partes: `tb_rsa_mr` roda o Miller-Rabin no firmware de teste (`HSM_TESTE_MR=1`), e
@@ -767,7 +791,7 @@ Nada pode recompilá-la com a suíte rodando.
 acusar o POST crescendo.
 
 ⚠ **`SELFTEST` devolve a máscara em DOIS bytes** desde a fase 7 (RSA = `0x100`), e o
-limite de mensagem é **2048 bytes**. Os botões nos testbenches ficam 1 ms soltos e
+limite de mensagem é **3072 bytes** (2048 até 2026-11-14). Os botões nos testbenches ficam 1 ms soltos e
 apertados: com 100 µs o firmware, ainda apagando os buffers, não os via soltos.
 
 ⚠ **`rsa_publica()` desvia pelos bits de `e`**, que é público. A operação privada não
@@ -778,6 +802,84 @@ PKCS#1 v1.5 (Bleichenbacher 2006).
 
 ⚠ **O produto de Montgomery tem tempo constante**: a subtração final sempre acontece.
 Não trocar por desvio condicional.
+
+## Fase 8 — criptografia de pagamento (em andamento, 2026-11-14)
+
+Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vigor
+está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
+DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos, 8.5
+verificação de PIN e o ataque de decimalização, 8.6 CVV, 8.7 troca de chaves 3DES,
+8.8 DUKPT, 8.9 MAC e dados com 3DES.
+
+⚠ **O 3DES entra, por decisão do usuário (2026-11-14), e o critério é o mercado de
+meios de pagamento**: "o objetivo não é ser o melhor, o objetivo é aprender como o
+mercado trabalha". Em escolha de escopo, sugerir o que o mercado faz, e não o mais
+seguro. O motor é em C; a LMK continua AES-256; uma chave nunca sai embrulhada por
+outra mais fraca.
+
+✅ **Etapas 8.2 e 8.3 (motor 3DES e chave 3DES), PKCS#8, DMEM de 32 KB e `GET_BUILD`:
+validados em hardware 2026-11-15.** Suíte de 28 testbenches em 11 h 46 (`tb_ecdsa`
+9 h 15, `tb_rsa` 4 h 19, `tb_tdes` 1 h 08); `regressao.py` com 17 passos em 219 s.
+Timing **+0,572 ns**, 0 critical warnings, 8081 LUTs, 7914 FF, BRAM 25,5, DSP 4.
+Firmware `0.8.3`, 46 944 bytes. Próxima: etapa 8.4.
+
+⚠ **O coprocessador só faz AES-256, e lê 32 bytes de chave.** Uma chave 3DES tem 16
+ou 24. A checagem de algoritmo mora em `uso_dados()`, `uso_mac()` e `uso_pin()`, em
+`keystore.c`. Estender uma função ao 3DES é mexer na função de uso correspondente, e
+nunca tirar a checagem.
+
+⚠ **Chave 3DES só no slot efêmero da porta host**, até a etapa 8.7. Os slots do
+console e o registro na flash seguem só com AES-256.
+
+⚠ **Um contexto 3DES para o firmware inteiro**: `tdes_ctx_comum()`. Não declarar
+outro `tdes_ctx_t`: são 288 bytes de `static`, e um segundo contexto não traz nada.
+
+⚠ **Mexer no DES exige mexer nos dois**: `fw/src/des.c` e `host/des.py`. Os dois
+passam nos 1000 vetores de `vectors/tdes/` (`host/test_des.py`).
+
+⚠ **O KAT do 3DES roda no primeiro uso** (`KAT_FALHA_TDES = 0x800`), chamado por
+`abre_sob()` e pelo `K0` em `cmd_ascii.c`, antes de a chave 3DES ser instalada.
+
+⚠ **A versão do firmware mora em `fw/include/versao.h`, e só lá.** Toda etapa que vai
+para a placa muda o `PATCH`. `hsmtool build` (`0x04 GET_BUILD`) devolve o SHA-256 da
+memória de código e o compara com `fw/elf.bin`: use-o antes de testar na placa, para
+saber que o firmware gravado é o que você compilou. Não pôr data nem commit dentro
+do firmware: o hash deixaria de ser comparável.
+
+⚠ **A DMEM tem 32 KB** (2026-11-14, com o PKCS#8), e os três buffers de mensagem
+têm 3072 bytes cada.
+
+⚠ **`wipe()` escreve uma palavra de 32 bits por vez.** O despachante apaga 9 KB de
+buffers depois de cada resposta, e nesse tempo o laço principal não olha os botões.
+Byte a byte, isso passava de 1 ms, que é o tempo dos botões nos testbenches. Não
+voltar ao laço de bytes.
+
+⚠ **Ao terminar o DUKPT (etapa 8.8), rever com o usuário o plano e a decisão sobre
+vetores de terceiros.**
+
+Feito: `fw/src/pinblock.c` (a forma do formato 4, sem chave), `keystore_pin_abre()` e
+`keystore_pin_fecha()` em `keystore.c`, e o comando ASCII `P0` (bloco de origem ·
+bloco de destino · formatos · PAN · PIN block → PIN block). As chaves têm uso `P0`.
+
+✅ **Validado em hardware 2026-11-14**: `hsmhost.py pin-confere` com 100 de 100
+voltas. `tb_pin` leva 1 h 22. Firmware em 39 172 bytes.
+
+⚠ **O PIN em claro só existe em `g_pin`, dentro de `keystore.c`.** Nenhum handler o
+recebe. `keystore_efemera_apaga()` NÃO o apaga, de propósito: ela roda quando a
+segunda chave entra no slot efêmero, no meio da tradução. Quem apaga é
+`keystore_pin_apaga()`, chamada pelo despachante no fim de todo comando, e
+`g_pin` entra no `keystore_init()` e na prova de zeroização.
+
+⚠ **O vetor do formato 4 é de terceiros e usa AES-128**, que o coprocessador não faz.
+Ele valida `host/pinblock.py`; o firmware é conferido contra o Python (`tb_pin`, e
+`host/test_pinblock.py` para a forma dos campos). Mexer no formato exige mexer nos
+dois: `fw/src/pinblock.c` e `host/pinblock.py`.
+
+⚠ **Nenhum PAN real, nunca.** Os testes usam o prefixo inventado `999999`.
+
+⚠ **O erro `14` do `P0` é um oráculo de formato, e está escrito no handler.** Com o
+formato 4 ele revela pouco. Quando entrar outro formato, a tradução entre formatos é
+onde moram os ataques clássicos: refazer o item de vazamento do checklist.
 
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 

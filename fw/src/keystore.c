@@ -13,6 +13,8 @@
 #include "ecc.h"
 #include "tr31.h"
 #include "pinblock.h"
+#include "des.h"
+#include "pkcs8.h"
 #include "wipe.h"
 
 /* Slot completo -- com a chave. Este tipo NÃO aparece no header: nada fora
@@ -53,6 +55,9 @@ static uint8_t g_comp[KS_KEY_MAX];
  * e e apagada pelo despachante no fim de TODO comando. Nunca vai para a
  * flash, e nunca para um slot -- header_valido() recusa o algoritmo 'R'. */
 static uint8_t g_rsa[TR31_RSA_CHAVE];
+/* O PKCS#8 da chave assimetrica, entre o key block e o formato interno. E
+ * chave privada em claro: apagado junto com g_rsa, e varrido na prova. */
+static uint8_t g_der[TR31_RSA_DER_MAX];
 static uint8_t g_rsa_ok;         /* 0 vazia, ou o algoritmo: 'R' ou 'E'. A
                                   * chave de ECDSA ocupa os 96 primeiros
                                   * bytes da mesma area. */
@@ -122,10 +127,10 @@ static int indice(ks_handle_t h)
 static int header_valido(const uint8_t uso[2], uint8_t algoritmo,
                         uint8_t modo, uint8_t exportabilidade)
 {
-    /* Só AES: o coprocessador não faz 3DES e um slot marcado 'T' seria uma
-     * chave que o dispositivo não sabe usar -- pior que recusar, porque
-     * pareceria instalada. */
-    if (algoritmo != KS_ALG_AES) {
+    /* AES-256, ou 3DES (fase 8). Outro algoritmo seria uma chave que o
+     * dispositivo não sabe usar -- pior que recusar, porque pareceria
+     * instalada. */
+    if ((algoritmo != KS_ALG_AES) && (algoritmo != KS_ALG_TDES)) {
         return 0;
     }
     /* Sete valores, em dois grupos: cifra (E/D/B) e MAC (G/V/C), mais o
@@ -180,6 +185,7 @@ void keystore_init(void)
     g_comp_n     = 0u;
     g_comp_total = 0u;
     wipe_padrao(g_rsa, sizeof g_rsa);
+    wipe_padrao(g_der, sizeof g_der);
     g_rsa_ok = 0u;
     wipe_padrao(g_pin, sizeof g_pin);
     g_pin_ok = 0u;
@@ -235,6 +241,10 @@ int keystore_prova_zeroizacao(void)
         acc |= p[i];
     }
     acc |= g_pin_ok;
+    p = (const volatile uint8_t *)(const void *)g_der;
+    for (i = 0u; i < (uint32_t)sizeof g_der; i++) {
+        acc |= p[i];
+    }
     acc |= g_rsa_ok;
     acc |= g_lmk_comps;
     acc |= g_comp_n;
@@ -249,6 +259,30 @@ int keystore_zeroiza_tudo(void)
     return keystore_prova_zeroizacao() ? 0 : -1;
 }
 
+/* KCV de uma chave 3DES: os 3 primeiros bytes de cifrar 8 zeros com ela.
+ *
+ * FRONTEIRA: dentro. As subchaves saem apagadas. */
+static int kcv_tdes(const uint8_t *chave, uint8_t key_len,
+                    uint8_t out[KS_KCV_LEN])
+{
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    uint8_t  zero[DES_BLOCO] = { 0u };
+    uint8_t  cifrado[DES_BLOCO];
+    uint32_t i;
+    int      r = -1;
+
+    if (tdes_prepara(ctx, chave, key_len) == 0) {
+        tdes_bloco(ctx, zero, cifrado, 1);
+        for (i = 0u; i < KS_KCV_LEN; i++) {
+            out[i] = cifrado[i];
+        }
+        r = 0;
+    }
+    tdes_apaga(ctx);
+    wipe(cifrado, sizeof cifrado);
+    return r;
+}
+
 /* Instala no indice `i` (0..15), que o chamador garante livre. E o miolo
  * de keystore_instala() e da restauracao do registro persistente -- a
  * restauracao precisa devolver cada chave ao MESMO slot, porque o host
@@ -261,14 +295,24 @@ static ks_handle_t instala_em(uint32_t i, const uint8_t uso[2],
     uint8_t  kcv[KS_KCV_LEN];
     slot_t  *s;
 
-    if ((i > EFEMERA) || g_slots[i].em_uso ||
-        (chave == 0) || (key_len != KS_KEY_MAX)) {
+    if ((i > EFEMERA) || g_slots[i].em_uso || (chave == 0)) {
         return KS_HANDLE_INVALIDO;
     }
     if (!header_valido(uso, algoritmo, modo, exportabilidade)) {
         return KS_HANDLE_INVALIDO;
     }
-    if (keystore_kcv(chave, key_len, kcv) != 0) {
+    if (algoritmo == KS_ALG_TDES) {
+        /* Chave 3DES: comprimento duplo ou triplo, e so no slot efemero da
+         * porta host. Os slots do console e o registro na flash seguem so
+         * com AES-256 ate a troca de chaves 3DES (etapa 8.7). */
+        if ((i != EFEMERA) ||
+            ((key_len != TDES_CHAVE_2) && (key_len != TDES_CHAVE_3)) ||
+            (kcv_tdes(chave, key_len, kcv) != 0)) {
+            wipe(kcv, sizeof kcv);
+            return KS_HANDLE_INVALIDO;
+        }
+    } else if ((key_len != KS_KEY_MAX) ||
+               (keystore_kcv(chave, key_len, kcv) != 0)) {
         wipe(kcv, sizeof kcv);
         return KS_HANDLE_INVALIDO;
     }
@@ -393,7 +437,10 @@ int keystore_info(ks_handle_t h, ks_info_t *out)
  * as chaves. Ver doc/fase5-notas.md. */
 static int uso_dados(int i)
 {
-    return (g_slots[i].uso[0] == (uint8_t)KS_USO_DADOS[0]) &&
+    /* So AES: estas funcoes carregam a chave no coprocessador, que so faz
+     * AES-256. Uma chave 3DES de 16 bytes ali seria lida alem do fim. */
+    return (g_slots[i].algoritmo == KS_ALG_AES) &&
+           (g_slots[i].uso[0] == (uint8_t)KS_USO_DADOS[0]) &&
            (g_slots[i].uso[1] == (uint8_t)KS_USO_DADOS[1]);
 }
 
@@ -403,7 +450,8 @@ static int uso_dados(int i)
  * distingue os M* por algoritmo; aqui só existe CMAC. */
 static int uso_mac(int i)
 {
-    return g_slots[i].uso[0] == (uint8_t)KS_USO_MAC[0];
+    return (g_slots[i].algoritmo == KS_ALG_AES) &&
+           (g_slots[i].uso[0] == (uint8_t)KS_USO_MAC[0]);
 }
 
 int keystore_usa_aes(ks_handle_t h, uint8_t precisa_modo)
@@ -504,7 +552,9 @@ int keystore_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
  * dados que abrisse PIN blocks seria o C2 decifrando PINs. */
 static int uso_pin(int i)
 {
-    return (g_slots[i].uso[0] == (uint8_t)KS_USO_PIN[0]) &&
+    /* O formato 4 e AES. A chave de PIN 3DES e do formato 0 (etapa 8.4). */
+    return (g_slots[i].algoritmo == KS_ALG_AES) &&
+           (g_slots[i].uso[0] == (uint8_t)KS_USO_PIN[0]) &&
            (g_slots[i].uso[1] == (uint8_t)KS_USO_PIN[1]);
 }
 
@@ -956,6 +1006,7 @@ int lmk_deriva_kb(uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX])
 void keystore_rsa_apaga(void)
 {
     wipe_padrao(g_rsa, sizeof g_rsa);
+    wipe_padrao(g_der, sizeof g_der);
     g_rsa_ok = 0u;
 }
 
@@ -972,16 +1023,34 @@ static int assim_abre(const char *bloco, uint32_t bloco_n, uint8_t alg)
         goto fim;
     }
     if (tr31_desembrulha_n(kbek, kbak, bloco, bloco_n, &cab,
-                           g_rsa, (uint16_t)sizeof g_rsa, &n) != 0) {
+                           g_der, (uint16_t)sizeof g_der, &n) != 0) {
         goto fim;
     }
     /* Bloco integro, mas de chave simetrica: e a confusao de tipo, e nao
      * bloco invalido. Vale tambem entre RSA e ECDSA. O tr31.c ja garante
-     * que 'R' e 'E' vem com S0, modo 'S' e o tamanho certo. */
+     * que 'R' e 'E' vem com S0 e modo 'S'. */
     if (cab.algoritmo != alg) {
         r = -3;
         goto fim;
     }
+    /* O conteudo e PKCS#8. DER que o leitor recusa e bloco invalido: o MAC
+     * fechou, mas o que esta dentro nao e uma chave que este equipamento
+     * saiba usar. */
+    if (alg == (uint8_t)KS_ALG_RSA) {
+        if (pkcs8_rsa_le(g_der, n, g_rsa) != 0) {
+            goto fim;
+        }
+    } else {
+        int tem_q = 0;
+        if (pkcs8_ec_le(g_der, n, g_rsa, &tem_q) != 0) {
+            goto fim;
+        }
+        /* A chave publica e opcional no PKCS#8. Sem ela, Q = d*G. */
+        if ((tem_q == 0) && (ec_publica(g_rsa, &g_rsa[EC_BYTES]) != 0)) {
+            goto fim;
+        }
+    }
+    wipe_padrao(g_der, sizeof g_der);
     g_rsa_ok = alg;
     r = 0;
 fim:
@@ -1009,6 +1078,7 @@ int keystore_rsa_gera(uint8_t exportabilidade, char *saida, uint32_t max,
     uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
     uint8_t    enchimento[TR31_BLOCO];
     tr31_cab_t cab;
+    uint32_t   der_n = 0u;
     int        r = -1;
 
     keystore_rsa_apaga();
@@ -1042,7 +1112,8 @@ int keystore_rsa_gera(uint8_t exportabilidade, char *saida, uint32_t max,
     cab.exportabilidade = exportabilidade;
     if ((lmk_deriva_kb(kbek, kbak) != 0) ||
         (drbg_dispositivo_bytes(enchimento, sizeof enchimento) != 0) ||
-        (tr31_embrulha_n(kbek, kbak, &cab, g_rsa, (uint16_t)sizeof g_rsa,
+        (pkcs8_rsa_monta(g_rsa, n, g_der, (uint32_t)sizeof g_der, &der_n) != 0) ||
+        (tr31_embrulha_n(kbek, kbak, &cab, g_der, (uint16_t)der_n,
                          enchimento, (uint8_t)sizeof enchimento,
                          saida, saida_n) != 0)) {
         goto fim;
@@ -1096,6 +1167,7 @@ int keystore_ec_gera(uint8_t exportabilidade, char *saida, uint32_t max,
     uint8_t    sig[EC_SIG];
     tr31_cab_t cab;
     uint32_t   i;
+    uint32_t   der_n = 0u;
     int        r = -1;
 
     keystore_rsa_apaga();
@@ -1128,7 +1200,8 @@ int keystore_ec_gera(uint8_t exportabilidade, char *saida, uint32_t max,
     cab.exportabilidade = exportabilidade;
     if ((lmk_deriva_kb(kbek, kbak) != 0) ||
         (drbg_dispositivo_bytes(enchimento, sizeof enchimento) != 0) ||
-        (tr31_embrulha_n(kbek, kbak, &cab, g_rsa, (uint16_t)TR31_EC_CHAVE,
+        (pkcs8_ec_monta(g_rsa, g_der, (uint32_t)sizeof g_der, &der_n) != 0) ||
+        (tr31_embrulha_n(kbek, kbak, &cab, g_der, (uint16_t)der_n,
                          enchimento, (uint8_t)sizeof enchimento,
                          saida, saida_n) != 0)) {
         goto fim;

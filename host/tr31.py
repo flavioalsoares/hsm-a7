@@ -99,7 +99,8 @@ USO_PIN = "P0"
 USO_ASSINA = "S0"   # fase 7: par assimetrico de assinatura (RSA ou ECDSA)
 
 ALG_AES = "A"
-ALG_3DES = "T"
+ALG_TDES = "T"        # fase 8: 3DES de comprimento duplo (16) ou triplo (24)
+ALG_3DES = ALG_TDES
 ALG_RSA = "R"
 ALG_EC = "E"         # fase 7: curva eliptica (P-256)
 
@@ -121,11 +122,13 @@ MODO_ASSINA = "S"
 # codificacao de chave assimetrica dentro do corpo nao estava acessivel (a
 # norma e paga). Igual a TR31_RSA_CHAVE em fw/include/tr31.h:
 #     e(4) || p(128) || q(128) || dp(128) || dq(128) || qinv(128)
-RSA_CHAVE = 644
+RSA_CHAVE = 644          # formato interno do firmware, fora do bloco
+RSA_DER_MAX = 1222       # fase 8: o bloco leva PKCS#8, DER; este e o teto
 # A chave privada de ECDSA P-256, tambem em layout deste projeto. Igual a
 # TR31_EC_CHAVE:
 #     d(32) || Qx(32) || Qy(32)
-EC_CHAVE = 96
+EC_CHAVE = 96            # formato interno do firmware
+EC_DER_MAX = 138
 AES_CHAVE_MAX = 32
 
 EXP_SIM = "E"
@@ -262,8 +265,8 @@ def _valida_campos(cab, chave_n):
     bloco recusado de um lado e aceito do outro, que e exatamente o tipo
     de coisa que este par de implementacoes existe para pegar:
 
-      - 'T' (3DES) e valido na X9.143 e nao existe neste hardware. Aceitar
-        o byte seria produzir um bloco que promete 3DES a quem importar.
+      - 'T' (3DES) so com 16 ou 24 bytes. DES simples (8 bytes) e valido
+        na X9.143 e nao existe neste equipamento.
 
       - blocos opcionais nao sao suportados, e um bloco opcional
         IGNORADO ainda estaria no MAC: o MAC fecharia e o dispositivo
@@ -279,19 +282,24 @@ def _valida_campos(cab, chave_n):
         # chave de assinar autorizada a fazer outra coisa.
         if cab["uso"] != USO_ASSINA or cab["modo"] != MODO_ASSINA:
             raise Tr31Erro("chave RSA exige uso S0 e modo S")
-        if chave_n != RSA_CHAVE:
-            raise Tr31Erro(f"chave RSA de {chave_n} bytes, esperado {RSA_CHAVE}")
+        if not 0 < chave_n <= RSA_DER_MAX:
+            raise Tr31Erro(f"chave RSA de {chave_n} bytes, maximo {RSA_DER_MAX}")
         return
     if cab["algoritmo"] == ALG_EC:
         if cab["uso"] != USO_ASSINA or cab["modo"] != MODO_ASSINA:
             raise Tr31Erro("chave de ECDSA exige uso S0 e modo S")
-        if chave_n != EC_CHAVE:
-            raise Tr31Erro(f"chave de ECDSA de {chave_n} bytes, esperado {EC_CHAVE}")
+        if not 0 < chave_n <= EC_DER_MAX:
+            raise Tr31Erro(f"chave de ECDSA de {chave_n} bytes, maximo {EC_DER_MAX}")
         return
-    if cab["algoritmo"] != ALG_AES:
-        raise Tr31Erro(f"algoritmo {cab['algoritmo']!r}: este projeto so faz AES, RSA e ECDSA")
-    if not 0 < chave_n <= AES_CHAVE_MAX:
-        raise Tr31Erro(f"chave AES de {chave_n} bytes")
+    if cab["algoritmo"] == ALG_TDES:
+        if chave_n not in (16, 24):
+            raise Tr31Erro(f"chave 3DES de {chave_n} bytes: so 16 ou 24")
+    elif cab["algoritmo"] == ALG_AES:
+        if not 0 < chave_n <= AES_CHAVE_MAX:
+            raise Tr31Erro(f"chave AES de {chave_n} bytes")
+    else:
+        raise Tr31Erro(f"algoritmo {cab['algoritmo']!r}: este projeto so faz "
+                       "AES, 3DES, RSA e ECDSA")
     if cab["modo"] not in (MODO_CIFRA, MODO_DECIFRA, MODO_AMBOS, MODO_NENHUM,
                            MODO_GERA, MODO_VERIFICA, MODO_MAC):
         raise Tr31Erro(f"modo de uso {cab['modo']!r} invalido")
@@ -340,7 +348,7 @@ def embrulha(kbpk, chave, uso=USO_DADOS, algoritmo=ALG_AES,
     `enchimento` existe para os testes fixarem esses bytes. Em uso
     normal fica None.
     """
-    if len(chave) == 0 or len(chave) > 999:
+    if len(chave) == 0 or len(chave) > RSA_DER_MAX:
         raise Tr31Erro("chave de comprimento invalido")
     _valida_campos({
         "uso": uso,

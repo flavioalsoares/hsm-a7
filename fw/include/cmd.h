@@ -22,10 +22,11 @@
 #include <stdint.h>
 #include "hsm_status.h"
 
-/* Payload maximo. Dimensionado para a fase 7: um key block de chave privada
- * RSA tem cerca de 1,5 KB em texto. Tres buffers deste tamanho custam ~6 KB
- * dos 16 KB de DMEM. */
-#define CMD_MAX_PAYLOAD   2048u
+/* Payload maximo. Dimensionado para o key block de chave privada RSA em
+ * PKCS#8, que tem ate 2512 caracteres: a resposta do R0 leva o bloco, o
+ * modulo e o expoente, 3040 bytes. Tres buffers deste tamanho custam ~9 KB
+ * dos 32 KB de DMEM. */
+#define CMD_MAX_PAYLOAD   3072u
 
 /* LEN minimo = 1 (so o byte de CMD, payload vazio) */
 #define CMD_MIN_LEN       1u
@@ -41,6 +42,7 @@
 #define CMD_PING          0x01u
 #define CMD_GET_VERSION   0x02u
 #define CMD_GET_DNA       0x03u
+#define CMD_GET_BUILD     0x04u   /* versao e SHA-256 da memoria de codigo */
 
 /* ---------------------------------------------------------------------
  * Fase 2 -- primitivas

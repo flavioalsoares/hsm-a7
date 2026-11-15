@@ -31,8 +31,7 @@ pessoa sozinha. Ver seção 7.
 semeado por entropia física, especificado na SP 800-90A.
 
 **CVV / CVC** — três dígitos derivados de PAN, validade e código de serviço
-sob um par de chaves. Inerentemente 3DES, e por isso fora do alcance deste
-projeto (seção 37).
+sob um par de chaves. Inerentemente 3DES (seções 37 e 38).
 
 **Decimalização** — mapear os dígitos hexadecimais que uma cifra produz
 para dígitos decimais, para formar um PIN. A tabela que faz esse mapeamento
@@ -58,7 +57,16 @@ usado nos autotestes.
 da LMK por propósito.
 
 **KCV** — *Key Check Value*. Três bytes do resultado de cifrar um bloco de
-zeros com a chave. Permite verificar sem revelar.
+zeros com a chave. Permite verificar sem revelar. O KCV de uma chave 3DES é
+calculado com 3DES (seção 38.5).
+
+**3DES / TDES / TDEA** — o DES aplicado três vezes, cifrando, decifrando e
+cifrando. Chave de **comprimento duplo** (16 bytes) ou **triplo** (24
+bytes). Legado, e ainda o algoritmo dominante em pagamentos. Seção 38.
+
+**Paridade (de chave DES)** — o bit baixo de cada byte de uma chave DES,
+ajustado para o byte ter um número ímpar de bits em 1. Detecta chave
+corrompida; a cifra não o usa. Seção 38.3.
 
 **KSN** — *Key Serial Number*. Identificador do dispositivo mais o contador
 de transação, enviado junto com cada transação DUKPT. Com ele e a BDK, o HSM
@@ -142,6 +150,7 @@ resposta  LEN(2) | STATUS(1) | PAYLOAD | CRC32(4)
 | `0x01` | `PING` | vazio | `"PONG"` |
 | `0x02` | `GET_VERSION` | vazio | major, minor, patch, estado |
 | `0x03` | `GET_DNA` | vazio | 8 bytes: identidade do die, 57 bits big-endian |
+| `0x04` | `GET_BUILD` | vazio | major, minor, patch, SHA-256 da memória de código (32) |
 
 O `GET_DNA` ficou respondendo `NOT_IMPLEMENTED` durante toda a Fase 1 e só
 fechou com o CFS da Fase 2 (seção 25) — o `DNA_PORT` é primitiva Xilinx e
@@ -345,7 +354,7 @@ comprimento em 4 dígitos decimais seguido de hex.
 | Pedido | Resposta | Campos do pedido | Campos da resposta | Estados |
 |---|---|---|---|---|
 | `D0` | `D1` | — | estado(1) ‖ KCV da LMK(6) ‖ versão(6) | todos menos `TAMPERED` |
-| `K0` | `K1` | uso(2) ‖ modo(1) ‖ exportabilidade(1) | key block ‖ KCV(6) | `OPERATIONAL` |
+| `K0` | `K1` | uso(2) ‖ modo(1) ‖ exportabilidade(1) [‖ algoritmo(1) ‖ comprimento(1)] | key block ‖ KCV(6) | `OPERATIONAL` |
 | `K2` | `K3` | key block | uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) ‖ KCV(6) | `OPERATIONAL` |
 | `K4` | `K5` | bloco da KEK ‖ bloco da chave (os dois sob a LMK) | bloco da chave sob a KEK ‖ KCV(6) | `OPERATIONAL` |
 | `K6` | `K7` | bloco da KEK (sob a LMK) ‖ bloco da chave (sob a KEK) | bloco da chave sob a LMK ‖ KCV(6) | `OPERATIONAL` |
@@ -359,16 +368,27 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `E0` | `E1` | exportabilidade(1) | key block ‖ Qx(64) ‖ Qy(64) | `OPERATIONAL` |
 | `E2` | `E3` | key block ‖ digest(64) | r(64) ‖ s(64) | `OPERATIONAL` |
 | `E4` | `E5` | Qx(64) ‖ Qy(64) ‖ digest(64) ‖ r(64) ‖ s(64) | — (o veredito é o erro) | `OPERATIONAL` |
+| `P0` | `P1` | bloco da chave de origem ‖ bloco da chave de destino ‖ formato de origem(1) ‖ formato de destino(1) ‖ tamanho do PAN(2) ‖ PAN ‖ PIN block(32) | PIN block(32) | `OPERATIONAL` |
 
 Erros: `00` sem erro · `01` verificação falhou · `10` key block inválido ·
 `11` o uso ou o modo do bloco não permite · `12` chave não exportável · `13` o
-bloco de proteção não é KEK · `15` dados inválidos · `16` parâmetro
+bloco de proteção não é KEK · `14` PIN block inválido · `15` dados inválidos · `16` parâmetro
 inválido · `20` estado não permite · `21` comando desconhecido · `22`
 mensagem malformada · `27` falha no log · `90` erro interno · `91` erro grave. Os códigos de
 comando e de erro são deste projeto.
 
 Os comandos `R` são de RSA-2048 e os `E`, de ECDSA sobre a curva P-256. O
 digest é SHA-256, calculado pelo host. A seção 30 explica os dois.
+
+No `K0`, os dois últimos campos são opcionais e vêm juntos: `A4` é AES-256,
+que também é o padrão sem o campo; `T2` é 3DES de comprimento duplo; `T3` é
+3DES de comprimento triplo. Outro valor responde `16`. A seção 38.8 explica
+o que cada comando faz com uma chave 3DES.
+
+`P0` traduz um PIN block ISO 9564 formato 4 de uma chave de PIN para outra.
+As duas chaves têm uso `P0`, e os dois campos de formato só aceitam `4`. O
+tamanho do PAN vai em dois dígitos decimais, e o PAN, em dígitos ASCII. A
+seção 34.1 explica o comando.
 
 `K4` e `K6` trocam chave com outra instituição sob uma **KEK** — chave de
 uso `K0` que as duas têm, formada por componentes no console
@@ -552,12 +572,46 @@ python3 host/hsmtool.py version
 ```
 
 ```
-firmware : v0.1.0
+firmware : v0.8.3
 estado   : UNINITIALIZED (0)
 ```
 
 `UNINITIALIZED` é o estado de fábrica: o dispositivo funciona, mas não
 guarda chave nenhuma.
+
+**Qual firmware está gravado.** Três perguntas diferentes, três comandos:
+
+```bash
+python3 host/hsmtool.py version      # a versão e o estado
+python3 host/hsmtool.py dna          # a identidade do chip
+python3 host/hsmtool.py build        # o firmware, byte a byte
+```
+
+```
+firmware : v0.8.3
+sha-256  : ec881b59196d72873140331a3152baa387f63b0aa43546ba4225559ce2707905
+local    : CONFERE com fw/elf.bin (compilado em 2026-11-14 19:32)
+```
+
+O **número de versão** diz a etapa: o segundo campo é a fase, e o terceiro,
+a etapa entregue dentro dela. Ele responde "que funções este equipamento
+tem".
+
+O **hash** responde outra pergunta: "é exatamente este o firmware que eu
+compilei?". O equipamento calcula o SHA-256 da própria memória de código,
+inteira, na hora do pedido. O `hsmtool` calcula o mesmo sobre o arquivo
+compilado no PC e compara. Um byte de diferença muda o hash inteiro.
+
+O hash foi preferido a um número de commit porque o firmware é compilado e
+testado **antes** do commit: um número de commit gravado na placa seria
+sempre o do commit anterior. O hash identifica o conteúdo, e o `git` diz
+depois a que commit aquele conteúdo pertence.
+
+Conferir a integridade do próprio firmware é uma exigência da FIPS 140-3
+(seção 11): um módulo validado faz esse teste a cada boot, contra um valor
+de referência autenticado. Aqui o equipamento só **informa** o hash, e quem
+compara é o host. É diagnóstico, e não defesa: um firmware adulterado
+poderia mentir sobre o próprio hash.
 
 **Antes de qualquer outra coisa, o autoteste.** Ele já rodou no boot — o
 `SELFTEST` apenas o repete, e é assim que se confere que o módulo continua
@@ -576,9 +630,18 @@ TRNG / health tests    ok
 CMAC-AES-256           ok
 key store              ok
 key block X9.143       ok
+RSA-2048               ok
+assinatura RSA         roda no primeiro uso
+ECDSA P-256            roda no primeiro uso
+DES e 3DES             roda no primeiro uso
 ```
 
-Oito linhas, oito verdades diferentes.
+As nove primeiras linhas são testes que rodam no boot. As três últimas são
+**autotestes de primeiro uso**: cada um roda antes do primeiro comando que
+usa o algoritmo, e a linha só mostra `FALHOU` se ele já reprovou desde o
+boot (seções 30 e 38.8).
+
+Das linhas do boot, as oito primeiras dizem oito verdades diferentes.
 
 As cinco primeiras são respostas conhecidas contra vetores oficiais
 (seção 11) — exceto a quinta, que são os **testes de partida** da fonte de
@@ -1075,7 +1138,8 @@ que não foi escrito:
   Digits by Observing Modular Subtractions* (2001) — a subtração final do
   produto de Montgomery como canal lateral
 - Bleichenbacher, D. — falsificação de assinaturas RSA com `e = 3` contra
-  verificadores que interpretam o enchimento (2006)
+  verificadores que interpretam o enchimento (2006); registro público:
+  CVE-2006-4339
 
 ### Aritmética
 

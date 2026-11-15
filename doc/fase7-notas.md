@@ -198,8 +198,13 @@ exponenciação e a aritmética de bytes, que o RSA e o ECDSA usam.
 
 ## A chave privada no key block
 
-Key block X9.143 com uso `S0`, algoritmo `R` e modo `S`. **O conteúdo tem layout
-próprio**, por decisão do usuário (2026-11-08):
+⚠ **Mudado em 2026-11-14, por decisão do usuário: o conteúdo do bloco passou a ser
+PKCS#8, em DER.** Ver "PKCS#8 no key block", em `doc/fase8-notas.md`. O layout de
+campos fixos descrito abaixo continua existindo só dentro do firmware, como formato
+interno de `rsa.c` e `ecc.c`.
+
+Key block X9.143 com uso `S0`, algoritmo `R` e modo `S`. O formato interno, que até
+2026-11-14 era também o conteúdo do bloco (decisão de 2026-11-08):
 
 | Campo | Bytes |
 |---|---|
@@ -294,8 +299,8 @@ esperam esse tempo pelos dois primeiros bytes da resposta.
 
 ## O que mudou em volta
 
-- **Limite de mensagem: 2048 bytes** (`CMD_MAX_PAYLOAD`, e `MAX_PAYLOAD` no
-  `hsmtool.py`). Um `R4` passa de 1100 caracteres.
+- **Limite de mensagem: 2048 bytes** até 2026-11-14, e 3072 desde o PKCS#8
+  (`CMD_MAX_PAYLOAD`, e `MAX_PAYLOAD` no `hsmtool.py`). Um `R4` passa de 1100 caracteres.
 - **`SELFTEST` devolve a máscara em dois bytes**, little-endian. O RSA é o bit
   `0x100`, o nono — o byte único da fase 3 não comportava. O `typedef` em
   `fw/include/kat.h` quebra o build se um teste novo não couber.
@@ -314,7 +319,8 @@ esperam esse tempo pelos dois primeiros bytes da resposta.
   Reprovou: a BRAM é apagada, o dispositivo vai para `TAMPERED`, e o comando
   responde `91`. O `SELFTEST` não roda esses dois testes; os bits `0x200` e `0x400`
   da máscara só aparecem se um deles já reprovou neste boot.
-- **Mensagem do key block grande**: o `le_bloco` aceita até 1360 caracteres.
+- **Mensagem do key block grande**: o `le_bloco` aceitava até 1360 caracteres; com o
+  PKCS#8, até 2512.
 
 ## Recursos e timing
 

@@ -266,9 +266,11 @@ def ecdsa():
     g = casos("SigGen_P256.txt")[1]
     lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
                 for i in range(32))
-    bloco = tr31.embrulha(lmk, b32(g, "d", "Qx", "Qy"), uso="S0", algoritmo="E",
+    import pkcs8
+    der = pkcs8.ec_der(int(g["d"], 16))
+    bloco = tr31.embrulha(lmk, der, uso="S0", algoritmo="E",
                           modo="S", exportabilidade="E", enchimento=bytes(range(16)))
-    if len(bloco) != 272:
+    if len(bloco) != 336:
         raise SystemExit("ECDSA: key block de %d caracteres" % len(bloco))
     digest = hashlib.sha256(bytes.fromhex(g["Msg"])).digest()
     escreve("ecdsa_e2_bloco", ["%02x" % ord(c) for c in bloco], 2)
@@ -318,6 +320,36 @@ def pin():
     escreve("pin_dados", ["%02x" % x for x in dados], 2)
 
 
+def tdes():
+    """Vetores do tb_tdes: chaves 3DES conhecidas, embrulhadas sob a LMK do tb
+    pelo host/tr31.py, e o KCV de cada uma calculado pelo host/des.py. O
+    des.py e conferido contra os vetores do CAVP em host/test_des.py.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import des
+    import tr31
+
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    k3 = des.paridade_impar(hashlib.sha256(b"tb_tdes: chave tripla").digest()[:24])
+    k2 = des.paridade_impar(hashlib.sha256(b"tb_tdes: chave dupla").digest()[:16])
+    ench = bytes(range(16))
+
+    def bloco(chave, uso):
+        b = tr31.embrulha(lmk, chave, uso=uso, algoritmo="T", modo="B",
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != 112:
+            raise SystemExit("TDES: key block de %d caracteres" % len(b))
+        return ["%02x" % ord(c) for c in b]
+
+    escreve("tdes_k3", bloco(k3, "P0"), 2)
+    escreve("tdes_k2", bloco(k2, "P0"), 2)
+    escreve("tdes_k2_d0", bloco(k2, "D0"), 2)
+    # KCV em ASCII hex, como o K2 devolve: o da tripla e o da dupla.
+    kcvs = (des.kcv(k3).hex().upper() + des.kcv(k2).hex().upper()).encode()
+    escreve("tdes_kcv", ["%02x" % x for x in kcvs], 2)
+
+
 def rsa_r2(prefixo):
     """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
     embrulhada sob a LMK que o tb_rsa monta na cerimonia.
@@ -335,9 +367,8 @@ def rsa_r2(prefixo):
     e, p, q, n, d = (int(x, 16) for x in m.groups())
     if p * q != n or pow(pow(7, e, n), d, n) != 7:
         raise SystemExit("KeyGen: chave do CAVP nao fecha em Python")
-    chave = (e.to_bytes(4, "big") + p.to_bytes(128, "big") + q.to_bytes(128, "big")
-             + (d % (p - 1)).to_bytes(128, "big") + (d % (q - 1)).to_bytes(128, "big")
-             + pow(q, -1, p).to_bytes(128, "big"))
+    import pkcs8
+    chave = pkcs8.rsa_der(p, q, e, d)       # PKCS#8, com o d oficial do CAVP
 
     # A LMK do tb_rsa: os tres componentes de la, por XOR.
     lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
@@ -371,6 +402,7 @@ def main():
     n_rsa_mont, n_rsa_kat, rsa_n0p, rsa_e = rsa()
     ecdsa()
     pin()
+    tdes()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.

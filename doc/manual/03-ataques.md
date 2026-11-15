@@ -30,7 +30,8 @@ fazendo-se XOR de um *vetor de controle* com a chave mestra antes de cifrar a
 chave de trabalho. O tipo, portanto, não era autenticado — era apenas um
 valor combinado.
 
-Mike Bond (2001) mostrou famílias de ataques que consistiam em manipular
+Mike Bond (*Attacks on Cryptoprocessor Transaction Sets*, 2001) mostrou
+famílias de ataques que consistiam em manipular
 esses vetores para **converter uma chave de um tipo em outro**. Uma chave
 destinada a derivar PINs podia ser reapresentada ao módulo como chave de
 dados; a partir daí, bastava pedir ao HSM que cifrasse com ela para obter o

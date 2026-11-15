@@ -44,6 +44,7 @@ PARTES=(
     "$SRC/05-projeto.md"
     "$SRC/06-roadmap.md"
     "$SRC/07-pagamento.md"
+    "$SRC/07b-testes.md"
     "$SRC/08-apendices.md"
 )
 

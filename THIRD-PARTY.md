@@ -79,7 +79,7 @@ E os que aparecem **só na documentação**, sem implementação aqui:
 
 | Assunto | Situação |
 |---|---|
-| DES / 3DES | patentes dos anos 1970, expiradas há décadas |
+| DES / 3DES | patentes dos anos 1970, expiradas há décadas. As tabelas em `fw/src/des.c` e `host/des.py` são as da FIPS 46-3, norma pública do NIST |
 | PIN blocks | ISO 9564 |
 | DUKPT | ANSI X9.24-1 e X9.24-3 |
 
@@ -93,7 +93,10 @@ não infringe nada.
 O que não se pode fazer é **redistribuir o texto** da norma. Este projeto
 não o faz: a documentação descreve estrutura e motivação, cita a norma como
 fonte, e manda o leitor buscá-la. É também por isso que os layouts exatos de
-bytes de PIN block **não** estão escritos aqui.
+bytes de PIN block **não** estão escritos aqui, com uma exceção: o formato 4,
+que o equipamento implementa. O layout dele foi conferido contra valores
+publicados por uma implementação aberta (`vectors/MANIFEST.txt`), e não
+copiado da norma.
 
 ---
 
@@ -112,10 +115,12 @@ Aparecem, e são coisa diferente:
   normas** — IBM 3624, PVV. São terminologia; trocá-los por perífrase
   tornaria o texto ininteligível.
 - **Citações acadêmicas** — Bond, Zieliński, Clulow, e o caso histórico da
-  IBM CCA que eles estudaram. Descrever vulnerabilidade publicada, datada e
-  já corrigida é o conteúdo normal de literatura de segurança, e o texto a
-  usa para explicar *por que a defesa existe* — nunca em tempo presente e
-  nunca como juízo sobre produto atual.
+  IBM CCA que eles estudaram. A fonte citada é sempre pública: o artigo, a
+  norma, ou o registro da vulnerabilidade (CVE), quando existe. Descrever
+  vulnerabilidade publicada, datada e já corrigida é o
+  conteúdo normal de literatura de segurança, e o texto a usa para explicar
+  *por que a defesa existe* — nunca em tempo presente e nunca como juízo
+  sobre produto atual.
 
 Nada disto é reivindicação de compatibilidade nem crítica a produto.
 

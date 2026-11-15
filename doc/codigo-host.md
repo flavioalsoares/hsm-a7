@@ -276,6 +276,40 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   Precisa de `gcc`; com a biblioteca `cryptography`, faz também a conferência
   cruzada.
 
+- **`host/des.py`** é o DES e o 3DES em Python, com as tabelas da FIPS 46-3:
+  ECB, CBC, paridade e KCV. É a segunda implementação; a primeira é
+  `fw/src/des.c`.
+- **`host/test_des.py`** roda os 1000 vetores do NIST em `vectors/tdes/` e
+  compara o `des.py` com a biblioteca `cryptography`.
+- **`hsmhost.py gen --alg T2`** (ou `T3`) gera uma chave 3DES com o `K0`.
+- **`hsmhost.py tdes-confere --lmk LMK [-n N]`** gera chaves 3DES duplas e
+  triplas, abre os blocos com a LMK e confere tamanho, paridade e KCV, a
+  exportação sob uma KEK AES e as recusas.
+- **`hsmtool.py build`** identifica o firmware gravado: mostra a versão e o
+  SHA-256 da memória de código que o equipamento calcula, e o compara com o de
+  `fw/elf.bin`. Sai com erro se não conferir.
+- **`host/pkcs8.py`** monta e lê a chave privada em PKCS#8 com a biblioteca
+  `cryptography`. É o conteúdo do key block de chave RSA e de ECDSA.
+- **`host/test_pkcs8.py`** compila `fw/src/pkcs8.c` com `gcc` e o confronta com
+  a biblioteca, nos dois sentidos.
+- **`hsmhost.py pkcs8-confere --lmk LMK [-n N]`** prova a interoperabilidade na
+  placa: chave gerada no equipamento e usada pela biblioteca, e o contrário.
+- **`host/pinblock.py`** é o PIN block formato 4 em Python: os dois campos, a
+  cifra e a decifração. Faz o papel do terminal e o do destino nos testes.
+- **`hsmhost.py pin-traduz ORIGEM DESTINO PAN BLOCO`** manda um `P0`.
+- **`hsmhost.py pin-confere --lmk LMK [-n N]`** gera duas chaves de PIN, cifra
+  um PIN no Python, traduz com `P0` e abre o resultado no Python. Cobra também
+  as recusas: bloco, PAN e chave trocados, e chave que não é de PIN.
+- **`host/test_pinblock.py`** não fala com a placa. Confere o Python contra os
+  valores de terceiros e compila `fw/src/pinblock.c` com `gcc` para comparar a
+  forma dos campos.
+
+- **`host/regressao.py --lmk LMK [--rapido]`** é a regressão na placa: roda o
+  `ping`, o `post`, os sensores, todos os `confere`, os vetores do CAVP e o
+  log, e dá um veredito. Leva cerca de 4 minutos; com `--rapido`, menos de 1.
+  Exige a placa em `OPERATIONAL`. Não substitui a simulação: ver "Quanto
+  simular antes de gravar a placa", no `CLAUDE.md`.
+
 ⚠ **Só um processo abre a serial.** Com a ponte rodando, o `hsmtool` não
 consegue falar com o console. É a consequência prática de console e host
 dividirem a UART; para a cerimônia, pare a ponte.

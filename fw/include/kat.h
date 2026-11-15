@@ -72,6 +72,7 @@
 #define KAT_FALHA_RSA   0x100u  /* operacao publica, vetor do CAVP */
 #define KAT_FALHA_RSA_ASSINA 0x200u  /* assinatura por CRT -- 1o uso */
 #define KAT_FALHA_ECDSA      0x400u  /* ECDSA P-256 -- 1o uso */
+#define KAT_FALHA_TDES       0x800u  /* DES e 3DES, vetores do CAVP -- 1o uso */
 
 /* União de tudo que o POST sabe reprovar.
  *
@@ -83,7 +84,8 @@
 #define KAT_FALHA_TODOS (KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC | \
                          KAT_FALHA_DRBG | KAT_FALHA_TRNG | KAT_FALHA_CMAC | \
                          KAT_FALHA_KS   | KAT_FALHA_TR31 | KAT_FALHA_RSA | \
-                         KAT_FALHA_RSA_ASSINA | KAT_FALHA_ECDSA)
+                         KAT_FALHA_RSA_ASSINA | KAT_FALHA_ECDSA | \
+                         KAT_FALHA_TDES)
 
 typedef char kat_mascara_cabe_em_dois_bytes[(KAT_FALHA_TODOS <= 0xFFFFu) ? 1 : -1];
 

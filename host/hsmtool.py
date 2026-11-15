@@ -69,13 +69,14 @@ except ImportError:
 BAUD_RATE = 115200
 TIMEOUT_S = 2.0                 # PLANO.md secao 2
 
-MAX_PAYLOAD = 2048
+MAX_PAYLOAD = 3072
 MIN_LEN = 1
 MAX_LEN = MAX_PAYLOAD + 1
 
 CMD_PING = 0x01
 CMD_GET_VERSION = 0x02
 CMD_GET_DNA = 0x03
+CMD_GET_BUILD = 0x04
 
 # Fase 2 -- primitivas.
 #
@@ -140,6 +141,7 @@ KAT_BITS = [
 KAT_BITS_USO = [
     (0x200, "assinatura RSA"),
     (0x400, "ECDSA P-256"),
+    (0x800, "DES e 3DES"),
 ]
 
 STATUS_NAMES = {
@@ -461,6 +463,34 @@ def cmd_version(client, args):
     print("firmware : v%d.%d.%d" % (major, minor, patch))
     print("estado   : %s (%d)" % (STATE_NAMES.get(state, "?"), state))
     return 0
+
+
+def cmd_build(client, args):
+    """Identifica o firmware gravado: a versao e o SHA-256 da memoria de
+    codigo, calculado pelo equipamento. Compara com o do arquivo compilado
+    aqui (fw/elf.bin), se ele existir."""
+    import hashlib
+    p = client.command(CMD_GET_BUILD)
+    if len(p) != 35:
+        print("payload inesperado: %r" % p)
+        return 1
+    print("firmware : v%d.%d.%d" % (p[0], p[1], p[2]))
+    print("sha-256  : %s" % p[3:].hex())
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local = os.path.join(raiz, "fw", "elf.bin")
+    if not os.path.exists(local):
+        print("local    : fw/elf.bin nao existe -- compile com 'make -C fw image'")
+        return 0
+    with open(local, "rb") as f:
+        dados = f.read()
+    meu = hashlib.sha256(dados.ljust(64 * 1024, b"\0")).digest()
+    data = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(local)))
+    if meu == p[3:]:
+        print("local    : CONFERE com fw/elf.bin (compilado em %s)" % data)
+        return 0
+    print("local    : NAO confere com fw/elf.bin (compilado em %s)" % data)
+    print("           o firmware da placa e outro. O hash local e %s" % meu.hex())
+    return 1
 
 
 def cmd_dna(client, args):
@@ -1315,6 +1345,7 @@ def main(argv=None):
                        help="imprime tambem a chave montada (brinquedo)")
     sub.add_parser("version")
     sub.add_parser("dna")
+    sub.add_parser("build")
 
     p_sha = sub.add_parser("sha256", help="SHA-256 de uma mensagem")
     p_sha.add_argument("data", nargs="?", default="", help="mensagem em hex")
@@ -1427,6 +1458,7 @@ def main(argv=None):
         "ping": cmd_ping,
         "version": cmd_version,
         "dna": cmd_dna,
+        "build": cmd_build,
         "raw": cmd_raw,
         "bench": cmd_bench,
         "sha256": cmd_sha256,

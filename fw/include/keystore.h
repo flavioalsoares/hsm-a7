@@ -80,7 +80,7 @@ typedef uint8_t ks_handle_t;
 #define KS_USO_ASSINA   "S0"   /* par assimetrico de assinatura -- fase 7 */
 
 #define KS_ALG_AES      'A'
-#define KS_ALG_3DES     'T'    /* aceito no header, NÃO implementado aqui */
+#define KS_ALG_TDES     'T'    /* 3DES de comprimento duplo ou triplo -- fase 8 */
 #define KS_ALG_RSA      'R'    /* fase 7: só no key block do host, nunca num slot */
 #define KS_ALG_EC       'E'    /* fase 7: curva elíptica (P-256), idem */
 

@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 88 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 112 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
@@ -22,6 +22,7 @@ gerado por `./scripts/mkpdf.sh`.
 | **V — O equipamento hsm-a7** | Objetivo, plataforma, restrições, e cada peça da plataforma ligada ao que ela é num HSM real |
 | **VI — As funções, fase a fase** | O que cada fase acrescentou, e o conceito por trás: fases 2 a 8 |
 | **VII — Criptografia de pagamento** | PIN blocks ISO 9564, tradução de PIN, PVV e IBM 3624, decimalização, DUKPT — e o que deste domínio dá para ensinar aqui |
+| **VIII — Como o equipamento é testado** | O que um teste pode provar, vetores oficiais, testes de formato, do gerador aleatório, de propriedade de segurança, de canal lateral e de falha, o autoteste, os testes na placa, e o que não é testado |
 | **Apêndices** | Glossário, especificação do protocolo, pinagem, como reproduzir, **como operar o dispositivo**, leitura |
 
 As Partes I a IV valem por si e não dependem deste projeto. Quem quer só
@@ -45,7 +46,8 @@ não para entender o assunto.
 | [`fase4-notas.md`](fase4-notas.md) | Flash como memória segura, registro persistente, log de auditoria |
 | [`fase5-notas.md`](fase5-notas.md) | Porta host ASCII, troca de chaves sob KEK, checagem de uso |
 | [`fase6-notas.md`](fase6-notas.md) | Sensores, perda de lock, resposta a violação, glitch, dupla execução, BBRAM |
-| [`fase7-notas.md`](fase7-notas.md) | RSA-2048: Montgomery no CFS, CRT, geração de chave, comandos `R0`/`R2`/`R4` |
+| [`fase7-notas.md`](fase7-notas.md) | RSA-2048 e ECDSA P-256: Montgomery no CFS, CRT, geração de chave, comandos `R0`/`R2`/`R4` e `E0`/`E2`/`E4` |
+| [`fase8-notas.md`](fase8-notas.md) | Criptografia de pagamento: plano da fase, PIN block formato 4 e tradução de PIN (`P0`) |
 
 ## Criptografia de pagamento
 
@@ -54,10 +56,8 @@ cobre o domínio para o qual o projeto passou a apontar: PIN blocks ISO 9564
 (formatos 0, 1, 3 e 4), tradução de PIN, verificação por PVV e IBM 3624, a
 tabela de decimalização, e DUKPT nas variantes TDES e AES.
 
-A seção 37 é a que mais importa para quem for mexer no código: ela separa o
-que deste domínio é implementável aqui do que não é, e o critério **não é
-dificuldade** — é a ausência de 3DES (decisão de arquitetura) e a
-indisponibilidade de vetores de teste públicos.
+A seção 37 diz o que deste domínio o equipamento faz, o que está planejado
+e como o 3DES entra. A seção 38 explica o DES e o 3DES.
 
 ## Referência
 

@@ -62,10 +62,14 @@ module tb_uart_frame;
     wire [7:0] seg;
     wire [2:0] seg_an;
 
+    reg [7:0] fw_hash [0:31];
+    integer   fw_i, fw_dif;
+    initial $readmemh("../vectors/fw_hash.hex", fw_hash);
+
     integer errors = 0;
     integer i;
 
-    reg [7:0] resp [0:31];
+    reg [7:0] resp [0:63];
     integer   resp_len;
     reg [7:0] st;
 
@@ -419,6 +423,31 @@ module tb_uart_frame;
             $display("[tb_uart_frame] GET_DNA -> %02h%02h%02h%02h%02h%02h%02h%02h",
                      resp[1], resp[2], resp[3], resp[4],
                      resp[5], resp[6], resp[7], resp[8]);
+        end
+
+        // ---- 2c. GET_BUILD --------------------------------------------
+        //
+        // Versao e SHA-256 da memoria de codigo, calculado pelo firmware
+        // sobre os 64 KB da IMEM. O valor esperado e o do arquivo que foi
+        // compilado (scripts/mkfwhash.py, chamado pelo sim.sh): se a IMEM
+        // simulada nao for aquele arquivo, este passo acusa.
+        send_cmd(8'h04, 1'b0);
+        get_response();
+
+        if (st !== 8'h00 || resp_len !== 36) begin
+            $display("[tb_uart_frame] FAIL: GET_BUILD status=0x%02h len=%0d (esperado 0x00, 36)",
+                     st, resp_len);
+            errors = errors + 1;
+        end else begin
+            fw_dif = 0;
+            for (fw_i = 0; fw_i < 32; fw_i = fw_i + 1)
+                if (resp[4 + fw_i] !== fw_hash[fw_i]) fw_dif = fw_dif + 1;
+            if (fw_dif != 0 || fw_hash[0] === 8'hxx) begin
+                $display("[tb_uart_frame] FAIL: GET_BUILD -- o hash da IMEM difere do arquivo em %0d byte(s)", fw_dif);
+                errors = errors + 1;
+            end else
+                $display("[tb_uart_frame] GET_BUILD -> v%0d.%0d.%0d, hash da IMEM confere com o arquivo",
+                         resp[1], resp[2], resp[3]);
         end
 
         // ---- 3. CRC corrompido -> STATUS_BAD_CRC ----------------------

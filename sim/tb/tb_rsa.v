@@ -46,11 +46,11 @@ module tb_rsa;
     integer erros_antes;
     integer i;
 
-    reg [7:0] resp [0:2047];
+    reg [7:0] resp [0:4095];
     integer   resp_len;
     reg [7:0] st;
 
-    reg [7:0] req [0:2047];
+    reg [7:0] req [0:4095];
     integer   req_len;
 
     reg [7:0] comp0 [0:31];
@@ -59,7 +59,7 @@ module tb_rsa;
     reg [7:0] lmk   [0:31];
 
     reg [7:0] r4 [0:547];      // n, e, digest, S: vetor do CAVP
-    reg [7:0] r2kb  [0:1359];  // key block da chave do KeyGen do CAVP, sob a LMK
+    reg [7:0] r2kb  [0:2511];  // key block da chave do KeyGen do CAVP, sob a LMK
     reg [7:0] r2aes [0:143];   // key block AES D0, sob a mesma LMK
     reg [7:0] r2v   [0:287];   // digest(32) e a assinatura esperada(256)
 
@@ -330,7 +330,9 @@ module tb_rsa;
         reg [7:0] b;
         begin
             inicio("R", "2");
-            nb = aes ? 144 : 1360;
+            // o tamanho do bloco assimetrico vem do cabecalho dele (posicoes 1 a 4)
+            nb = aes ? 144 : ((r2kb[1] - 48) * 1000 + (r2kb[2] - 48) * 100 +
+                              (r2kb[3] - 48) * 10 + (r2kb[4] - 48));
             for (k = 0; k < nb; k = k + 1) begin
                 b = aes ? r2aes[k] : r2kb[k];
                 if (troca && k == 100) b = (b == "0") ? "1" : "0";

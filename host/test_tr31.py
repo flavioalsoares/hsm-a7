@@ -205,8 +205,18 @@ def test_malformados():
 
     recusa("chave de comprimento zero",
            lambda: tr31.embrulha(kbpk, b""))
-    recusa("algoritmo 3DES",
-           lambda: tr31.embrulha(kbpk, os.urandom(16), algoritmo=tr31.ALG_3DES))
+    # Fase 8: o 3DES entrou, com comprimento duplo ou triplo. DES simples
+    # (8 bytes) e qualquer outro tamanho continuam recusados.
+    for n in (16, 24):
+        k = os.urandom(n)
+        b = tr31.embrulha(kbpk, k, uso="P0", algoritmo=tr31.ALG_TDES)
+        aberta, cab = tr31.desembrulha(kbpk, b)
+        check("chave 3DES de %d bytes: ida e volta" % n,
+              aberta == k and cab["algoritmo"] == "T" and cab["uso"] == "P0")
+    for n in (8, 32):
+        recusa("chave 3DES de %d bytes" % n,
+               lambda n=n: tr31.embrulha(kbpk, os.urandom(n),
+                                         algoritmo=tr31.ALG_TDES))
     recusa("modo de uso invalido",
            lambda: tr31.embrulha(kbpk, os.urandom(16), modo="Z"))
     recusa("exportabilidade invalida",

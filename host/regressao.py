@@ -73,12 +73,16 @@ def main(argv=None):
     passos = [
         ("ping", tool + ["ping"], 20, ["PONG"]),
         ("estado OPERATIONAL", tool + ["version"], 20, ["OPERATIONAL"]),
+        ("firmware gravado = fw/elf.bin", tool + ["build"], 30, ["CONFERE"]),
         ("POST", tool + ["post"], 60, ["POST: OK"]),
         ("sensores, antes", tool + ["env"], 20,
          ["agora       : nada", "retido      : nada"]),
         ("porta host", host + ["diag"], 20, ["OPERATIONAL"]),
         ("chaves simetricas (K0 K2 K4 K6 C0 C2 M0 M2)",
          host + ["confere", "--lmk", a.lmk, "-n", n(50, 5)], 900,
+         ["voltas conferidas"]),
+        ("chaves 3DES (K0 T2/T3, K2, K4, K6)",
+         host + ["tdes-confere", "--lmk", a.lmk, "-n", n(10, 2)], 600,
          ["voltas conferidas"]),
         ("traducao de PIN (P0)",
          host + ["pin-confere", "--lmk", a.lmk, "-n", n(50, 9)], 900,
@@ -96,6 +100,9 @@ def main(argv=None):
         ("RSA, pares gerados (R0 R2 R4)",
          host + ["rsa-confere", "-n", n(3, 1)], 900,
          ["3 assinaturas conferidas"]),
+        ("PKCS#8 nos dois sentidos (R0 R2 R4 E0 E2 E4)",
+         host + ["pkcs8-confere", "--lmk", a.lmk, "-n", n(3, 1)], 900,
+         ["voltas conferidas"]),
         ("log de auditoria", tool + ["audit"], 300, ["proximo seq"]),
         # O erro grave (dupla execucao discordou) fica retido ate o boot:
         # se algum teste acima o provocou, aparece aqui.

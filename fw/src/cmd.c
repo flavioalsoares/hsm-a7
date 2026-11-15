@@ -16,6 +16,7 @@
 
 #include "aes_modos.h"
 #include "cmac.h"
+#include "versao.h"
 #include "cmd.h"
 #include "cmd_ascii.h"
 #include "audit_log.h"
@@ -96,12 +97,51 @@ static hsm_status_t h_get_version(const uint8_t *in, uint16_t in_len,
     /* major, minor, patch, estado atual.
      * O estado vai aqui porque o host precisa saber com o que esta falando
      * antes de mandar qualquer comando sensivel. */
-    out[0] = 0u;                        /* major */
-    out[1] = 1u;                        /* minor */
-    out[2] = 0u;                        /* patch */
+    out[0] = (uint8_t)HSM_VERSAO_MAJOR;
+    out[1] = (uint8_t)HSM_VERSAO_MINOR;
+    out[2] = (uint8_t)HSM_VERSAO_PATCH;
     out[3] = (uint8_t)state_get();
     *out_len = 4u;
 
+    return STATUS_OK;
+}
+
+/* GET_BUILD -- identifica o firmware gravado: major, minor, patch e o
+ * SHA-256 da memoria de codigo inteira (64 KB), calculado AGORA.
+ *
+ * O numero de versao diz a etapa. O hash diz o conteudo, byte a byte: o
+ * host o compara com o do arquivo compilado e sabe se e aquele firmware.
+ *
+ * Checklist:
+ *   estados      todo estado normal, inclusive antes da cerimonia: e
+ *                diagnostico, como GET_VERSION e GET_DNA.
+ *   dual control nao.
+ *   vazamento    nenhum. O firmware nao e segredo, e o comando nao toca
+ *                chave. Em laco, devolve sempre o mesmo valor.
+ *   exportability nao se aplica.
+ *   log          nao: informativo, como os demais.
+ *
+ * A IMEM e ROM e comeca no endereco 0. O ponteiro vem de uma variavel
+ * volatile para o compilador nao tratar a leitura do endereco 0 como
+ * desreferencia de ponteiro nulo. */
+static hsm_status_t h_get_build(const uint8_t *in, uint16_t in_len,
+                                uint8_t *out, uint16_t *out_len)
+{
+    static volatile uintptr_t imem_base = 0u;
+    const uint8_t *imem = (const uint8_t *)imem_base;
+
+    (void)in;
+    *out_len = 0u;
+    if (in_len != 0u) {
+        return STATUS_BAD_PARAM;
+    }
+    out[0] = (uint8_t)HSM_VERSAO_MAJOR;
+    out[1] = (uint8_t)HSM_VERSAO_MINOR;
+    out[2] = (uint8_t)HSM_VERSAO_PATCH;
+    if (hsm_sha256(imem, HSM_IMEM_BYTES, &out[3]) != 0) {
+        return STATUS_CRYPTO_FAIL;
+    }
+    *out_len = (uint16_t)(3u + HSM_SHA256_LEN);
     return STATUS_OK;
 }
 
@@ -1380,6 +1420,7 @@ static const cmd_entry_t g_cmds[] = {
     { CMD_PING,        ST_NORMAL,               h_ping, I },
     { CMD_GET_VERSION, ST_NORMAL,               h_get_version, I },
     { CMD_GET_DNA,     ST_NORMAL,               h_get_dna, I },
+    { CMD_GET_BUILD,   ST_NORMAL,               h_get_build, I },
 
     /* Fase 2. Sobraram os dois que NAO recebem chave: SHA-256 e funcao
      * publica, RANDOM devolve saida do DRBG. AES_ENC, AES_DEC e HMAC

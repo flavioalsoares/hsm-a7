@@ -75,7 +75,7 @@ USER_FLAGS += -Wall -Wextra -Werror
 # memoria real so desperdica -- mas a DMEM menor faria a pilha nascer no
 # meio da RAM, longe do fim. Fase 4: 32 KB / 16 KB. Fase 7: 64 KB / 16 KB.
 USER_FLAGS += -Wl,--defsym,__neorv32_rom_size=64k
-USER_FLAGS += -Wl,--defsym,__neorv32_ram_size=16k
+USER_FLAGS += -Wl,--defsym,__neorv32_ram_size=32k
 
 # O gcc do Debian nao acha a picolibc sozinho: ela vive fora do sysroot do
 # compilador e so entra pelo arquivo de specs. Sem isto, neorv32.h falha em

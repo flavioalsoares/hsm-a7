@@ -132,6 +132,12 @@ compile_neorv32() {
     local ent_ours="$ROOT/rtl/crypto/hsm_entropy.vhd"
 
     local sha
+    # O hash da memoria de codigo, para o tb_uart_frame conferir o GET_BUILD.
+    # Aqui, e nao no mkvectors.py: tem de sair do firmware que acabou de ser
+    # compilado, variante inclusive.
+    python3 "$ROOT/scripts/mkfwhash.py" --hex > /dev/null || {
+        echo "ERRO ao calcular o hash do firmware." >&2; exit 1; }
+
     sha="$(git -C "$NEORV32" rev-parse HEAD)-$(sha256sum "$fw_image" | cut -c1-16)-$(sha256sum "$cfs_ours" | cut -c1-16)-$(sha256sum "$ent_ours" | cut -c1-16)"
 
     if [ -f .neorv32_lib_sha ] && [ "$(cat .neorv32_lib_sha)" = "$sha" ]; then

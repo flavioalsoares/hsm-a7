@@ -22,8 +22,10 @@ A Parte VI descreve **as funções que cada fase acrescentou**: primitivas e
 autoteste, hierarquia de chaves, armazenamento e log, API de host, resposta
 a violação e criptografia assimétrica. A Parte VII trata do domínio para o
 qual o projeto aponta: **criptografia de pagamento** — PIN blocks, tradução
-de PIN, verificação por PVV e 3624, DUKPT — e diz, sem rodeio, o que deste
-domínio é ensinável aqui e o que não é.
+de PIN, verificação por PVV e 3624, DUKPT, e o DES e o 3DES que a rede de
+pagamento ainda usa. A Parte VIII descreve **como o equipamento é testado**:
+o que cada tipo de teste prova, o que não prova, e a matemática que sustenta
+cada conclusão.
 
 O equipamento tem AES-256, SHA-256, HMAC, CMAC, TRNG com health tests da
 SP 800-90B, CTR_DRBG, RSA-2048 e ECDSA P-256, todos conferidos contra vetores em
