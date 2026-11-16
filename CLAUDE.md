@@ -901,7 +901,7 @@ segundo: traduzir trocando o PAN amarra o PIN de uma conta a outra. Os formatos 
 compara inteiro com o do Python. Mexer no formato 0 exige mexer nos dois:
 `fw/src/pinblock.c` e `host/pinblock.py`.
 
-**Etapa 8.5 (verificação de PIN, offset e PVV): ✅ validada em hardware 2026-11-15.** `tb_pinv` 3 h 21, `tb_pin0` 2 h 26, `tb_pin` 1 h 27; `regressao.py` com 18 passos em 311 s, `pinv-confere` em 46,5 s. Firmware `0.8.5`, 51 336 bytes. Próxima: etapa 8.6. Comandos ASCII
+**Etapa 8.5 (verificação de PIN, offset e PVV): ✅ validada em hardware 2026-11-15.** `tb_pinv` 3 h 21, `tb_pin0` 2 h 26, `tb_pin` 1 h 27; `regressao.py` com 18 passos em 311 s, `pinv-confere` em 46,5 s. Firmware `0.8.5`, 51 336 bytes. `TABELA_AUTORIZA` com os botões na placa: MAC igual ao do Python e `pinv-confere --tabela` com 10 de 10 voltas. Próxima: etapa 8.6. Comandos ASCII
 `V0` (gerar offset), `V2` (verificar offset), `V4` (gerar PVV) e `V6` (verificar
 PVV); comando de console `0x80 TABELA_AUTORIZA`, com dual control. As contas sem
 chave estão em `fw/src/pinverif.c`; a cifra e o PIN, em `keystore.c`.

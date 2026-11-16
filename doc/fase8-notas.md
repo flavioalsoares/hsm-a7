@@ -299,7 +299,7 @@ Python, `04` aberta pelo Python, `40` de volta ao bloco original, e doze recusas
 
 ## Etapa 8.5: verificação de PIN, offset e PVV
 
-Estado: pronto. Na placa em 2026-11-15: `hsmtool build` respondeu `v0.8.5` e CONFERE; `regressao.py` passou nos 18 passos em 311 s, com o `pinv-confere` em 46,5 s. Firmware de 51 336 bytes (78% da IMEM). Timing +0,572 ns, 0 critical warnings.
+Estado: pronto. Na placa em 2026-11-15: `hsmtool build` respondeu `v0.8.5` e CONFERE; `regressao.py` passou nos 18 passos em 311 s, com o `pinv-confere` em 46,5 s. Firmware de 51 336 bytes (78% da IMEM). Timing +0,572 ns, 0 critical warnings. `TABELA_AUTORIZA` com os botões de verdade na mesma data: ver "Na bancada, com os botões".
 
 Quatro comandos na porta host (`V0` gerar offset, `V2` verificar offset, `V4`
 gerar PVV, `V6` verificar PVV) e um no console (`0x80 TABELA_AUTORIZA`). A
@@ -419,6 +419,30 @@ os quatro comandos conferidos com o Python, nos formatos 0 e 4, com três
 tabelas; a tabela autorizada para outra chave `V1`, recusada (`17`), e aceita
 com a chave dela; cada dígito do offset e do PVV trocado; e as recusas `17`, `11` e `14`.
 Com `--tabela BLOCO --kcv KCV`, confere também um bloco que o console devolveu.
+
+### Na bancada, com os botões
+
+A `regressao.py` não aperta os botões. Por isso o `TABELA_AUTORIZA` foi provado na
+placa à parte, em 2026-11-15, num terminal com TTY, com o operador nos botões:
+
+| Passo | Comando | Resultado |
+|---|---|---|
+| 1 | `hsmhost.py --serial gen --uso V1 --modo C --alg T2` | key block da chave de verificação, KCV `45A280` |
+| 2 | `hsmtool.py tabela-autoriza 0123456789012345 45A280`, com os dois botões | `0123456789012345604928C6D4E27F0B` |
+| 3 | `hsmhost.py --serial pinv-confere --lmk LMK --tabela 0123456789012345604928C6D4E27F0B --kcv 45A280` | "o MAC confere com o Python"; 10 de 10 voltas |
+
+O passo 3 prova que a placa e o Python derivam da LMK a mesma chave de MAC e
+amarram a tabela ao mesmo KCV. Até então o comando só tinha passado na simulação,
+com botões simulados.
+
+O bloco do passo 2 vale só com a chave `V1` de KCV `45A280`. Com outra chave
+`V1`, os `V0`/`V2` o recusam (`17`).
+
+⚠ **O `--lmk` não vai para a placa.** O `pinv-confere` usa a LMK no PC, como
+conferente independente: abre os key blocks e refaz as contas em Python. Antes
+de começar, ele compara o KCV da LMK informada com o do `D0` e para se não
+conferem. Sem a LMK, ninguém faz essa conferência. Em produção ela não existe,
+porque ninguém tem a LMK inteira: aqui ela é de desenvolvimento.
 
 ## PKCS#8 no key block
 
