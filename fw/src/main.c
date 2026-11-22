@@ -203,6 +203,14 @@ int main(void)
              * memoria com bateria de um HSM comercial: desligar nao apaga.
              * Sem registro valido, sobe em UNINITIALIZED como sempre. */
             state_set(persist_restaura(&achou));
+            /* Etapa 8.7: com chave 3DES no registro, a restauracao roda o
+             * autoteste do 3DES (o KCV da instalacao usa o motor). Se ele
+             * reprovou, o destino e o de um POST reprovado. */
+            if ((kat_ultimo() & KAT_FALHA_TDES) != 0u) {
+                (void)keystore_zeroiza_tudo();
+                neorv32_gpio_pin_set(LED_TAMPER, 1);
+                state_set(HSM_TAMPERED);
+            }
         }
     }
 

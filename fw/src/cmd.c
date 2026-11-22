@@ -23,6 +23,7 @@
 #include "persist.h"
 #include "flash.h"
 #include "drbg.h"
+#include "des.h"
 #include "dualctl.h"
 #include "hsm_cfs.h"
 #include "kat.h"
@@ -1189,8 +1190,14 @@ static hsm_status_t h_mac_verify(const uint8_t *in, uint16_t in_len,
 
 /* KEY_FROM_COMPONENTS -- a cerimonia de LMK, um nivel abaixo.
  *
- * Payload: n(1)||total(1)||uso(2)||alg(1)||modo(1)||exp(1)||comp(32).
+ * Payload: n(1)||total(1)||uso(2)||alg(1)||modo(1)||exp(1)||comp(N).
  * Resposta: kcv(3)||carregados(1)||total(1)||handle(1), comprimento fixo.
+ *
+ * Etapa 8.7: N e 32 com alg 'A' (AES-256), ou 16 / 24 com alg 'T' (3DES
+ * duplo ou triplo) -- a chave de troca 3DES com outra instituicao nasce
+ * assim. O tamanho do componente diz o comprimento da chave, e o KCV de
+ * cada componente e o do algoritmo. Todos os componentes de uma montagem
+ * tem o mesmo algoritmo e o mesmo tamanho.
  *
  * Ver o checklist completo em cmd.h. As duas coisas que decidem a forma
  * deste handler:
@@ -1212,12 +1219,18 @@ static hsm_status_t h_key_from_components(const uint8_t *in, uint16_t in_len,
 {
     uint8_t     kcv[KS_KCV_LEN];
     ks_handle_t h = KS_HANDLE_INVALIDO;
-    uint8_t     carregados, total;
+    uint8_t     carregados, total, comp_n;
     uint8_t     k;
 
     *out_len = 0u;
 
-    if (in_len != (7u + KS_KEY_MAX)) {
+    if ((in_len != (7u + KS_KEY_MAX)) && (in_len != (7u + TDES_CHAVE_2)) &&
+        (in_len != (7u + TDES_CHAVE_3))) {
+        return STATUS_BAD_PARAM;
+    }
+    comp_n = (uint8_t)(in_len - 7u);
+    if (!(((in[4] == (uint8_t)KS_ALG_AES) && (comp_n == KS_KEY_MAX)) ||
+          ((in[4] == (uint8_t)KS_ALG_TDES) && (comp_n != KS_KEY_MAX)))) {
         return STATUS_BAD_PARAM;
     }
     if ((in[1] < KS_COMP_MIN) || (in[1] > KS_COMP_MAX) || (in[0] >= in[1])) {
@@ -1239,11 +1252,21 @@ static hsm_status_t h_key_from_components(const uint8_t *in, uint16_t in_len,
         return STATUS_BAD_PARAM;
     }
 
+    /* Componente 3DES: o KCV usa o motor, entao o autoteste de primeiro uso
+     * roda antes -- e antes do dual control, para uma reprovacao nao gastar
+     * o aperto. Reprovou: o destino de um POST reprovado. */
+    if ((in[4] == (uint8_t)KS_ALG_TDES) &&
+        (kat_primeiro_uso(KAT_FALHA_TDES) != 0)) {
+        (void)keystore_zeroiza_tudo();
+        state_set(HSM_TAMPERED);
+        return STATUS_CRYPTO_FAIL;
+    }
+
     if (!dualctl_autoriza()) {
         return STATUS_NOT_AUTHORIZED;
     }
 
-    if (comp_componente(in[0], in[1], &in[7], kcv) != 0) {
+    if (comp_componente(in[0], in[1], in[4], &in[7], comp_n, kcv) != 0) {
         return STATUS_BAD_PARAM;
     }
 
@@ -1256,8 +1279,9 @@ static hsm_status_t h_key_from_components(const uint8_t *in, uint16_t in_len,
     total      = comp_total();
 
     /* Completou? Instala. O cabecalho vem do pedido, e
-     * `keystore_instala()` o valida -- um 3DES ou um modo invalido
-     * reprova aqui, com a chave ja montada sendo descartada junto. */
+     * `keystore_instala()` o valida -- um modo invalido, ou um algoritmo
+     * diferente do dos componentes, reprova aqui, com a chave ja montada
+     * sendo descartada junto. */
     if (carregados == total) {
         h = comp_instala(&in[2], in[4], in[5], in[6]);
         if (h == KS_HANDLE_INVALIDO) {

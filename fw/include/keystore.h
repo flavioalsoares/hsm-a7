@@ -404,12 +404,18 @@ uint8_t keystore_exporta(ks_handle_t h, uint8_t out[KS_KEY_MAX]);
  * está. `n == 0` REINICIA a montagem, que é como se abandona uma
  * cerimônia começada errado.
  *
+ * `algoritmo` e `comp_n` (etapa 8.7): AES com 32 bytes, ou 3DES com 16
+ * (duplo) ou 24 (triplo). Os dois ficam fixados pelo componente 0, e um
+ * componente seguinte diferente é recusado sem tocar no acumulado.
+ *
  * `kcv` recebe o KCV **do componente**, nunca o do acumulado: é o que
  * permite ao custodiante conferir que digitou o dele. Sem isso, uma parte
- * trocada só apareceria no fim, quando já não dá para saber qual.
+ * trocada só apareceria no fim, quando já não dá para saber qual. O KCV é o
+ * do algoritmo: AES ou 3DES.
  *
  * Devolve 0 em sucesso. */
-int comp_componente(uint8_t n, uint8_t total, const uint8_t comp[KS_KEY_MAX],
+int comp_componente(uint8_t n, uint8_t total, uint8_t algoritmo,
+                    const uint8_t *comp, uint8_t comp_n,
                     uint8_t kcv[KS_KCV_LEN]);
 
 /* Quantos entraram e quantos foram anunciados. */
@@ -482,20 +488,38 @@ void lmk_zeroiza(void);
  * (`precisa_modo` = KS_MODO_CIFRA) ou desembrulhar (KS_MODO_DECIFRA).
  *
  * Mesma porta de lmk_deriva_kb(), um degrau abaixo: o que sai são as
- * subchaves derivadas por CMAC, nunca a KEK. Exige uso 'K0', AES-256, e
- * `modo` 'B' ou o pedido. O chamador zeroiza as duas.
+ * subchaves derivadas por CMAC, nunca a KEK. Exige uso 'K0' e `modo` 'B' ou
+ * o pedido. O chamador zeroiza as duas.
+ *
+ * Etapa 8.7: a KEK pode ser AES-256 ou 3DES. `*n` recebe o tamanho das
+ * subchaves, e ele diz a versão do key block: 32 = versão D (AES), 16 ou 24
+ * = versão B (3DES, tr31b_*()).
  *
  * Devolve 0; -1 slot inválido; -2 não é KEK; -3 o modo não permite. */
 int keystore_kek_deriva(ks_handle_t h, uint8_t precisa_modo,
-                        uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX]);
+                        uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX],
+                        uint8_t *n);
+
+/* 1 se uma KEK cujas subchaves têm `n_kek` bytes pode transportar uma chave
+ * de `algoritmo` e `key_len`; 0 se não. É a regra "uma chave nunca sai
+ * embrulhada por outra mais fraca" (decisão do usuário, 2026-11-14), num
+ * lugar só, para o K4 e o K6:
+ *
+ *   KEK AES-256 (32)   transporta AES e 3DES
+ *   KEK 3DES (16, 24)  só 3DES, e de comprimento igual ou menor: a dupla não
+ *                      leva a tripla. */
+int keystore_kek_transporta(uint8_t n_kek, uint8_t algoritmo, uint8_t key_len);
 
 /* Embrulha o slot `h` sob KBEK/KBAK de uma KEK: é EXPORTAR, e passa pela
  * mesma regra de keystore_exporta() -- 'N' é recusado. O bloco sai com o
- * cabeçalho do slot. `saida` recebe até TR31_ASCII_MAX caracteres.
+ * cabeçalho do slot. `n` é o que keystore_kek_deriva() devolveu: 32 dá um
+ * bloco versão D, 16 ou 24 um bloco versão B. `saida` recebe até
+ * TR31_ASCII_MAX caracteres.
  *
- * Devolve 0; -1 erro; -2 a chave não é exportável. */
+ * Devolve 0; -1 erro; -2 a chave não é exportável; -3 a KEK é mais fraca que
+ * a chave (keystore_kek_transporta()). */
 int keystore_embrulha_kek(ks_handle_t h, const uint8_t kbek[KS_KEY_MAX],
-                          const uint8_t kbak[KS_KEY_MAX],
+                          const uint8_t kbak[KS_KEY_MAX], uint8_t n,
                           char *saida, uint32_t *saida_n);
 
 /* Embrulha o slot `h` sob a LMK, derivando as subchaves aqui dentro. NÃO

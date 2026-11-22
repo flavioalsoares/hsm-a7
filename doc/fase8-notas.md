@@ -17,7 +17,7 @@ pagamento.
 | 8.4 | PIN block formato 0, tradução entre formatos e entre chaves | pronta, validada na placa em 2026-11-15 |
 | 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | validada na placa em 2026-11-15 |
 | 8.6 | CVV: gerar e verificar | validada na placa em 2026-11-21 |
-| 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | a fazer |
+| 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | validada na placa em 2026-11-22 |
 | 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | a fazer |
 | 8.9 | MAC de mensagem e cifra de dados com 3DES | a fazer |
 
@@ -159,7 +159,8 @@ está na seção 39.8.
 - **Autoteste no primeiro uso**, pela decisão de 2026-11-13 para os KATs
   caros: no boot, ele custaria tempo de simulação a todos os testbenches.
 - **Chave 3DES só no slot efêmero.** Os slots do console e o registro na flash
-  seguem só com AES-256, até a etapa 8.7.
+  seguem só com AES-256, até a etapa 8.7. *A etapa 8.7 tirou essa restrição:
+  ver abaixo.*
 - **A checagem de algoritmo mora em `uso_dados()`, `uso_mac()` e `uso_pin()`.**
   O coprocessador lê 32 bytes de chave; uma chave 3DES de 16 bytes ali seria
   lida além do fim. Cada etapa que estender uma função ao 3DES mexe na função
@@ -550,6 +551,129 @@ cartão inventado, com PAN de 12 a 19 dígitos; os três códigos gerados e
 conferidos com o Python; cada dígito trocado, recusado; outra validade; e as
 recusas `11` (modos, chave tripla, chave AES, chave `V2`) e `16`.
 
+## Etapa 8.7: troca de chaves 3DES
+
+Estado: validada na placa em 2026-11-22. `regressao.py` com 19 passos em 398 s; o passo de 3DES e KEK 3DES (`tdes-confere`) em 27,4 s. Firmware `0.8.7`, 56 104 bytes (86% da IMEM). Timing +0,572 ns, 0 critical warnings, RTL sem mudança. `tb_kek3` levou 5 h 52, sozinho, e é o segundo mais lento da suíte, depois do `tb_ecdsa`. O teste na bancada com os botões (`comp-load --alg T2`) fica para o operador.
+
+Uma KEK (uso `K0`) pode ser 3DES, dupla ou tripla, e troca chave com outra
+instituição em key block **versão B**. A KEK 3DES nasce por componentes no
+console e fica na flash, como a AES. A teoria, com o exemplo numérico da
+derivação e do bloco aberto, está no manual, seção 39.9; os testes e a
+matemática deles, na 42.7.
+
+### As peças
+
+| Arquivo | O que faz |
+|---|---|
+| `fw/src/cmac_tdes.c` | CMAC sobre 3DES (SP 800-38B, bloco de 64 bits, constante `1B`), sem coprocessador |
+| `fw/src/tr31.c` | a versão B: `tr31b_deriva()`, `tr31b_embrulha()`, `tr31b_desembrulha()` e o autoteste `tr31b_selftest()`. A versão D não mudou, exceto o parâmetro de versão de `cab_le()` e `cab_escreve()` |
+| `fw/src/kat.c` | `kat_tdes()` chama `tr31b_selftest()`: vetor de CMAC-TDES do CAVP, o bloco B de terceiros, um bit trocado e ida e volta |
+| `fw/src/keystore.c` | chave 3DES em qualquer slot; `keystore_kek_deriva()` com KEK 3DES; `keystore_kek_transporta()`, a regra de força; `embrulha_slot_b()`; componentes 3DES; o registro com blocos de 112 caracteres |
+| `fw/src/cmd.c` | `KEY_FROM_COMPONENTS` aceita componente de 16 ou 24 bytes com algoritmo `T` |
+| `fw/src/cmd_ascii.c` | `K4` e `K6` escolhem a versão pela KEK (`abre_sob_n()`) |
+| `fw/src/main.c` | autoteste do 3DES reprovado na restauração: zeroiza e `TAMPERED` |
+| `host/tr31.py` | a versão B em Python, com o 3DES e o CMAC da biblioteca `cryptography` |
+| `host/hsmtool.py` | `comp-load --alg T2/T3`, `kcv --tdes` |
+| `host/hsmhost.py` | `tdes-confere` com a KEK 3DES |
+| `scripts/_extrai_tr31b.py` | copia os 6 blocos B do `psec` para `vectors/tr31/x9143_B_TDES.rsp` |
+
+### Decisões
+
+Do usuário, em 2026-11-21:
+
+- **Só a versão B.** É a que o mercado usa com KEK 3DES. As versões A e C
+  (variante) são obsoletas na norma.
+- **Os vetores do `psec` bastam**, com o CMAC-TDES do NIST. O arquivo do
+  `psec` é o mesmo do vetor da versão D (o hash é igual, em outro commit).
+- **A chave 3DES entra no console e na flash.** A KEK de troca nasce por
+  componentes, como a AES; um K0 3DES gerado na porta host também serve.
+
+De implementação:
+
+- **A regra de força** aplica a decisão de 2026-11-14 ("uma chave nunca sai
+  embrulhada por outra mais fraca"): KEK AES leva tudo; KEK 3DES tripla leva
+  3DES dupla e tripla; KEK 3DES dupla só leva dupla. A força efetiva é a da
+  SP 800-57 (80 bits a dupla, 112 a tripla). Uma função, no key store,
+  usada pelo `K4` e pelo `K6`.
+- **Os códigos de recusa não são novos.** No `K4`, `13` ("esta KEK não serve
+  para esta chave"), que já era a resposta a uma KEK 3DES antes desta etapa.
+  No `K6`, `10`, o código único de todo bloco recebido inválido.
+- **A versão vem de quem chama, não do bloco.** `cab_le()` recebe a versão
+  esperada: sob a LMK, D; sob uma KEK 3DES, B. Aceitar a que o bloco
+  declarar deixaria o host escolher a primitiva.
+- **A versão B tem funções próprias**, e não a D com parâmetros: a D está no
+  POST de todo boot, e as duas têm a mesma ordem de passos para serem lidas
+  lado a lado.
+- **O CMAC-TDES fica em arquivo próprio**, sem coprocessador, e compila no
+  PC: `host/test_cmac_tdes.py` o confere contra os 192 vetores do NIST.
+- **O componente 3DES tem 16 ou 24 bytes**, e o tamanho diz o comprimento da
+  chave. Todos os componentes de uma montagem têm o mesmo algoritmo e o
+  mesmo tamanho; o KCV de cada um é o do algoritmo.
+- **A paridade dos componentes não é conferida**, como não é a da LMK: a
+  qualidade do componente é do custodiante.
+- **No registro da flash a entrada continua com 144 caracteres.** O bloco de
+  uma chave 3DES tem 112; o resto vai com `'0'`, e a carga lê o tamanho do
+  cabeçalho do bloco. O formato do registro não mudou, e uma flash gravada
+  pela 8.6 carrega sem conversão.
+- **O autoteste do 3DES roda antes do primeiro uso**, também na restauração
+  do boot (o KCV da instalação usa o motor) e no primeiro componente 3DES,
+  antes do dual control, para uma reprovação não gastar o aperto.
+
+### O checklist
+
+Nenhum comando novo. Mudaram `K4`, `K6` e `KEY_FROM_COMPONENTS`:
+
+| Item | `K4`/`K6` com KEK 3DES | `KEY_FROM_COMPONENTS` com `T` |
+|---|---|---|
+| Estados | `OPERATIONAL` | `OPERATIONAL` |
+| Dual control | não: é operação | sim, a cada componente |
+| Exportabilidade | `K4` recusa `'N'` (`12`), pela mesma função do console | não se aplica |
+| Log | antes | antes |
+
+**Vazamento.** Em laço, `K4` devolve a mesma chave sob a KEK com enchimento
+novo a cada vez: nada que o primeiro bloco não desse. O MAC da versão B tem
+64 bits, e por isso a regra de força não deixa uma chave AES viajar sob ela.
+`K6` devolve um código só para toda recusa do bloco recebido.
+
+### Vetores
+
+- `vectors/tr31/x9143_B_TDES.rsp`: os 6 blocos B do `psec`, literalmente.
+  O equipamento aceita 3 (blocos 1, 2, 3) e recusa 3 (DES simples e blocos
+  opcionais), de propósito; o `MANIFEST.txt` diz qual é qual.
+- `vectors/cmac/CMACGenTDES2.rsp` e `CMACGenTDES3.rsp`, do mesmo zip do CAVP
+  que já estava fixado. O de chave dupla só tem tags truncadas.
+
+### Medidas
+
+| Medida | Valor |
+|---|---|
+| Firmware | 56 104 bytes de código, 3 332 a mais (86% da IMEM) |
+| RTL | sem mudança |
+
+### Testes
+
+| Teste | O que prova | Tempo |
+|---|---|---|
+| `host/test_cmac_tdes.py` | **no PC**: o C do firmware e a `cryptography` nos 192 vetores do NIST; verificação e recusas | 0,4 s |
+| `host/test_tr31b.py` | **no PC**: os 6 blocos de terceiros no Python e no C; o autoteste do firmware; subchaves C = Python; 24 blocos iguais caractere a caractere com o mesmo enchimento; um bit trocado em cada uma das 96 posições | 0,6 s |
+| `tb_kek3` | pela UART, com o firmware real. KEK 3DES por dois componentes no console, com o KCV 3DES de cada um e da KEK; componente de 32 bytes com `T` recusado sem gastar o aperto; religar e achar a KEK no mesmo handle; `K6` com os blocos 1, 2 e 3 de terceiros (KCV da chave publicada); `K4` dá bloco B e volta pelo `K6`; tripla sob tripla; recusas `13` (AES, tripla sob dupla) e `10` (DES simples, blocos opcionais, bloco adulterado, outra KEK) | 5 h 52 |
+| `tb_ascii` | a porta host inteira; `K4` e `K6` mudaram | 2 h 52 |
+| `tb_keystore` | o key store do console; `KEY_FROM_COMPONENTS` mudou | 1 h 44 |
+| `tb_persist` | desligar e religar; o registro mudou | 58 min |
+| `tb_tdes` | o 3DES pela porta host; o autoteste cresceu | 1 h 46 |
+| `tb_zeroize` | a prova de zeroização ganhou dois campos | 38 min |
+| `tb_tr31_block` | o key block D no POST; `tr31.c` mudou | 11 min |
+
+`hsmhost.py tdes-confere --lmk LMK [-n N]` é a prova na placa. A cada volta e
+para cada comprimento: uma KEK 3DES gerada na porta host; `K4` de chaves 3DES
+dupla e tripla, aberto pelo Python com a KEK, e `K6` de volta; `K6` de blocos B
+que o Python fechou (com exportabilidade `N`, que tem de ser preservada); e as
+recusas da regra de força, nos dois sentidos.
+
+**Na bancada, com os botões** (falta): `comp-load --alg T2` com dois
+componentes, conferir o KCV de cada um com `kcv --tdes`, religar e ver a KEK no
+mesmo handle.
+
 ## PKCS#8 no key block
 
 Decisão do usuário em 2026-11-14: o conteúdo do key block de uma chave RSA ou de
@@ -669,8 +793,8 @@ Decisões:
 
 Desde 2026-11-14, uma mudança só de firmware não espera a suíte completa. Ela
 passa pelo testbench novo e pelos que cobrem o código alterado, e a regressão
-do resto roda na placa, com `host/regressao.py`: 19 passos em 353 s (medido em 2026-11-21, com o 3DES, o
-PKCS#8, a conferência do firmware, a verificação de PIN e o CVV). A suíte
+do resto roda na placa, com `host/regressao.py`: 19 passos em 398 s (medido em 2026-11-22, com o 3DES, o
+PKCS#8, a conferência do firmware, a verificação de PIN, o CVV e a KEK 3DES). A suíte
 completa roda quando o RTL muda e no fim da fase. A tabela está no `CLAUDE.md`.
 
 A suíte completa de 2026-11-15 tem 28 testbenches e levou 11 h 46, com 3 por vez.

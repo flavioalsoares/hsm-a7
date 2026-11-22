@@ -440,7 +440,8 @@ static unsigned kat_ecdsa(void)
     return falha;
 }
 
-/* DES e 3DES contra o CAVP. Os KATs de substituicao da SP 800-20 exercitam
+/* DES e 3DES contra o CAVP, e desde a etapa 8.7 o CMAC-TDES e o key block
+ * versao B (tr31b_selftest()). Os KATs de substituicao da SP 800-20 exercitam
  * cada entrada das caixas S; os tres MMT cobrem a chave dupla, a tripla, o
  * CBC e as duas direcoes. */
 static unsigned kat_tdes(void)
@@ -481,6 +482,11 @@ static unsigned kat_tdes(void)
     tdes_apaga(ctx);
     wipe(chave, sizeof chave);
     wipe(saida, sizeof saida);
+    /* Etapa 8.7: o CMAC-TDES e o key block versao B, que so a KEK 3DES usa.
+     * Ficam no mesmo bit: e o mesmo motor, e o mesmo momento de uso. */
+    if (tr31b_selftest() != 0) {
+        d |= 1u;
+    }
     return (d != 0u) ? KAT_FALHA_TDES : 0u;
 }
 

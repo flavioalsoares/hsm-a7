@@ -97,6 +97,12 @@ CVV_JM_T_SHA="e9e12d5fa710353dfa2c61a75ade0a3e2a6045b523a89fb176f5c126ae2ab3d6"
 CVV_JM_B_URL="https://raw.githubusercontent.com/tilln/jmeter-iso8583/b90aaecfa532e2e662404f7018218fdbb9c294aa/src/test/java/nz/co/breakpoint/jmeter/iso8583/ISO8583TestBase.java"
 CVV_JM_B_SHA="76934fc3951901d2666848bb06d0540b09d6b1f523489ed1b23974feb765263a"
 
+# X9.143 / TR-31 versao B (KBPK 3DES) -- fase 8, etapa 8.7. Valores conhecidos
+# de TERCEIROS, do mesmo arquivo de testes do psec, num commit mais novo que o
+# do vetor da versao D (o mesmo dos vetores de PIN e de CVV).
+TR31B_URL="https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_tr31.py"
+TR31B_SHA="e1f42adaed9e2335dc837ba3278310bec0e9a9b2238ec7b38c87c0516addf491"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -144,6 +150,7 @@ fetch "$HMAC_URL" "$HMAC_SHA" "$TMP/rfc4231.txt"
 fetch "$DRBG_URL" "$DRBG_SHA" "$TMP/drbgtestvectors.zip"
 fetch "$CMAC_URL" "$CMAC_SHA" "$TMP/cmactestvectors.zip"
 fetch "$TR31_URL" "$TR31_SHA" "$TMP/psec_test_tr31.py"
+fetch "$TR31B_URL" "$TR31B_SHA" "$TMP/psec_test_tr31_b.py"
 fetch "$PIN_URL" "$PIN_SHA" "$TMP/psec_test_pinblock.py"
 fetch "$PINV_URL" "$PINV_SHA" "$TMP/psec_test_pin.py"
 fetch "$CVV_PSEC_T_URL" "$CVV_PSEC_T_SHA" "$TMP/psec_test_cvv.py"
@@ -163,10 +170,12 @@ unzip -qjo "$TMP/shabytetestvectors.zip" \
       'shabytetestvectors/SHA256LongMsg.rsp' -d "$VEC/sha/"
 cp "$TMP/rfc4231.txt" "$VEC/hmac/"
 
-# CMAC: so a geracao com AES-256. O zip tem 8,8 MB com 3DES e AES-128/192,
-# que este projeto nao usa e nao deve ter a mao.
+# CMAC: a geracao com AES-256 e, desde a etapa 8.7, com 3DES de duas e de tres
+# chaves (o key block versao B). O resto do zip (AES-128/192 e a verificacao)
+# este projeto nao usa.
 mkdir -p "$VEC/cmac"
-unzip -qjo "$TMP/cmactestvectors.zip" 'CMACGenAES256.rsp' -d "$VEC/cmac/"
+unzip -qjo "$TMP/cmactestvectors.zip" 'CMACGenAES256.rsp' \
+      'CMACGenTDES2.rsp' 'CMACGenTDES3.rsp' -d "$VEC/cmac/"
 
 # RSA: SigGen15 vem duas vezes -- o .txt e o .rsp mais o expoente privado d,
 # que o KAT de assinatura precisa. A geracao PKCS#1 v1.5 e as chaves completas (p, q, d) da geracao de
@@ -191,6 +200,8 @@ done
 
 # X9.143: um vetor so, copiado literalmente da tupla do arquivo de
 # origem. A extracao e mecanica e falha se achar numero diferente de um.
+python3 "$ROOT/scripts/_extrai_tr31b.py" \
+        "$TMP/psec_test_tr31_b.py" "$VEC/tr31/x9143_B_TDES.rsp"
 python3 "$ROOT/scripts/_extrai_tr31.py" \
         "$TMP/psec_test_tr31.py" "$VEC/tr31/x9143_D_AES256.rsp"
 

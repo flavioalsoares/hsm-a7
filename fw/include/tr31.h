@@ -1,4 +1,4 @@
-/* fw/include/tr31.h -- key block ANSI X9.143 (TR-31 versao D)
+/* fw/include/tr31.h -- key block ANSI X9.143 (TR-31 versoes D e B)
  *
  * FRONTEIRA: dentro. Este modulo ve chave em claro dos dois lados --
  * a chave que esta sendo embrulhada e as subchaves que a protegem.
@@ -180,5 +180,57 @@ int tr31_desembrulha_n(const uint8_t kbek[TR31_SUBCHAVE_LEN],
 
 /* Teste de funcao critica para o POST. Devolve 0 se passou. */
 int tr31_selftest(void);
+
+/* ---------------------------------------------------------------------
+ * VERSAO B (fase 8, etapa 8.7): o mesmo formato sob uma KBPK 3DES
+ *
+ *     D   subchaves AES por CMAC-AES    corpo em AES-CBC    MAC de 16
+ *     B   subchaves 3DES por CMAC-TDES  corpo em 3DES-CBC   MAC de 8
+ *
+ * Serve a chave de troca 3DES (KEK de uso K0, algoritmo T) e a mais nada:
+ * sob a LMK o bloco e sempre D. A derivacao tem a forma da D, com o
+ * algoritmo 0x0000 (duplo, 0x0080 bits) ou 0x0001 (triplo, 0x00C0); cada
+ * CMAC-TDES da 8 bytes, entao sao 2 ou 3 contadores, e KBEK e KBAK tem o
+ * tamanho da KBPK.
+ *
+ * As regras de cabecalho sao as da D (cab_valido). Quais chaves uma KEK 3DES
+ * pode transportar e politica, e mora no keystore, nao aqui.
+ *
+ * O 3DES vem do contexto comum (tdes_ctx_comum()), apagado antes de voltar.
+ * ------------------------------------------------------------------- */
+#define TR31B_MAC_LEN      8u
+#define TR31B_BLOCO        8u
+#define TR31B_SUBCHAVE_MAX 24u
+/* Corpo maximo: 2 + 24, arredondado a 8 = 32. */
+#define TR31B_CORPO_MAX    32u
+#define TR31B_ASCII_MAX    (TR31_CAB_LEN + 2u * TR31B_CORPO_MAX + 2u * TR31B_MAC_LEN)
+
+/* KBEK e KBAK de uma KBPK 3DES de `n` = 16 ou 24 bytes. Saem com `n` bytes
+ * cada. Devolve 0, ou -1 (e as duas zeradas). Chamadores legitimos: o KAT e
+ * keystore_kek_deriva(), que tem a KEK no slot. */
+int tr31b_deriva(const uint8_t *kbpk, uint32_t n,
+                 uint8_t kbek[TR31B_SUBCHAVE_MAX],
+                 uint8_t kbak[TR31B_SUBCHAVE_MAX]);
+
+/* Embrulha. `n` e o tamanho de KBEK/KBAK (16 ou 24). O enchimento precisa
+ * de (8 - (2 + chave_n) % 8) % 8 bytes. `saida` recebe ate TR31B_ASCII_MAX
+ * bytes, sem terminador. Mesmo contrato de tr31_embrulha(). */
+int tr31b_embrulha(const uint8_t *kbek, const uint8_t *kbak, uint32_t n,
+                   const tr31_cab_t *cab,
+                   const uint8_t *chave, uint8_t chave_n,
+                   const uint8_t *enchimento, uint8_t enchimento_n,
+                   char *saida, uint32_t *saida_n);
+
+/* Desembrulha e autentica. Mesmo contrato de tr31_desembrulha(): 0 se o
+ * bloco e integro, -1 em qualquer outro caso, com `chave` e `cab` zerados. */
+int tr31b_desembrulha(const uint8_t *kbek, const uint8_t *kbak, uint32_t n,
+                      const char *bloco, uint32_t bloco_n,
+                      tr31_cab_t *cab,
+                      uint8_t chave[TR31_CHAVE_MAX], uint8_t *chave_n);
+
+/* Autoteste de primeiro uso do 3DES (chamado por kat_tdes()): o vetor de
+ * CMAC-TDES do CAVP, o bloco B de terceiros, um bit trocado no cabecalho e
+ * ida e volta. Devolve 0 se passou. */
+int tr31b_selftest(void);
 
 #endif /* TR31_H */

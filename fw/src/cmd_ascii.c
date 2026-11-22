@@ -197,17 +197,26 @@ static uint8_t fim(const leitor_t *r)
  * distinguir seria o oraculo de padding (ver IMPORT_KEY em cmd.c). */
 static uint8_t primeiro_uso(unsigned qual);
 
-static uint8_t abre_sob(const uint8_t kbek[KS_KEY_MAX],
-                        const uint8_t kbak[KS_KEY_MAX],
-                        const uint8_t *b, uint16_t bn, ks_info_t *info)
+/* `n` e o tamanho das subchaves: 32 (versao D, sob a LMK ou uma KEK AES)
+ * ou 16 / 24 (versao B, sob uma KEK 3DES, etapa 8.7). Sob uma KEK 3DES a
+ * chave tambem tem de caber na regra de keystore_kek_transporta(); a
+ * recusa e a mesma de um bloco invalido. */
+static uint8_t abre_sob_n(const uint8_t kbek[KS_KEY_MAX],
+                          const uint8_t kbak[KS_KEY_MAX], uint8_t n,
+                          const uint8_t *b, uint16_t bn, ks_info_t *info)
 {
     uint8_t    chave[TR31_CHAVE_MAX];
     uint8_t    klen = 0u;
     tr31_cab_t cab;
     uint8_t    r = ASCII_INTERNO;
+    int        v;
 
-    if (tr31_desembrulha(kbek, kbak, (const char *)b, bn,
-                         &cab, chave, &klen) != 0) {
+    v = (n == KS_KEY_MAX)
+        ? tr31_desembrulha(kbek, kbak, (const char *)b, bn, &cab, chave, &klen)
+        : tr31b_desembrulha(kbek, kbak, n, (const char *)b, bn, &cab, chave,
+                            &klen);
+    if ((v != 0) ||
+        !keystore_kek_transporta(n, cab.algoritmo, klen)) {
         r = ASCII_BLOCO_INVAL;
         goto sai;
     }
@@ -228,7 +237,15 @@ static uint8_t abre_sob(const uint8_t kbek[KS_KEY_MAX],
                                                       : ASCII_INTERNO;
 sai:
     wipe(chave, sizeof chave);
+    wipe(&cab, sizeof cab);
     return r;
+}
+
+static uint8_t abre_sob(const uint8_t kbek[KS_KEY_MAX],
+                        const uint8_t kbak[KS_KEY_MAX],
+                        const uint8_t *b, uint16_t bn, ks_info_t *info)
+{
+    return abre_sob_n(kbek, kbak, KS_KEY_MAX, b, bn, info);
 }
 
 /* O caso comum: o bloco que o host guarda, sob a LMK. */
@@ -253,7 +270,7 @@ static uint8_t abre_bloco(const uint8_t *b, uint16_t bn, ks_info_t *info)
  * FRONTEIRA: dentro. O chamador zeroiza `kbek` e `kbak`. */
 static uint8_t kek_subchaves(const uint8_t *b, uint16_t bn, uint8_t modo,
                              uint8_t kbek[KS_KEY_MAX],
-                             uint8_t kbak[KS_KEY_MAX])
+                             uint8_t kbak[KS_KEY_MAX], uint8_t *n)
 {
     ks_info_t info;
     uint8_t   r;
@@ -262,7 +279,7 @@ static uint8_t kek_subchaves(const uint8_t *b, uint16_t bn, uint8_t modo,
     if ((r = abre_bloco(b, bn, &info)) != ASCII_OK) {
         return r;
     }
-    v = keystore_kek_deriva(KS_HANDLE_EFEMERA, modo, kbek, kbak);
+    v = keystore_kek_deriva(KS_HANDLE_EFEMERA, modo, kbek, kbak, n);
     keystore_efemera_apaga();
     if (v == -2) { return ASCII_NAO_KEK; }
     if (v == -3) { return ASCII_MODO; }
@@ -871,7 +888,12 @@ static uint8_t h_e4(leitor_t *in, escritor_t *out)
  *                bloco de saida leva o cabecalho de entrada, 'N' nunca.
  *   log          sim, antes.
  *
- * A KEK precisa de uso 'K0' (senao 13) e modo 'E' ou 'B' (senao 11). */
+ * A KEK precisa de uso 'K0' (senao 13) e modo 'E' ou 'B' (senao 11).
+ *
+ * Etapa 8.7: KEK AES-256 da um bloco versao D; KEK 3DES, um bloco versao B.
+ * Uma KEK 3DES so leva chave 3DES de comprimento igual ou menor
+ * (keystore_kek_transporta()): chave AES, ou tripla sob dupla, e 13 -- a
+ * KEK nao serve para aquela chave. */
 static uint8_t h_k4(leitor_t *in, escritor_t *out)
 {
     const uint8_t *kb = 0, *cb = 0;
@@ -880,22 +902,24 @@ static uint8_t h_k4(leitor_t *in, escritor_t *out)
     char           bloco[TR31_ASCII_MAX];
     uint32_t       bn = 0u, i;
     ks_info_t      info;
-    uint8_t        r;
+    uint8_t        r, n = 0u;
     int            v;
 
     if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK) { return r; }
     if ((r = le_bloco(in, &cb, &cbn)) != ASCII_OK) { return r; }
     if ((r = fim(in)) != ASCII_OK)                 { return r; }
 
-    if ((r = kek_subchaves(kb, kbn, KS_MODO_CIFRA, kbek, kbak)) != ASCII_OK) {
+    if ((r = kek_subchaves(kb, kbn, KS_MODO_CIFRA, kbek, kbak, &n))
+        != ASCII_OK) {
         goto sai;
     }
     if ((r = abre_bloco(cb, cbn, &info)) != ASCII_OK) {
         goto sai;
     }
-    v = keystore_embrulha_kek(KS_HANDLE_EFEMERA, kbek, kbak, bloco, &bn);
+    v = keystore_embrulha_kek(KS_HANDLE_EFEMERA, kbek, kbak, n, bloco, &bn);
     if (v != 0) {
-        r = (v == -2) ? ASCII_NAO_EXPORTA : ASCII_INTERNO;
+        r = (v == -2) ? ASCII_NAO_EXPORTA
+          : (v == -3) ? ASCII_NAO_KEK : ASCII_INTERNO;
         goto sai;
     }
     for (i = 0u; i < bn; i++) {
@@ -926,7 +950,11 @@ sai:
  *                segue: o K4 a recusa.
  *   log          sim, antes.
  *
- * A KEK precisa de uso 'K0' (senao 13) e modo 'D' ou 'B' (senao 11). */
+ * A KEK precisa de uso 'K0' (senao 13) e modo 'D' ou 'B' (senao 11).
+ *
+ * Etapa 8.7: sob uma KEK 3DES o bloco recebido tem de ser versao B, e a
+ * chave dentro dele, 3DES de comprimento igual ou menor que a KEK. Fora
+ * disso e 10, o mesmo codigo de todo bloco recebido invalido. */
 static uint8_t h_k6(leitor_t *in, escritor_t *out)
 {
     const uint8_t *kb = 0, *cb = 0;
@@ -935,17 +963,17 @@ static uint8_t h_k6(leitor_t *in, escritor_t *out)
     char           bloco[TR31_ASCII_MAX];
     uint32_t       bn = 0u, i;
     ks_info_t      info;
-    uint8_t        r;
+    uint8_t        r, n = 0u;
 
     if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK) { return r; }
     if ((r = le_bloco(in, &cb, &cbn)) != ASCII_OK) { return r; }
     if ((r = fim(in)) != ASCII_OK)                 { return r; }
 
-    if ((r = kek_subchaves(kb, kbn, KS_MODO_DECIFRA, kbek, kbak))
+    if ((r = kek_subchaves(kb, kbn, KS_MODO_DECIFRA, kbek, kbak, &n))
         != ASCII_OK) {
         goto sai;
     }
-    if ((r = abre_sob(kbek, kbak, cb, cbn, &info)) != ASCII_OK) {
+    if ((r = abre_sob_n(kbek, kbak, n, cb, cbn, &info)) != ASCII_OK) {
         goto sai;
     }
     if (keystore_embrulha_lmk(KS_HANDLE_EFEMERA, bloco, &bn) != 0) {

@@ -480,6 +480,83 @@ def cvv():
     escreve("cvv_casos", ["%02x" % x for x in dados], 2)
 
 
+def kek3():
+    """Vetores do tb_kek3 (etapa 8.7): KEK 3DES e key block versao B.
+
+    Os blocos versao B sao valores de TERCEIROS, lidos de
+    vectors/tr31/x9143_B_TDES.rsp (ver o MANIFEST), copiados como estao. O
+    firmware tem de abrir os aceitos (1, 2, 3) e achar a chave publicada --
+    conferida pelo KCV, que o tb recebe aqui calculado com o host/des.py -- e
+    recusar o 0 (DES simples) e o 4 (blocos opcionais).
+
+    A KBPK do bloco 3 entra no equipamento por COMPONENTES, no console: dois
+    de 16 bytes cujo XOR e ela. As KBPKs dos blocos 1 (dupla) e 2 (tripla)
+    vem embrulhadas sob a LMK do tb, como K0.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import des
+    import tr31
+
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    ench = bytes(range(16))
+
+    def sob_lmk(chave, uso, alg, modo, tam):
+        b = tr31.embrulha(lmk, chave, uso=uso, algoritmo=alg, modo=modo,
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != tam:
+            raise SystemExit("KEK3: bloco de %d caracteres" % len(b))
+        return ["%02x" % ord(c) for c in b]
+
+    blocos = {}
+    for parte in (VEC / "tr31" / "x9143_B_TDES.rsp").read_text().split("\n\n"):
+        d = dict(x.split(" = ", 1) for x in parte.splitlines() if " = " in x)
+        if "KB" in d:
+            blocos[int(d["COUNT"])] = d
+    if len(blocos) != 6:
+        raise SystemExit("KEK3: esperava 6 blocos versao B")
+    for i in (1, 2, 3):
+        b = blocos[i]
+        if tr31.desembrulha(bytes.fromhex(b["KBPK"]), b["KB"])[0] != \
+                bytes.fromhex(b["KEY"]):
+            raise SystemExit("KEK3: o bloco %d nao abre no Python" % i)
+
+    kbpk1 = bytes.fromhex(blocos[1]["KBPK"])      # dupla
+    kbpk2 = bytes.fromhex(blocos[2]["KBPK"])      # tripla
+    kbpk3 = bytes.fromhex(blocos[3]["KBPK"])      # dupla, vai por componentes
+    if (len(kbpk1), len(kbpk2), len(kbpk3)) != (16, 24, 16):
+        raise SystemExit("KEK3: KBPKs de tamanho inesperado")
+
+    escreve("kek3_k2", sob_lmk(kbpk1, "K0", "T", "B", 112), 2)
+    escreve("kek3_k3", sob_lmk(kbpk2, "K0", "T", "B", 112), 2)
+    aes = hashlib.sha256(b"tb_kek3: aes").digest()
+    t3 = des.paridade_impar(hashlib.sha256(b"tb_kek3: tripla").digest()[:24])
+    escreve("kek3_aes", sob_lmk(aes, "D0", "A", "B", 144), 2)
+    escreve("kek3_t3", sob_lmk(t3, "D0", "T", "B", 112), 2)
+
+    # Os blocos B 0 a 4, cada um em 104 bytes: o tamanho vai no tb.
+    reg = []
+    for i in range(5):
+        kb = blocos[i]["KB"]
+        if len(kb) > 104:
+            raise SystemExit("KEK3: bloco %d com %d caracteres" % (i, len(kb)))
+        reg += ["%02x" % ord(c) for c in kb.ljust(104, "0")]
+    escreve("kek3_blocos", reg, 2)
+
+    comp0 = hashlib.sha256(b"tb_kek3: componente 0").digest()[:16]
+    comp1 = bytes(a ^ b for a, b in zip(comp0, kbpk3))
+    escreve("kek3_comp", ["%02x" % x for x in comp0 + comp1], 2)
+
+    # KCVs (3DES), 3 bytes cada: chave dos blocos 1 e 2, chave do bloco 3,
+    # KBPK do bloco 3 (a KEK montada), componente 0, componente 1, t3.
+    kcvs = b"".join(des.kcv(k) for k in (
+        bytes.fromhex(blocos[1]["KEY"]), bytes.fromhex(blocos[3]["KEY"]),
+        kbpk3, comp0, comp1, t3))
+    if bytes.fromhex(blocos[1]["KEY"]) != bytes.fromhex(blocos[2]["KEY"]):
+        raise SystemExit("KEK3: os blocos 1 e 2 deviam ter a mesma chave")
+    escreve("kek3_kcv", ["%02x" % x for x in kcvs], 2)
+
+
 def rsa_r2(prefixo):
     """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
     embrulhada sob a LMK que o tb_rsa monta na cerimonia.
@@ -534,6 +611,7 @@ def main():
     pin()
     tdes()
     cvv()
+    kek3()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.

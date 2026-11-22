@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""host/tr31.py -- key block ANSI X9.143 (TR-31 versao D), lado do host.
+"""host/tr31.py -- key block ANSI X9.143 (TR-31 versoes D e B), lado do host.
 
 FRONTEIRA: fora, com uma ressalva que precisa ser dita alto.
 
@@ -83,11 +83,29 @@ Usa `cryptography` (AES e CMAC) -- e usa DE PROPOSITO uma biblioteca de
 terceiros em vez de reaproveitar qualquer coisa do firmware. Se as duas
 implementacoes compartilhassem o AES, elas concordariam sobre um erro no
 AES sem nunca discordar. A independencia e o teste.
+
+---------------------------------------------------------------------
+A VERSAO B (fase 8, etapa 8.7)
+
+O mesmo formato, sob uma KBPK 3DES (16 ou 24 bytes) -- a chave de troca
+3DES entre instituicoes. Muda so a primitiva:
+
+    D   subchaves AES por CMAC-AES   corpo em AES-CBC    MAC de 16 bytes
+    B   subchaves 3DES por CMAC-TDES corpo em 3DES-CBC   MAC de 8 bytes
+
+O corpo vai a multiplo de 8, o bloco do 3DES. A derivacao tem a mesma forma
+de 8 bytes, com o algoritmo 0x0000 (3DES duplo, 0x0080 bits) ou 0x0001
+(triplo, 0x00C0); cada CMAC-TDES da 8 bytes, entao sao 2 ou 3 contadores.
+
+O 3DES daqui e o `TripleDES` da `cryptography` (modulo `decrepit`), e nao o
+`host/des.py`: o firmware tem o des.c, e a conferencia so vale se o lado de
+fora for outra implementacao.
 """
 
 import os
 
 VERSAO_D = "D"
+VERSAO_B = "B"      # fase 8: KBPK 3DES
 
 # Campos do cabecalho -- espelham fw/include/keystore.h, em ASCII como na
 # norma. Divergir daqui e produzir um bloco que o firmware recusa.
@@ -138,6 +156,8 @@ EXP_SENSIVEL = "S"
 CABECALHO_LEN = 16
 MAC_LEN = 16
 BLOCO_AES = 16
+MAC_LEN_B = 8
+BLOCO_TDES = 8
 
 # Propositos da derivacao (X9.143). Dois valores, dois papeis.
 _USO_KBEK = b"\x00\x00"
@@ -145,6 +165,8 @@ _USO_KBAK = b"\x00\x01"
 
 # Identificador de algoritmo na derivacao, por tamanho da KBPK.
 _ALG_DERIV = {16: 0x0002, 24: 0x0003, 32: 0x0004}
+# Versao B: 3DES duplo e triplo.
+_ALG_DERIV_B = {16: 0x0000, 24: 0x0001}
 
 
 class Tr31Erro(ValueError):
@@ -185,6 +207,29 @@ def cmac_aes(chave, msg):
 def _cbc(chave, iv, dados, cifrar):
     _c, Cipher, algorithms, modes = _primitivas()
     ciph = Cipher(algorithms.AES(chave), modes.CBC(iv))
+    op = ciph.encryptor() if cifrar else ciph.decryptor()
+    return op.update(dados) + op.finalize()
+
+
+def _tdes_alg():
+    try:
+        from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+    except ImportError:  # pragma: no cover -- versoes antigas
+        from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
+    return TripleDES
+
+
+def cmac_tdes(chave, msg):
+    """CMAC-TDES (SP 800-38B, bloco de 64 bits) de uma mensagem. 8 bytes."""
+    _cmac, _C, _a, _m = _primitivas()
+    c = _cmac.CMAC(_tdes_alg()(chave))
+    c.update(msg)
+    return c.finalize()
+
+
+def _cbc_tdes(chave, iv, dados, cifrar):
+    _c, Cipher, _a, modes = _primitivas()
+    ciph = Cipher(_tdes_alg()(chave), modes.CBC(iv))
     op = ciph.encryptor() if cifrar else ciph.decryptor()
     return op.update(dados) + op.finalize()
 
@@ -230,16 +275,55 @@ def deriva_subchaves(kbpk):
     return deriva(_USO_KBEK), deriva(_USO_KBAK)
 
 
+def deriva_subchaves_b(kbpk):
+    """(KBEK, KBAK) da versao B, a partir de uma KBPK 3DES de 16 ou 24 bytes.
+
+    A mesma forma da versao D, com CMAC-TDES, que da 8 bytes por chamada:
+
+        contador(1) || proposito(2) || 00 || algoritmo(2) || bits(2)
+
+    com algoritmo 0x0000 e 0x0080 bits (duplo) ou 0x0001 e 0x00C0 (triplo).
+    """
+    n = len(kbpk)
+    if n not in _ALG_DERIV_B:
+        raise Tr31Erro(f"KBPK de {n} bytes: a versao B exige 3DES de 16 ou 24")
+    alg = _ALG_DERIV_B[n]
+    bits = n * 8
+
+    def deriva(proposito):
+        saida = b""
+        for contador in range(1, n // 8 + 1):
+            dados = (bytes([contador]) + proposito + b"\x00"
+                     + alg.to_bytes(2, "big") + bits.to_bytes(2, "big"))
+            saida += cmac_tdes(kbpk, dados)
+        return saida
+
+    return deriva(_USO_KBEK), deriva(_USO_KBAK)
+
+
+def _primitivas_da_versao(versao, kbpk):
+    """(kbek, kbak, mac(), cbc(), bloco, tamanho do MAC) de uma versao."""
+    if versao == VERSAO_D:
+        kbek, kbak = deriva_subchaves(kbpk)
+        return kbek, kbak, cmac_aes, _cbc, BLOCO_AES, MAC_LEN
+    if versao == VERSAO_B:
+        kbek, kbak = deriva_subchaves_b(kbpk)
+        return kbek, kbak, cmac_tdes, _cbc_tdes, BLOCO_TDES, MAC_LEN_B
+    raise Tr31Erro(f"versao {versao!r}: este projeto faz a D e a B")
+
+
 # ---------------------------------------------------------------------
 # Cabecalho
 # ---------------------------------------------------------------------
 def monta_cabecalho(uso, algoritmo, modo, exportabilidade,
-                    total, versao_chave="00"):
+                    total, versao_chave="00", versao=VERSAO_D):
     """Os 16 bytes ASCII, com o comprimento total ja preenchido."""
     if total > 9999:
         raise Tr31Erro(f"bloco de {total} caracteres nao cabe no campo de 4 digitos")
+    if versao not in (VERSAO_D, VERSAO_B):
+        raise Tr31Erro(f"versao {versao!r}: este projeto faz a D e a B")
     cab = (
-        VERSAO_D
+        versao
         + f"{total:04d}"
         + uso
         + algoritmo
@@ -310,8 +394,8 @@ def le_cabecalho(bloco):
     if len(bloco) < CABECALHO_LEN:
         raise Tr31Erro("bloco menor que o cabecalho")
     c = bloco[:CABECALHO_LEN]
-    if c[0] != VERSAO_D:
-        raise Tr31Erro(f"versao '{c[0]}': este projeto so faz a D (AES)")
+    if c[0] not in (VERSAO_D, VERSAO_B):
+        raise Tr31Erro(f"versao '{c[0]}': este projeto faz a D (AES) e a B (3DES)")
     # `str.isdigit()` nao serve: ele aceita digito unicode ('\uFF11' e
     # digito), e o firmware compara byte a byte com '0'..'9'. Uma
     # divergencia de UM caractere exotico entre as duas implementacoes e
@@ -336,7 +420,7 @@ def le_cabecalho(bloco):
 # ---------------------------------------------------------------------
 def embrulha(kbpk, chave, uso=USO_DADOS, algoritmo=ALG_AES,
              modo=MODO_AMBOS, exportabilidade=EXP_SIM,
-             versao_chave="00", enchimento=None):
+             versao_chave="00", enchimento=None, versao=VERSAO_D):
     """Produz o key block ASCII.
 
     NAO E DETERMINISTICO: o enchimento vem do `os.urandom`. Isso e da
@@ -347,6 +431,8 @@ def embrulha(kbpk, chave, uso=USO_DADOS, algoritmo=ALG_AES,
 
     `enchimento` existe para os testes fixarem esses bytes. Em uso
     normal fica None.
+
+    `versao`: 'D' (KBPK AES, o padrao) ou 'B' (KBPK 3DES).
     """
     if len(chave) == 0 or len(chave) > RSA_DER_MAX:
         raise Tr31Erro("chave de comprimento invalido")
@@ -358,10 +444,10 @@ def embrulha(kbpk, chave, uso=USO_DADOS, algoritmo=ALG_AES,
         "blocos_opcionais": "00",
     }, len(chave))
 
-    kbek, kbak = deriva_subchaves(kbpk)
+    kbek, kbak, mac_f, cbc_f, blk, _ml = _primitivas_da_versao(versao, kbpk)
 
     corpo = (len(chave) * 8).to_bytes(2, "big") + chave
-    falta = (-len(corpo)) % BLOCO_AES
+    falta = (-len(corpo)) % blk
     if enchimento is None:
         corpo += os.urandom(falta)
     else:
@@ -369,14 +455,15 @@ def embrulha(kbpk, chave, uso=USO_DADOS, algoritmo=ALG_AES,
             raise Tr31Erro(f"enchimento de {len(enchimento)} bytes, precisa de {falta}")
         corpo += enchimento[:falta]
 
-    total = CABECALHO_LEN + 2 * len(corpo) + 2 * MAC_LEN
-    cab = monta_cabecalho(uso, algoritmo, modo, exportabilidade, total, versao_chave)
+    total = CABECALHO_LEN + 2 * len(corpo) + 2 * _ml
+    cab = monta_cabecalho(uso, algoritmo, modo, exportabilidade, total,
+                          versao_chave, versao)
 
     # O MAC cobre cabecalho + corpo EM CLARO, e so depois vira IV. A
     # ordem importa: autenticar o criptograma daria um MAC que nao diz
     # nada sobre a chave que esta la dentro.
-    mac = cmac_aes(kbak, cab.encode("ascii") + corpo)
-    cifrado = _cbc(kbek, mac, corpo, cifrar=True)
+    mac = mac_f(kbak, cab.encode("ascii") + corpo)
+    cifrado = cbc_f(kbek, mac, corpo, cifrar=True)
 
     return cab + cifrado.hex().upper() + mac.hex().upper()
 
@@ -406,13 +493,15 @@ def desembrulha(kbpk, bloco):
     if len(bloco) % 2 != 0:
         raise Tr31Erro("bloco com numero impar de caracteres")
 
-    corpo_hex = bloco[CABECALHO_LEN:-2 * MAC_LEN]
-    mac_hex = bloco[-2 * MAC_LEN:]
+    ml = MAC_LEN_B if cab["versao"] == VERSAO_B else MAC_LEN
+    blk = BLOCO_TDES if cab["versao"] == VERSAO_B else BLOCO_AES
+    corpo_hex = bloco[CABECALHO_LEN:-2 * ml]
+    mac_hex = bloco[-2 * ml:]
 
     if len(corpo_hex) == 0:
         raise Tr31Erro("bloco sem corpo")
-    if len(corpo_hex) % (2 * BLOCO_AES) != 0:
-        raise Tr31Erro("corpo nao e multiplo do bloco do AES")
+    if len(corpo_hex) % (2 * blk) != 0:
+        raise Tr31Erro("corpo nao e multiplo do bloco da cifra")
 
     # Hexadecimal MAIUSCULO, e so.
     #
@@ -427,10 +516,10 @@ def desembrulha(kbpk, bloco):
     cifrado = bytes.fromhex(corpo_hex)
     mac = bytes.fromhex(mac_hex)
 
-    kbek, kbak = deriva_subchaves(kbpk)
-    corpo = _cbc(kbek, mac, cifrado, cifrar=False)
+    kbek, kbak, mac_f, cbc_f, _b, _m = _primitivas_da_versao(cab["versao"], kbpk)
+    corpo = cbc_f(kbek, mac, cifrado, cifrar=False)
 
-    esperado = cmac_aes(kbak, bloco[:CABECALHO_LEN].encode("ascii") + corpo)
+    esperado = mac_f(kbak, bloco[:CABECALHO_LEN].encode("ascii") + corpo)
     if not _iguais(esperado, mac):
         raise Tr31Erro("MAC invalido")
 

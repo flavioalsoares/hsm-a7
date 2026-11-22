@@ -17,6 +17,7 @@ receber coprocessadores do usuário. É onde AES e SHA entram na Fase 2.
 
 **CMAC** — código de autenticação de mensagem baseado em cifra de bloco.
 Usado no TR-31 para autenticar cabeçalho e corpo, e para derivar KBEK/KBAK.
+Com AES no key block versão D; com 3DES (CMAC-TDES) na versão B.
 
 **CMVP** — programa NIST/CCCS que valida módulos contra a FIPS 140-3.
 
@@ -200,7 +201,7 @@ deliberada: sem ele, um dispositivo que reprovou no boot ficaria mudo sobre
 | `0x29` | `MAC_GENERATE` | handle(1) ‖ mensagem | tag(16) |
 | `0x2A` | `MAC_VERIFY` | handle(1) ‖ tag(16) ‖ mensagem | vazio — o veredito é o status |
 | `0x2B` | `DELETE_KEY` | handle(1) | slots livres(1) |
-| `0x2C` | `KEY_FROM_COMPONENTS` | n(1) ‖ total(1) ‖ uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) ‖ componente(32) | kcv(3) ‖ carregados(1) ‖ total(1) ‖ handle(1) |
+| `0x2C` | `KEY_FROM_COMPONENTS` | n(1) ‖ total(1) ‖ uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) ‖ componente(32 com alg `A`; 16 ou 24 com alg `T`) | kcv(3) ‖ carregados(1) ‖ total(1) ‖ handle(1) |
 | `0x2F` | `ZEROIZE` | vazio | estado atual(1) |
 
 **Estados em que cada um responde.** Não é convenção — é uma máscara na
@@ -434,6 +435,12 @@ uso `K0` que as duas têm, formada por componentes no console
 (`comp-load --uso K0`). `K4` é exportar e recusa `'N'`; `K6` guarda o que
 chegou sob a LMK. O `modo` da KEK diz se ela embrulha (`E`), desembrulha
 (`D`) ou os dois (`B`).
+
+A KEK pode ser AES-256 ou, desde a etapa 8.7, 3DES dupla ou tripla
+(`comp-load --alg T2` ou `T3`). Sob uma KEK AES o bloco trocado é versão D;
+sob uma KEK 3DES, versão B (seção 39.9). Uma KEK 3DES só leva chave 3DES de
+comprimento igual ou menor: no `K4`, outra chave é `13`; no `K6`, um bloco
+assim é `10`, como qualquer bloco recebido inválido.
 
 No log de auditoria, um comando da porta host aparece com os dois
 caracteres dele nos campos `comando` e `argumento` (`K0` = `0x4B`, `0x30`) e
@@ -1088,6 +1095,10 @@ Três detalhes que valem reparar:
   oráculo sobre a chave que ainda está sendo montada.
 - **Começar pelo componente 0 reinicia a montagem.** É como se abandona uma
   cerimônia que saiu errada, sem precisar de um comando para isso.
+- **A chave pode ser 3DES** (etapa 8.7): `--alg T2` (componentes de 16
+  bytes) ou `--alg T3` (24). O KCV de cada componente é então o do 3DES, e
+  `hsmtool.py kcv --tdes` faz a mesma conta no PC. É assim que nasce a KEK
+  3DES de troca com um parceiro que ainda usa 3DES (seção 39.9).
 
 E o comando que desfaz tudo:
 
@@ -1156,7 +1167,11 @@ que não foi escrito:
 
 - **FIPS 140-3** e ISO/IEC 19790 — requisitos de módulo criptográfico
 - **NIST SP 800-90A/B/C** — DRBG, fontes de entropia, construções
-- **ANSI X9.143** (sucessor do TR-31) — key blocks
+- **ANSI X9.143** (sucessor do TR-31) — key blocks, versões D (AES) e B
+  (3DES)
+- **NIST SP 800-38B** — o CMAC, com AES e com 3DES
+- **NIST SP 800-57 Parte 1** — a força de segurança de cada algoritmo; a
+  3DES dupla tem cerca de 80 bits, a tripla 112
 - **RFC 8017** (PKCS #1 v2.2) — RSA, e o enchimento de assinatura v1.5
 - **PCI PIN Security Requirements** e **PCI PTS HSM** — de onde vêm dual
   control e split knowledge como exigência

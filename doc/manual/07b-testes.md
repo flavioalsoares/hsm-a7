@@ -128,6 +128,14 @@ ordem das palavras invertida dá resultados perfeitamente errados.
 - **CMAC-AES-256:** vetores do CAVP. Eles só trazem a tag **truncada**, e a
   comparação é sobre os bytes que o vetor tem. Os últimos 6 bytes da tag não
   são cobertos por vetor oficial, e o projeto registra essa lacuna.
+- **CMAC-TDES** (etapa 8.7): vetores do mesmo arquivo do CAVP, 96 com chave
+  dupla e 96 com tripla, mensagens de 0, 7, 8, 15, 16 e 32 bytes, que passam
+  pelos três ramos do CMAC (vazia, último bloco incompleto, último bloco
+  cheio). O C do firmware, compilado no PC, e a biblioteca `cryptography`
+  dão todas as tags. Uma lacuna, registrada: os vetores de chave **dupla**
+  só trazem tag truncada (5 e 7 bytes), e nenhum vetor oficial confere o
+  último byte da tag com chave dupla. Quem confere são os key blocks versão
+  B da seção 42.7, cujo MAC de 8 bytes vem de uma KBPK dupla.
 - **CTR_DRBG:** o gerador determinístico é uma função: mesma semente, mesma
   saída. O vetor dá a entropia, o nonce e os bytes esperados depois de duas
   chamadas. Isso testa o algoritmo do gerador, e não a qualidade da
@@ -465,6 +473,67 @@ errado, opcode desconhecido, mensagem maior que o limite, mensagem que para
 no meio. Depois de cada um, um `PING` tem de responder: o equipamento se
 recupera, e não trava.
 
+### 42.7 O key block versão B (KEK 3DES)
+
+A versão B é o formato da seção 42.1 com 3DES no lugar do AES (seção
+39.9). Os testes repetem os da versão D, com números próprios.
+
+**Os valores de terceiros.** A biblioteca `psec` publica seis blocos versão
+B no mesmo arquivo do vetor da versão D, fixado por hash. O equipamento
+aceita três e recusa três, de propósito:
+
+| Bloco | KBPK | Chave | Resultado |
+|---|---|---|---|
+| 0 | dupla | 8 bytes (DES simples) | recusado: DES simples não existe aqui |
+| 1 | dupla | dupla, uso `M3` | aceito, chave publicada |
+| 2 | tripla | dupla | aceito, chave publicada |
+| 3 | dupla | dupla, uso `P0` | aceito, chave publicada |
+| 4 | dupla | dupla, com blocos opcionais | recusado: blocos opcionais |
+| 5 | dupla | dupla, com blocos opcionais | recusado: idem |
+
+O Python e o C compilado no PC (`host/test_tr31b.py`) dão o mesmo resultado
+nos seis. O `tb_kek3` leva os blocos 1, 2 e 3 ao firmware real: a KBPK do
+bloco 3 entra por componentes no console, e as outras duas, embrulhadas sob
+a LMK. O firmware tem de devolver a chave publicada, conferida pelo KCV, e
+recusar os blocos 0 e 4. O bloco 3 também está no autoteste de primeiro uso
+do 3DES.
+
+**O que os valores de terceiros não cobrem.** Fechar (o enchimento é
+aleatório) e a KBPK tripla com chave tripla. Para esses, o teste de PC fecha
+24 blocos no C e no Python com o **mesmo enchimento**, nas combinações de
+KBPK dupla e tripla, chave dupla e tripla e seis pares de uso e modo, e
+exige os blocos iguais caractere a caractere. Cada lado abre o bloco do
+outro. Com o enchimento fixado, fechar vira uma função, e duas
+implementações independentes que concordam em 24 casos concordam sobre a
+leitura da norma.
+
+**Um bit trocado em cada posição.** Num bloco de 96 caracteres (KBPK e chave
+triplas), o teste troca um bit de cada caractere, um de cada vez, e o C
+recusa as 96 versões. Um bloco versão D apresentado como B, e um bloco sob
+outra KBPK, também são recusados.
+
+**A força do MAC.** O MAC da versão B tem 64 bits. Quem não tem a chave
+acerta um MAC com chance de `2⁻⁶⁴` por tentativa: com um milhão de
+tentativas por segundo, a chance de acertar em um ano é de cerca de
+3,15 × 10¹³ / 1,84 × 10¹⁹, ou 1 em 585 mil. É menos que os `2⁻¹²⁸` da versão
+D, e é a razão de a regra de força (seção 39.9) não deixar uma chave AES
+viajar sob uma KEK 3DES.
+
+**A regra de força, no firmware.** O `tb_kek3` pede ao `K4` uma chave AES e
+uma 3DES tripla sob a KEK dupla, e exige `13` nas duas. Uma tripla sob uma
+KEK tripla sai, em bloco B. O `tdes-confere` (seção 47.1) faz o mesmo na
+placa, nos dois sentidos, com blocos fechados pelo Python.
+
+**A KEK que volta da flash.** O `tb_kek3` religa o equipamento depois de
+formar a KEK, e exige no mesmo handle o mesmo KCV. O registro da flash
+guarda cada chave numa entrada de 144 caracteres, e o bloco de uma chave
+3DES tem 112: o teste prova que o resto da entrada não atrapalha a carga.
+
+**O que estes testes não provam.** Que a versão B deste equipamento
+conversa com o equipamento de um parceiro real: a referência é uma
+biblioteca aberta, e não a norma, que é paga. E as versões A e C, que o
+equipamento não faz.
+
 ## 43. Testes do gerador aleatório
 
 Não existe KAT para aleatoriedade. Um gerador que devolve sempre a mesma
@@ -720,7 +789,7 @@ implementação independente no PC a refaz ou a desfaz.
 | Tradução de PIN | traduz um PIN block entre duas chaves e entre os formatos 0 e 4 | faz o papel do terminal e o do destino; no formato 0, prevê o bloco de saída |
 | Verificação de PIN | gera e verifica offset e PVV, a partir de um PIN block | faz o papel do terminal e o do emissor; calcula o MAC da tabela com a LMK |
 | CVV | gera e verifica CVV, CVV2 e iCVV de um cartão | faz o papel do emissor e refaz a conta com a chave aberta |
-| Chaves 3DES | gera e devolve o KCV | abre o bloco e confere tamanho, paridade e KCV |
+| Chaves 3DES | gera e devolve o KCV; com uma KEK 3DES, exporta e importa em bloco versão B | abre o bloco e confere tamanho, paridade e KCV; abre e fecha os blocos B com a KEK, e confere as recusas da regra de força |
 | RSA e ECDSA | gera pares e assina | verifica só com a chave pública |
 | PKCS#8 | gera, e assina com chave vinda de fora | usa a chave do equipamento numa biblioteca, e o contrário |
 

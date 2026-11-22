@@ -850,8 +850,46 @@ def tdes_confere(h, lmk, n):
             recusa(11, h.cripto, d0, iv, texto, True)      # C0 e AES
             m0, _ = h.gen("M0", "C", "E", alg)
             recusa(11, h.mac, m0, texto)                   # M0 e CMAC-AES
-            k0, _ = h.gen("K0", "B", "E", alg)
-            recusa(13, h.exporta, k0, bloco)               # KEK 3DES: etapa 8.7
+
+            # Etapa 8.7: KEK 3DES deste comprimento. Ela leva chave 3DES de
+            # comprimento igual ou menor, em bloco versao B, e nada mais.
+            k3_b, _ = h.gen("K0", "B", "E", alg)
+            k3, _ = tr31.desembrulha(lmk, k3_b)
+            for alg2, tam2 in (("T2", 16), ("T3", 24)):
+                b2, kcv2 = h.gen("D0", "B", "E", alg2)
+                c2, _ = tr31.desembrulha(lmk, b2)
+                if tam2 > tam:
+                    recusa(13, h.exporta, k3_b, b2)        # tripla sob dupla
+                    meu = tr31.embrulha(k3, c2, uso="D0", algoritmo="T",
+                                        modo="B", versao="B")
+                    recusa(10, h.importa, k3_b, meu)
+                    continue
+                fora, kcv_f = h.exporta(k3_b, b2)
+                assert fora[0] == "B", "K4 sob KEK 3DES: versao B"
+                assert tr31.desembrulha(k3, fora)[0] == c2 and kcv_f == kcv2, \
+                    "K4 sob KEK 3DES"
+                volta_b, kcv_v = h.importa(k3_b, fora)
+                assert tr31.desembrulha(lmk, volta_b)[0] == c2 and \
+                    kcv_v == kcv2, "K6 sob KEK 3DES"
+                # o sentido inverso: um bloco B que o Python fez
+                minha = des.paridade_impar(os.urandom(tam2))
+                meu = tr31.embrulha(k3, minha, uso="P0", algoritmo="T",
+                                    modo="E", exportabilidade="N", versao="B")
+                vb, kv = h.importa(k3_b, meu)
+                ab, cb = tr31.desembrulha(lmk, vb)
+                assert ab == minha and cb["exportabilidade"] == "N" and \
+                    kv == des.kcv(minha).hex().upper(), "K6 com bloco B do Python"
+            aes_d, _ = h.gen("D0", "B", "E")
+            recusa(13, h.exporta, k3_b, aes_d)             # AES sob KEK 3DES
+            aes_c = os.urandom(32)
+            recusa(10, h.importa, k3_b,                    # AES num bloco B
+                   tr31.embrulha(k3, aes_c, uso="D0", algoritmo="A",
+                                 modo="B", versao="B"))
+            recusa(10, h.importa, k3_b,                    # bloco D sob KEK 3DES
+                   tr31.embrulha(os.urandom(32), os.urandom(32),
+                                 uso="D0", algoritmo="A", modo="B"))
+            k3e, _ = h.gen("K0", "E", "E", alg)            # so exporta
+            recusa(11, h.importa, k3e, fora)
             aes_p, _ = h.gen("P0", "B", "E")
             recusa(11, h.pin_traduz, bloco, aes_p, "999999012345", bytes(16))
         recusa(16, h.gen, "P0", "B", "E", "T1")            # DES simples

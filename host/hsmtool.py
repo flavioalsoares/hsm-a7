@@ -876,14 +876,23 @@ def cmd_comp_load(client, args):
 
     ⚠ O componente atravessa o link em claro, como na cerimonia de LMK.
     Mesma ressalva, mesma razao: ha uma interface so.
+
+    Etapa 8.7: `--alg T2` ou `T3` monta uma chave 3DES dupla (componentes de
+    16 bytes) ou tripla (24). E como nasce a chave de troca 3DES com outra
+    instituicao. O KCV de cada componente e entao o do 3DES.
     """
+    alg, tam = {"A": ("A", LMK_KEY_LEN), "T2": ("T", 16),
+                "T3": ("T", 24)}[args.alg]
     if not 0 <= args.n < args.total:
         print("componente %d fora de 0..%d" % (args.n, args.total - 1),
               file=sys.stderr)
         return 2
 
     if args.random:
-        comp = os.urandom(LMK_KEY_LEN)
+        comp = os.urandom(tam)
+        if alg == "T":
+            import des
+            comp = des.paridade_impar(comp)
         print("componente %d gerado aqui no host:" % args.n)
         print("  %s" % comp.hex().upper())
         print("  Anote. Isto e um brinquedo: material de chave na tela e")
@@ -898,16 +907,16 @@ def cmd_comp_load(client, args):
         except ValueError:
             print("componente nao e hex valido", file=sys.stderr)
             return 2
-        if len(comp) != LMK_KEY_LEN:
+        if len(comp) != tam:
             print("componente tem %d bytes, esperado %d"
-                  % (len(comp), LMK_KEY_LEN), file=sys.stderr)
+                  % (len(comp), tam), file=sys.stderr)
             return 2
 
     _pede_dual_control("Componente %d de %d de uma chave de trabalho."
                        % (args.n, args.total))
 
     pl = (bytes([args.n, args.total])
-          + args.uso.encode("ascii") + b"A"
+          + args.uso.encode("ascii") + alg.encode("ascii")
           + args.modo.encode("ascii") + args.exp.encode("ascii")
           + comp)
     p = client.command(CMD_KEY_FROM_COMPONENTS, pl)
@@ -1341,21 +1350,26 @@ def cmd_kcv(args):
         except ValueError:
             print(f"componente {i}: hex invalido", file=sys.stderr)
             return 2
-        if len(c) not in (16, 24, 32):
-            print(f"componente {i}: {len(c)} bytes; AES pede 16, 24 ou 32",
-                  file=sys.stderr)
+        if len(c) not in (16, 24, 32) or (args.tdes and len(c) == 32):
+            print(f"componente {i}: {len(c)} bytes; AES pede 16, 24 ou 32,"
+                  " 3DES 16 ou 24", file=sys.stderr)
             return 2
         comps.append(c)
     if len({len(c) for c in comps}) != 1:
         print("componentes de tamanhos diferentes", file=sys.stderr)
         return 2
 
+    if args.tdes:
+        import des
+        kcv_f = des.kcv
+    else:
+        kcv_f = _kcv_local
     chave = bytes(len(comps[0]))
     for i, c in enumerate(comps):
-        print(f"KCV do componente {i} : {_kcv_local(c).hex().upper()}")
+        print(f"KCV do componente {i} : {kcv_f(c).hex().upper()}")
         chave = bytes(a ^ b for a, b in zip(chave, c))
     if len(comps) > 1:
-        print(f"KCV da chave (XOR)  : {_kcv_local(chave).hex().upper()}")
+        print(f"KCV da chave (XOR)  : {kcv_f(chave).hex().upper()}")
         if args.mostra:
             print(f"chave (XOR)         : {chave.hex().upper()}")
     return 0
@@ -1376,6 +1390,8 @@ def main(argv=None):
     p_kcv.add_argument("componentes", nargs="+", help="componentes em hex")
     p_kcv.add_argument("--mostra", action="store_true",
                        help="imprime tambem a chave montada (brinquedo)")
+    p_kcv.add_argument("--tdes", action="store_true",
+                       help="componentes 3DES (16 ou 24 bytes): KCV do 3DES")
     sub.add_parser("version")
     sub.add_parser("dna")
     sub.add_parser("build")
@@ -1426,9 +1442,11 @@ def main(argv=None):
     p_cl.add_argument("n", type=int, help="indice do componente (0..total-1)")
     p_cl.add_argument("total", type=int, help="quantos componentes ao todo")
     p_cl.add_argument("key", nargs="?", default=None,
-                      help="componente: 32 bytes em hex")
+                      help="componente em hex: 32 bytes (AES), 16 (T2) ou 24 (T3)")
     p_cl.add_argument("--random", action="store_true",
                       help="gera o componente aqui e imprime (brinquedo)")
+    p_cl.add_argument("--alg", choices=["A", "T2", "T3"], default="A",
+                      help="A = AES-256 (padrao); T2/T3 = 3DES duplo/triplo")
     _cab_args(p_cl)
 
     p_mac = sub.add_parser("mac", help="CMAC-AES-256 com a chave de um slot")

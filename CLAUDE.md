@@ -808,7 +808,7 @@ Não trocar por desvio condicional.
 Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vigor
 está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
 DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos (**feita**), 8.5
-verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV (**feita**), 8.7 troca de chaves 3DES,
+verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV (**feita**), 8.7 troca de chaves 3DES (**feita**),
 8.8 DUKPT, 8.9 MAC e dados com 3DES.
 
 ⚠ **O 3DES entra, por decisão do usuário (2026-11-14), e o critério é o mercado de
@@ -828,8 +828,9 @@ ou 24. A checagem de algoritmo mora em `uso_dados()`, `uso_mac()` e `uso_pin()`,
 `keystore.c`. Estender uma função ao 3DES é mexer na função de uso correspondente, e
 nunca tirar a checagem.
 
-⚠ **Chave 3DES só no slot efêmero da porta host**, até a etapa 8.7. Os slots do
-console e o registro na flash seguem só com AES-256.
+⚠ **Chave 3DES em qualquer slot desde a etapa 8.7** (antes, só no slot efêmero
+da porta host). O que a impede de cifrar dado ou fazer MAC AES são
+`uso_dados()` e `uso_mac()`, que exigem AES.
 
 ⚠ **Um contexto 3DES para o firmware inteiro**: `tdes_ctx_comum()`. Não declarar
 outro `tdes_ctx_t`: são 288 bytes de `static`, e um segundo contexto não traz nada.
@@ -963,6 +964,32 @@ número e a validade. O controle é o modo da chave (`G`/`V`/`C`), conferido em
 exige o código publicado. Nenhum cobre a extração com menos de 3 decimais (1 em
 18 113): esse caso é conferido entre o C e o Python. Mexer no método exige mexer
 em `fw/src/cvv.c` e `host/cvv.py`, e rodar `host/test_cvv.py` (0,3 s).
+
+**Etapa 8.7 (troca de chaves 3DES): ✅ validada em hardware 2026-11-22.** `tb_kek3` 5 h 52 (sozinho; `sim-timeout` de 36 000 s), `tb_ascii` 2 h 52; `regressao.py` com 19 passos em 398 s, `tdes-confere` em 27,4 s. Firmware `0.8.7`, 56 104 bytes. Próxima: etapa 8.8. Uma KEK (`K0`) pode ser 3DES
+dupla ou tripla. `K4`/`K6` com ela trocam chave em key block X9.143 **versão B**
+(`tr31b_*()` em `fw/src/tr31.c`, CMAC-TDES em `fw/src/cmac_tdes.c`). A KEK 3DES
+nasce por componentes no console (`comp-load --alg T2/T3`) e persiste na flash.
+
+⚠ **A versão do bloco vem de quem chama, nunca do bloco.** Sob a LMK, sempre D;
+sob uma KEK 3DES, sempre B (`cab_le()` recebe a versão). Não aceitar "a que o
+bloco declarar": o host escolheria a primitiva.
+
+⚠ **Regra de força, em `keystore_kek_transporta()`, num lugar só**: KEK AES leva
+tudo; KEK 3DES tripla leva 3DES dupla e tripla; dupla só leva dupla. Recusa
+`13` no `K4` e `10` no `K6`. É a decisão "nunca sob chave mais fraca"; não
+afrouxar.
+
+⚠ **A versão B não aceita DES simples nem blocos opcionais**, como a D. Três dos
+seis blocos de terceiros são recusados por isso, de propósito, e o teste exige a
+recusa. Mexer na versão B exige mexer nos dois: `fw/src/tr31.c` e
+`host/tr31.py`, e rodar `host/test_tr31b.py` e `host/test_cmac_tdes.py`.
+
+⚠ **No registro da flash a entrada continua com 144 caracteres**; o bloco 3DES
+tem 112 e o resto vai com `'0'`. A carga lê o tamanho do cabeçalho do bloco.
+
+⚠ **O autoteste do 3DES (`kat_tdes()`) inclui o CMAC-TDES e a versão B**, e roda
+também na restauração do boot com chave 3DES e no primeiro componente 3DES.
+Reprovado no boot: zeroiza e `TAMPERED` (`main.c`).
 
 ⚠ **A extração do CVV repete a do PVV** (`cvv_extrai()` e `pinv_pvv_extrai()`), de
 propósito: generalizar mudaria código validado. Corrigir uma exige olhar a outra.

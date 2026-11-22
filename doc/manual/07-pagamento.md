@@ -7,7 +7,8 @@ fronteira criptográfica" de "sei por que aquele comando existe".
 
 O equipamento implementa uma parte do que está aqui: os PIN blocks formato
 0 e 4 e a tradução de PIN (seções 33 e 34), a verificação de PIN (seção 35),
-o CVV (seção 36) e as chaves 3DES (seção 39). A seção 38 explica o que é
+o CVV (seção 36), as chaves 3DES (seção 39) e a troca de chaves 3DES com
+outra instituição (seção 39.9). A seção 38 explica o que é
 implementável, o que não é, e por quê. O resto do material é para entender
 o domínio.
 
@@ -1213,8 +1214,8 @@ cada trava cai quando a função correspondente entra:
 |---|---|---|
 | `K0`, `K2` | gera e confere | — |
 | `K4`, `K6` sob uma KEK AES | exporta e importa | — |
-| `K4`, `K6` com uma KEK 3DES | recusa (`13`) | com a troca de chaves 3DES |
-| `P0` | recusa (`11`) | com o PIN block formato 0 |
+| `K4`, `K6` com uma KEK 3DES | exporta e importa, em bloco versão B | feito na etapa 8.7, seção 39.9 |
+| `P0` | traduz no formato 0; no formato 4, recusa (`11`) | feito na etapa 8.4, seção 34.2 |
 | `C0`, `C2`, `M0`, `M2` | recusa (`11`) | com a cifra de dados e o MAC em 3DES |
 
 A recusa não é só política. O coprocessador só faz AES-256: uma chave de 16
@@ -1232,3 +1233,139 @@ responde `91`.
 depende da chave. Num processador com cache, isso cria um canal de tempo.
 O processador deste equipamento não tem cache, e toda consulta leva o mesmo
 tempo.
+
+### 39.9 A troca de chaves 3DES: a KEK 3DES e o key block versão B
+
+A seção 28 mostra como duas instituições trocam uma chave: as duas formam a
+mesma **KEK** (chave de troca, uso `K0`) por componentes, e uma chave viaja
+entre elas cifrada sob essa KEK, num key block. Ali a KEK é AES-256. Muitas
+redes de pagamento ainda trocam chaves sob uma KEK **3DES**: o parceiro do
+outro lado tem equipamento antigo, ou a rede ainda não migrou. Um HSM de
+pagamento precisa falar com esse parceiro. Esta seção mostra como.
+
+**O key block versão B.** O formato X9.143 tem uma versão para cada tipo de
+chave de proteção. Este equipamento usa duas:
+
+| | Versão D | Versão B |
+|---|---|---|
+| chave de proteção (KBPK) | AES (aqui, AES-256) | 3DES duplo ou triplo |
+| onde se usa aqui | sob a LMK, e sob uma KEK AES | só sob uma KEK 3DES |
+| subchaves KBEK e KBAK | CMAC-AES, 16 bytes por chamada | CMAC-TDES, 8 bytes por chamada |
+| cifra do corpo | AES-CBC, bloco de 16 bytes | 3DES-CBC, bloco de 8 bytes |
+| MAC | 16 bytes (32 caracteres) | 8 bytes (16 caracteres) |
+| bloco de uma chave 3DES dupla | 112 caracteres | 80 caracteres |
+| bloco de uma chave 3DES tripla | 112 caracteres | 96 caracteres |
+
+O resto é igual: o cabeçalho de 16 caracteres entra no MAC, o MAC é
+calculado sobre o corpo em claro e depois serve de IV do CBC, e o
+enchimento é aleatório. As versões A e C, mais antigas, derivam as
+subchaves por um XOR com uma constante (variante), e a norma as dá por
+obsoletas. Este equipamento não as faz.
+
+**O CMAC-TDES.** O CMAC (NIST SP 800-38B) é o código de autenticação que o
+equipamento usa com AES no key block versão D. Ele encadeia a mensagem em
+CBC e, no último bloco, mistura uma de duas subchaves internas, conforme o
+bloco esteja cheio ou tenha enchimento: é isso que o protege contra o
+ataque de extensão do CBC-MAC puro. O CMAC-TDES é o mesmo algoritmo com o
+bloco de 64 bits do 3DES. Muda uma constante: na dobra que gera as
+subchaves internas, o XOR depois do deslocamento é com `1B` (o polinômio de
+grau 64 da norma), e não com `87`, o de grau 128. O equipamento confere o
+CMAC-TDES contra os vetores do NIST.
+
+**A derivação das subchaves.** Cada chamada do CMAC-TDES recebe 8 bytes e
+devolve 8. Para uma KBPK dupla (16 bytes) são duas chamadas por subchave;
+para uma tripla, três. Os 8 bytes de entrada são:
+
+```
+    contador(1) . propósito(2) . 00 . algoritmo(2) . bits(2)
+
+    propósito   0000 = KBEK (cifra)        0001 = KBAK (MAC)
+    algoritmo   0000 = 3DES duplo          0001 = 3DES triplo
+    bits        0080 = 128                 00C0 = 192
+```
+
+Um exemplo com números, do bloco publicado pela biblioteca `psec` (valor de
+terceiros, seção 42.1). A KBPK é `DD7515F2BFC17F85CE48F3CA25CB21F6`, dupla:
+
+```
+    KBEK, 1a chamada   CMAC(KBPK, 0100000000000080) = 698832F8778A7CFC
+    KBEK, 2a chamada   CMAC(KBPK, 0200000000000080) = BC79559DAB07B88A
+    KBAK, 1a chamada   CMAC(KBPK, 0100010000000080) = DD6CEEC1782D8453
+    KBAK, 2a chamada   CMAC(KBPK, 0200010000000080) = 671BF8358AF9DB47
+
+    KBEK = 698832F8778A7CFC BC79559DAB07B88A
+    KBAK = DD6CEEC1782D8453 671BF8358AF9DB47
+```
+
+Só o terceiro byte da entrada muda entre KBEK e KBAK, e as duas subchaves
+não têm nada em comum.
+
+**O bloco, aberto.** O bloco publicado é:
+
+```
+    B0080P0TE00E0000  94B420079CC80BA3 461F86FE26EFC4A3 B8E4FA4C5F534117  6EED7B727B8A248E
+    cabeçalho         corpo cifrado, 24 bytes                             MAC, 8 bytes
+```
+
+Decifrar o corpo com a KBEK em 3DES-CBC, com o MAC como IV, dá:
+
+```
+    0080  3F419E1CB7079442AA37474C2EFBF8B8  1C2965473CE2
+    bits  a chave, 16 bytes                 enchimento, 6 bytes
+```
+
+O CMAC-TDES com a KBAK sobre o cabeçalho e esse corpo em claro dá
+`6EED7B727B8A248E`, o MAC do bloco: ele é íntegro. A chave tem KCV `57C409`.
+O corpo tem 2 + 16 + 6 = 24 bytes, múltiplo de 8, e o bloco tem
+16 + 2 × 24 + 2 × 8 = 80 caracteres. Todos esses números foram conferidos
+por programa (`host/test_tr31b.py`).
+
+**A regra de força.** Uma chave nunca sai embrulhada por outra mais fraca
+(decisão de projeto da seção 38.2). Para a KEK, a regra fica assim:
+
+| KEK | Transporta | Não transporta |
+|---|---|---|
+| AES-256 | chave AES e chave 3DES | — |
+| 3DES tripla | chave 3DES dupla e tripla | chave AES |
+| 3DES dupla | chave 3DES dupla | chave 3DES tripla, chave AES |
+
+A dupla não leva a tripla porque a força efetiva da 3DES dupla é menor: a
+SP 800-57 dá cerca de 80 bits à dupla e 112 à tripla. A checagem mora no key
+store, numa função só, e vale para os dois sentidos.
+
+**A KEK 3DES neste equipamento.**
+
+1. **Formar a KEK.** No console, por componentes, com dual control a cada
+   um, como a KEK AES. O algoritmo e o tamanho vêm do pedido: componentes
+   de 16 bytes dão uma 3DES dupla, de 24 uma tripla. O equipamento devolve o
+   KCV de cada componente, calculado com 3DES, para o custodiante conferir o
+   seu.
+
+   ```
+   python3 host/hsmtool.py comp-load 0 2 --alg T2 --uso K0 --modo B --exp E <16 bytes hex>
+   python3 host/hsmtool.py comp-load 1 2 --alg T2 --uso K0 --modo B --exp E <16 bytes hex>
+   python3 host/hsmtool.py kcv --tdes <componente 0> <componente 1>   # a conta, no PC
+   ```
+
+2. **Guardar.** A KEK fica num slot do console e vai para a flash,
+   embrulhada sob a LMK, como as chaves AES. Desligar e religar não a perde.
+3. **Levar à porta host.** `export-key` devolve a KEK num bloco versão D sob
+   a LMK, que o host guarda.
+4. **Exportar uma chave.** `K4` com o bloco da KEK 3DES e o da chave devolve
+   a chave num bloco **versão B** sob a KEK, e o KCV. Chave AES, ou tripla
+   sob KEK dupla: `13`, "esta KEK não serve para esta chave".
+5. **Importar uma chave.** `K6` com o bloco da KEK 3DES e um bloco versão B
+   recebido devolve a chave sob a LMK, e o KCV. Bloco de outra versão, chave
+   que a regra de força recusa, MAC errado: `10`, o mesmo código para toda
+   recusa do bloco recebido.
+
+**O que o equipamento não aceita num bloco B.** Chave de DES simples (8
+bytes) e blocos opcionais no cabeçalho. Os dois são válidos na norma, e o
+equipamento os recusa de propósito: DES simples não existe aqui, e um bloco
+opcional que o firmware ignorasse continuaria dentro do MAC, que fecharia
+sobre um campo que ninguém leu.
+
+**O autoteste.** O autoteste de primeiro uso do 3DES (seção 39.8) passou a
+incluir um vetor de CMAC-TDES do NIST, a abertura do bloco publicado acima,
+um bit trocado no cabeçalho, que tem de ser recusado, e uma ida e volta. Ele
+roda também quando o boot restaura da flash uma chave 3DES.

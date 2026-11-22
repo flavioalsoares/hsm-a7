@@ -16,13 +16,21 @@
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/aes/KAT_AES.zip
 sha256 a203b16c9246b2ebae31dee5de21a606be80cf78ceabaca37150236fa098eb60
 
-[CMAC-AES-256]  NIST CAVP — CMACVS
+[CMAC-AES-256 e CMAC-TDES]  NIST CAVP — CMACVS
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/mac/cmactestvectors.zip
 sha256 bdda4edade394c9a2ae74d9cd0921caa120c911a5e735e37abf39d0d5f062be1
-extrai CMACGenAES256.rsp  (o zip tem 8,8 MB com 3DES e AES-128/192, que
-       este projeto nao usa e nao deve ter a mao)
+extrai CMACGenAES256.rsp; desde a etapa 8.7 (2026-11-21), também
+       CMACGenTDES2.rsp e CMACGenTDES3.rsp, do MESMO zip (mesmo hash). O
+       resto (AES-128/192 e a verificação) não é usado.
 uso    fase 3 — deriva KBEK/KBAK da LMK e autentica o key block X9.143.
        Baixado em 2026-08-09.
+       fase 8, etapa 8.7 — o CMAC-TDES deriva KBEK/KBAK de uma KEK 3DES e
+       autentica o key block versão B. 96 vetores de duas chaves (Key3 =
+       Key1), todos com tag truncada (Tlen 5 e 7), e 96 de três, metade
+       com a tag cheia (Tlen 8) e metade com 5 bytes. ⚠ Nenhum vetor do
+       NIST confere o último byte da tag com chave DUPLA: quem confere são
+       os blocos versão B do psec com KBPK dupla, cujo MAC tem 8 bytes. Mensagens de 0, 7, 8, 15, 16 e 32 bytes: bloco
+       vazio, incompleto e completo, que são os três caminhos do CMAC.
 
 [SHA-256]  NIST CAVP — SHAVS (byte-oriented)
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/shs/shabytetestvectors.zip
@@ -76,6 +84,37 @@ uso    fase 3 — o único KAT do formato de key block. Baixado em 2026-08-29.
        por norma, então embrulhar não é determinístico e não existe KAT
        possível. Essa direção é verificada por ida-e-volta e pelo acordo
        entre as duas implementações.
+
+[ANSI X9.143 / TR-31 versão B]  valores conhecidos de TERCEIROS
+url    https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_tr31.py
+sha256 e1f42adaed9e2335dc837ba3278310bec0e9a9b2238ec7b38c87c0516addf491
+extrai os 6 blocos cuja versão é 'B', literalmente, por scripts/_extrai_tr31b.py
+uso    fase 8, etapa 8.7 — key block sob KEK 3DES. Baixado em 2026-11-21.
+
+       ⚠ Mesma procedência do vetor da versão D: o arquivo de testes do
+       `psec` (MIT), função "known values from 3rd parties". O hash é o
+       MESMO do arquivo do vetor D, fixado em outro commit: o arquivo não
+       mudou entre os dois commits. É uma fonte só (decisão do usuário,
+       2026-11-21: basta, junto com o CMAC-TDES do NIST).
+
+       Dos 6, este projeto ACEITA 3 e RECUSA 3, de propósito:
+         0  chave de 8 bytes (DES simples): não existe neste equipamento;
+         1  KBPK dupla, chave dupla, uso M3, modo C           aceito
+         2  KBPK tripla, chave dupla                          aceito
+         3  KBPK dupla, chave dupla, uso P0                   aceito
+         4  blocos opcionais (KS): não suportados, ver tr31.c
+         5  blocos opcionais (KS): idem
+       O teste exige a chave publicada nos três aceitos e a recusa nos
+       outros três.
+
+       O que cobrem: desembrulhar, ponta a ponta — a derivação por
+       CMAC-TDES, o 3DES-CBC com o MAC de IV e o MAC de 8 bytes. Os blocos
+       1 e 2 têm 32 bytes de corpo para uma chave de 16 (o enchimento
+       esconde o tamanho), e o 3, 24.
+
+       O que NÃO cobrem: embrulhar (enchimento aleatório, como na D) e a
+       KBPK tripla com chave tripla. Esses casos são conferidos entre o C,
+       o Python e a biblioteca `cryptography`.
 
 [TDES / 3DES]  NIST CAVP — SP 800-20 (KAT) e MMT
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/des/KAT_TDES.zip
@@ -214,6 +253,8 @@ dc0cb380169f43a83c4aff86eeb146d5861a7e0247908106f8b6fd37902e97f8  aes/CBCVarKey2
 41026476e854b2e941804726300da7222c5f7ee5b28490a1e52c4ebfbb9dfc11  aes/ECBVarKey256.rsp
 0be3b50f6b3e28e34e16f72d1acbcea4e3c240d725a32b30917b9e560e8ef24e  aes/ECBVarTxt256.rsp
 b7bbc0e72324efa5155b33c525850e967abf4cea2a078089262bf628a96bc0ea  cmac/CMACGenAES256.rsp
+fdadebc3a619760846872187bcf64278f7d6fe5fda201966d9e7e69c706a5146  cmac/CMACGenTDES2.rsp
+d47f1aeb65ad3dd97988bb57f6d24a9524a8c60383aa81408683df199d3cdc7b  cmac/CMACGenTDES3.rsp
 b1b12df719b72e48e2b5d576066733b78807f39f8d338f4d01492af10fb5ef74  drbg/CTR_DRBG_AES256.rsp
 4461384f5822b9a4074911f55ec4774610a654cc08df6e75ba69698b4dbfc329  ecdsa/KeyPair_P256.rsp
 026244bc43e1549fb4d6a4e2cc688eeb956a0074e10ea8801c3c350b3ee4adac  ecdsa/PKV_P256.rsp
@@ -227,6 +268,7 @@ f0e4a23c88630ab5f35cce8f6ad10b5ced08ae5745c4cccf652aa881a8046292  rsa/KeyGen_186
 84eb2584488a1dd960f9c9fbe5366696b7ebe6f13bcfe287e4ee48333341c5ec  rsa/SigGen15_186-3.rsp
 19c49b8fc7102cc12476e215854cd228f1f8c0d316f0ea2df6c183f167e9724a  rsa/SigGen15_186-3.txt
 39d78f2653758bfbdc78e6188ddfda134097cd83198cfc9e0105f0684c8ef9ab  tr31/x9143_D_AES256.rsp
+0c9de9ceb3b2c242421e710359f4ed7e30b596c089202c727486e2922523297a  tr31/x9143_B_TDES.rsp
 884959d3b61c4a9af5fd5bb3619d78958f92ac17145a43585aae9facaf7bd1e2  pinblock/iso9564_f4.rsp
 98b88b6037af73855532a0ebdd01b7a93e73ab24553b0c200183a7797763fc78  pinblock/iso9564_f0.rsp
 62cf7c4db04055b3e84e7b4c7439f80563b795cdb28c970ab4cd47d077ae8018  pinverif/psec_pin.rsp

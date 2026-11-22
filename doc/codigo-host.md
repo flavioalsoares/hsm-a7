@@ -10,7 +10,7 @@ host/
   hsmhost.py       a porta HOST (fase 5): command set ASCII, key block no
                    comando
   hsm_ponte.py     ponte TCP <-> UART da porta host; repassa sem entender
-  tr31.py          key block ANSI X9.143 (TR-31 versão D), segunda implementação
+  tr31.py          key block ANSI X9.143 (TR-31 versões D e B), segunda implementação
   test_hsmtool.py  testes do transporte, sem placa (pty + dispositivo falso)
   test_tr31.py     testes do key block, sem placa
   audit.py         placeholder; a leitura do log está em `hsmtool.py audit`
@@ -190,6 +190,8 @@ concordariam num erro do AES sem nunca discordar.
 python3 host/hsmtool.py selftest    # codec: vetores fixos, CRC e LEN recusados
 python3 host/test_hsmtool.py        # transporte
 python3 host/test_tr31.py           # key block
+python3 host/test_tr31b.py          # key block versão B (KEK 3DES)
+python3 host/test_cmac_tdes.py      # CMAC-TDES, vetores do NIST
 ```
 
 - **`test_hsmtool.py`** liga o cliente a um **pty** e põe do outro lado um
@@ -335,6 +337,22 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
 - **`host/test_cvv.py`** não fala com a placa. Confere o Python contra os 7
   valores de terceiros, e o KCV das chaves do jPOS; compila `fw/src/cvv.c` com
   `gcc` para comparar a montagem da entrada e a extração (manual, seção 42.4).
+
+- **`host/tr31.py`, versão B** (etapa 8.7): o key block sob uma KBPK 3DES,
+  com o 3DES e o CMAC da biblioteca `cryptography` (não o `des.py`, para a
+  conferência valer contra o `des.c`). `embrulha(..., versao="B")`;
+  `desembrulha()` lê a versão do bloco.
+- **`hsmtool.py comp-load --alg T2|T3`** monta uma chave 3DES por componentes
+  de 16 ou 24 bytes, e **`hsmtool.py kcv --tdes`** faz no PC a conta do KCV
+  3DES de cada componente e da chave montada.
+- **`hsmhost.py tdes-confere`** passou a conferir a KEK 3DES: `K4` e `K6` em
+  bloco versão B, abertos e fechados pelo Python, e as recusas da regra de
+  força nos dois sentidos.
+- **`host/test_cmac_tdes.py`** e **`host/test_tr31b.py`** não falam com a
+  placa. O primeiro confere o CMAC-TDES do firmware (compilado com `gcc`) e o
+  da `cryptography` contra os 192 vetores do NIST. O segundo confere a versão
+  B: os 6 blocos de terceiros, o C contra o Python com o mesmo enchimento, e
+  um bit trocado em cada posição (manual, seção 42.7).
 
 - **`host/regressao.py --lmk LMK [--rapido]`** é a regressão na placa: roda o
   `ping`, o `post`, os sensores, todos os `confere`, os vetores do CAVP e o

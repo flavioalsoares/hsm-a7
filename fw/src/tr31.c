@@ -10,6 +10,8 @@
 #include "tr31.h"
 #include "aes_modos.h"
 #include "cmac.h"
+#include "cmac_tdes.h"
+#include "des.h"
 #include "hsm_cfs.h"
 #include "kat_vectors.h"
 #include "keystore.h"
@@ -186,9 +188,10 @@ static int cab_valido(const tr31_cab_t *cab, uint32_t chave_n)
     return 1;
 }
 
-static void cab_escreve(char *dst, const tr31_cab_t *cab, uint32_t total)
+static void cab_escreve(char *dst, const tr31_cab_t *cab, uint32_t total,
+                        char versao)
 {
-    dst[0]  = 'D';
+    dst[0]  = versao;
     dst[1]  = (char)('0' + (total / 1000u) % 10u);
     dst[2]  = (char)('0' + (total / 100u) % 10u);
     dst[3]  = (char)('0' + (total / 10u) % 10u);
@@ -207,13 +210,16 @@ static void cab_escreve(char *dst, const tr31_cab_t *cab, uint32_t total)
 }
 
 /* Devolve o comprimento declarado, ou 0 se o cabecalho nao serve. */
-static uint32_t cab_le(const char *src, tr31_cab_t *cab)
+static uint32_t cab_le(const char *src, tr31_cab_t *cab, char versao)
 {
     uint32_t total = 0u;
     uint32_t i;
 
-    if (src[0] != 'D') {
-        return 0u;   /* este projeto so faz a versao D */
+    /* A versao vem de quem chama, e nao do bloco: sob a LMK so vale a D, sob
+     * uma KEK 3DES so a B. Aceitar a que o bloco declarar deixaria o host
+     * escolher a primitiva. */
+    if (src[0] != versao) {
+        return 0u;
     }
     for (i = 1u; i <= 4u; i++) {
         if (src[i] < '0' || src[i] > '9') {
@@ -286,7 +292,7 @@ int tr31_embrulha_n(const uint8_t kbek[TR31_SUBCHAVE_LEN],
     corpo_n += falta;
 
     total = TR31_CAB_LEN + 2u * corpo_n + 2u * TR31_MAC_LEN;
-    cab_escreve(saida, cab, total);
+    cab_escreve(saida, cab, total, 'D');
 
     /* O MAC cobre cabecalho + corpo EM CLARO, e so depois vira IV.
      * Autenticar o criptograma daria um MAC que nao diz nada sobre a
@@ -357,7 +363,7 @@ int tr31_desembrulha_n(const uint8_t kbek[TR31_SUBCHAVE_LEN],
         goto fim;
     }
 
-    declarado = cab_le(bloco, cab);
+    declarado = cab_le(bloco, cab, 'D');
     if (declarado != bloco_n) {
         /* O campo de comprimento entra no MAC, entao mentir nele ja
          * invalidaria o bloco -- conferir aqui e sobre nao decifrar o que
@@ -531,6 +537,268 @@ int tr31_selftest(void)
     }
     for (i = 0u; i < chave_n; i++) {
         if (chave[i] != (uint8_t)(0xA5u ^ i)) {
+            goto fim;
+        }
+    }
+    r = 0;
+
+fim:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(chave, sizeof chave);
+    wipe(bloco, sizeof bloco);
+    return r;
+}
+
+/* =====================================================================
+ * VERSAO B -- KBPK 3DES (fase 8, etapa 8.7). Ver tr31.h.
+ *
+ * Funcoes proprias, e nao a D com parametros: a D e validada e esta no POST
+ * de todo boot. As duas tem a mesma ordem de passos, e devem ser lidas lado
+ * a lado.
+ * ===================================================================== */
+#define BLK_B   TR31B_BLOCO
+#define DERIV_B_DUPLA   0x0000u
+#define DERIV_B_TRIPLA  0x0001u
+
+static int deriva_b_uma(const uint8_t *kbpk, uint32_t n, uint16_t proposito,
+                        uint8_t *saida)
+{
+    uint8_t  dados[8];
+    uint16_t alg  = (n == TDES_CHAVE_3) ? DERIV_B_TRIPLA : DERIV_B_DUPLA;
+    uint16_t bits = (uint16_t)(n * 8u);
+    uint32_t contador;
+    int      r = 0;
+
+    for (contador = 1u; contador <= n / CMAC_TDES_TAG; contador++) {
+        dados[0] = (uint8_t)contador;
+        dados[1] = (uint8_t)(proposito >> 8);
+        dados[2] = (uint8_t)(proposito & 0xFFu);
+        dados[3] = 0x00u;
+        dados[4] = (uint8_t)(alg >> 8);
+        dados[5] = (uint8_t)(alg & 0xFFu);
+        dados[6] = (uint8_t)(bits >> 8);
+        dados[7] = (uint8_t)(bits & 0xFFu);
+        if (cmac_tdes(kbpk, n, dados, sizeof dados,
+                      &saida[(contador - 1u) * CMAC_TDES_TAG]) != 0) {
+            r = -1;
+            break;
+        }
+    }
+    wipe(dados, sizeof dados);
+    return r;
+}
+
+int tr31b_deriva(const uint8_t *kbpk, uint32_t n,
+                 uint8_t kbek[TR31B_SUBCHAVE_MAX],
+                 uint8_t kbak[TR31B_SUBCHAVE_MAX])
+{
+    if ((kbpk == 0) || (kbek == 0) || (kbak == 0) ||
+        ((n != TDES_CHAVE_2) && (n != TDES_CHAVE_3)) ||
+        (deriva_b_uma(kbpk, n, DERIV_KBEK, kbek) != 0) ||
+        (deriva_b_uma(kbpk, n, DERIV_KBAK, kbak) != 0)) {
+        if (kbek != 0) { wipe(kbek, TR31B_SUBCHAVE_MAX); }
+        if (kbak != 0) { wipe(kbak, TR31B_SUBCHAVE_MAX); }
+        return -1;
+    }
+    return 0;
+}
+
+int tr31b_embrulha(const uint8_t *kbek, const uint8_t *kbak, uint32_t n,
+                   const tr31_cab_t *cab,
+                   const uint8_t *chave, uint8_t chave_n,
+                   const uint8_t *enchimento, uint8_t enchimento_n,
+                   char *saida, uint32_t *saida_n)
+{
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    uint8_t     mac[TR31B_MAC_LEN];
+    uint32_t    corpo_n, falta, total, i;
+    uint32_t    bits;
+    int         r = -1;
+
+    if (((n != TDES_CHAVE_2) && (n != TDES_CHAVE_3)) ||
+        !cab_valido(cab, chave_n) || (chave_n > TR31_CHAVE_MAX)) {
+        return -1;
+    }
+    bits    = (uint32_t)chave_n * 8u;
+    corpo_n = 2u + (uint32_t)chave_n;
+    falta   = ((BLK_B - (corpo_n % BLK_B)) % BLK_B);
+    if ((enchimento_n < falta) || (corpo_n + falta > TR31B_CORPO_MAX)) {
+        return -1;
+    }
+
+    CORPO[0] = (uint8_t)(bits >> 8);
+    CORPO[1] = (uint8_t)(bits & 0xFFu);
+    for (i = 0u; i < chave_n; i++) {
+        CORPO[2u + i] = chave[i];
+    }
+    for (i = 0u; i < falta; i++) {
+        CORPO[corpo_n + i] = enchimento[i];
+    }
+    corpo_n += falta;
+
+    total = TR31_CAB_LEN + 2u * corpo_n + 2u * TR31B_MAC_LEN;
+    cab_escreve(saida, cab, total, 'B');
+    for (i = 0u; i < TR31_CAB_LEN; i++) {
+        g_kb[i] = (uint8_t)saida[i];
+    }
+
+    /* MAC sobre cabecalho + corpo em claro; depois ele e o IV. */
+    if (cmac_tdes(kbak, n, g_kb, TR31_CAB_LEN + corpo_n, mac) != 0) {
+        goto fim;
+    }
+    if ((tdes_prepara(ctx, kbek, n) != 0) ||
+        (tdes_cbc(ctx, mac, CORPO, CORPO, corpo_n, 1) != 0)) {
+        goto fim;
+    }
+    hex_escreve(&saida[TR31_CAB_LEN], CORPO, corpo_n);
+    hex_escreve(&saida[TR31_CAB_LEN + 2u * corpo_n], mac, TR31B_MAC_LEN);
+    *saida_n = total;
+    r = 0;
+
+fim:
+    tdes_apaga(ctx);
+    wipe(g_kb, sizeof g_kb);
+    wipe(mac, sizeof mac);
+    return r;
+}
+
+int tr31b_desembrulha(const uint8_t *kbek, const uint8_t *kbak, uint32_t n,
+                      const char *bloco, uint32_t bloco_n,
+                      tr31_cab_t *cab,
+                      uint8_t chave[TR31_CHAVE_MAX], uint8_t *chave_n)
+{
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    uint8_t     mac[TR31B_MAC_LEN];
+    uint32_t    declarado, corpo_n, i;
+    uint32_t    bits;
+    int         r = -1;
+
+    *chave_n = 0u;
+
+    if (((n != TDES_CHAVE_2) && (n != TDES_CHAVE_3)) ||
+        (bloco_n < TR31_CAB_LEN + 2u * BLK_B + 2u * TR31B_MAC_LEN) ||
+        (bloco_n > TR31B_ASCII_MAX)) {
+        goto fim;
+    }
+    declarado = cab_le(bloco, cab, 'B');
+    if (declarado != bloco_n) {
+        goto fim;
+    }
+    corpo_n = (bloco_n - TR31_CAB_LEN - 2u * TR31B_MAC_LEN) / 2u;
+    if ((corpo_n == 0u) || ((corpo_n % BLK_B) != 0u) ||
+        (corpo_n > TR31B_CORPO_MAX) ||
+        ((bloco_n - TR31_CAB_LEN) % 2u != 0u)) {
+        goto fim;
+    }
+    if ((hex_le(&bloco[TR31_CAB_LEN], CORPO, corpo_n) != 0) ||
+        (hex_le(&bloco[bloco_n - 2u * TR31B_MAC_LEN], mac,
+                TR31B_MAC_LEN) != 0)) {
+        goto fim;
+    }
+    if ((tdes_prepara(ctx, kbek, n) != 0) ||
+        (tdes_cbc(ctx, mac, CORPO, CORPO, corpo_n, 0) != 0)) {
+        goto fim;
+    }
+    tdes_apaga(ctx);   /* o CMAC abaixo usa o mesmo contexto */
+    for (i = 0u; i < TR31_CAB_LEN; i++) {
+        g_kb[i] = (uint8_t)bloco[i];
+    }
+    if (cmac_tdes_verifica(kbak, n, g_kb, TR31_CAB_LEN + corpo_n, mac) != 1) {
+        goto fim;
+    }
+
+    /* So agora o conteudo decifrado merece credito. */
+    bits = ((uint32_t)CORPO[0] << 8) | (uint32_t)CORPO[1];
+    if (((bits % 8u) != 0u) || (bits == 0u) ||
+        ((2u + bits / 8u) > corpo_n) || ((bits / 8u) > TR31_CHAVE_MAX) ||
+        !cab_valido(cab, bits / 8u)) {
+        goto fim;
+    }
+    *chave_n = (uint8_t)(bits / 8u);
+    for (i = 0u; i < *chave_n; i++) {
+        chave[i] = CORPO[2u + i];
+    }
+    r = 0;
+
+fim:
+    tdes_apaga(ctx);
+    wipe(g_kb, sizeof g_kb);
+    wipe(mac, sizeof mac);
+    if (r != 0) {
+        wipe(chave, TR31_CHAVE_MAX);
+        wipe(cab, sizeof *cab);
+        *chave_n = 0u;
+    }
+    return r;
+}
+
+/* Autoteste da versao B, no primeiro uso do 3DES. As mesmas tres
+ * verificacoes de tr31_selftest(), mais o CMAC-TDES sozinho, antes: se ele
+ * falhar, o bloco falha por um motivo que o vetor do CMAC ja aponta. */
+int tr31b_selftest(void)
+{
+    uint8_t    kbek[TR31B_SUBCHAVE_MAX], kbak[TR31B_SUBCHAVE_MAX];
+    uint8_t    chave[TR31_CHAVE_MAX];
+    uint8_t    chave_n = 0u;
+    tr31_cab_t cab;
+    char       bloco[TR31B_ASCII_MAX];
+    uint32_t   bloco_n = 0u, i;
+    int        r = -1;
+
+    /* 0. o CMAC-TDES, tag cheia de 8 bytes */
+    if (cmac_tdes_verifica(kat_cmac_tdes_chave, TDES_CHAVE_3,
+                           kat_cmac_tdes_msg, KAT_CMAC_TDES_MSG_LEN,
+                           kat_cmac_tdes_tag) != 1) {
+        goto fim;
+    }
+    if (tr31b_deriva(kat_tr31b_kbpk, KAT_TR31B_KBPK_LEN, kbek, kbak) != 0) {
+        goto fim;
+    }
+    /* 1. o bloco de terceiros */
+    for (i = 0u; i < KAT_TR31B_KB_LEN; i++) {
+        bloco[i] = (char)kat_tr31b_kb[i];
+    }
+    if ((tr31b_desembrulha(kbek, kbak, KAT_TR31B_KBPK_LEN, bloco,
+                           KAT_TR31B_KB_LEN, &cab, chave, &chave_n) != 0) ||
+        (chave_n != KAT_TR31B_KEY_LEN)) {
+        goto fim;
+    }
+    for (i = 0u; i < chave_n; i++) {
+        if (chave[i] != kat_tr31b_key[i]) {
+            goto fim;
+        }
+    }
+    /* 2. a exportabilidade trocada tem de ser recusada */
+    bloco[11] = (bloco[11] == 'N') ? 'E' : 'N';
+    if (tr31b_desembrulha(kbek, kbak, KAT_TR31B_KBPK_LEN, bloco,
+                          KAT_TR31B_KB_LEN, &cab, chave, &chave_n) == 0) {
+        goto fim;
+    }
+    /* 3. ida e volta, com enchimento fixo */
+    cab.uso[0]          = (uint8_t)'K';
+    cab.uso[1]          = (uint8_t)'0';
+    cab.algoritmo       = (uint8_t)KS_ALG_TDES;
+    cab.modo            = (uint8_t)KS_MODO_AMBOS;
+    cab.versao_chave[0] = (uint8_t)'0';
+    cab.versao_chave[1] = (uint8_t)'0';
+    cab.exportabilidade = (uint8_t)KS_EXP_SIM;
+    for (i = 0u; i < TDES_CHAVE_3; i++) {
+        chave[i] = (uint8_t)(0x5Au ^ i);
+    }
+    if (tr31b_embrulha(kbek, kbak, KAT_TR31B_KBPK_LEN, &cab, chave,
+                       TDES_CHAVE_3, kat_tr31b_key, KAT_TR31B_KEY_LEN,
+                       bloco, &bloco_n) != 0) {
+        goto fim;
+    }
+    wipe(chave, sizeof chave);
+    if ((tr31b_desembrulha(kbek, kbak, KAT_TR31B_KBPK_LEN, bloco, bloco_n,
+                           &cab, chave, &chave_n) != 0) ||
+        (chave_n != TDES_CHAVE_3)) {
+        goto fim;
+    }
+    for (i = 0u; i < chave_n; i++) {
+        if (chave[i] != (uint8_t)(0x5Au ^ i)) {
             goto fim;
         }
     }

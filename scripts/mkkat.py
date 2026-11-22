@@ -461,6 +461,52 @@ def ecdsa_vetor():
             "digest": hashlib.sha256(bytes.fromhex(c["Msg"])).digest()}
 
 
+def tr31b_e_cmac_tdes():
+    """Etapa 8.7: um vetor de CMAC-TDES do CAVP e um key block versao B.
+
+    CMAC-TDES: o vetor de chave TRIPLA com tag cheia (Tlen 8) e a maior
+    mensagem de vectors/cmac/CMACGenTDES3.rsp. O de chave dupla nao serve:
+    so traz tags truncadas.
+
+    Versao B: o bloco 3 de vectors/tr31/x9143_B_TDES.rsp (KBPK dupla, uso
+    P0), valor de terceiros -- ver o MANIFEST. Cobre desembrulhar.
+    """
+    regs, reg = [], {}
+    for ln in (VEC / "cmac" / "CMACGenTDES3.rsp").read_text().splitlines():
+        ln = ln.strip()
+        if not ln:
+            if reg:
+                regs.append(reg)
+                reg = {}
+            continue
+        m = re.match(r"^(\w+) = (\w+)$", ln)
+        if m:
+            reg[m[1]] = m[2]
+    if reg:
+        regs.append(reg)
+    cheios = [r for r in regs if r.get("Tlen") == "8"]
+    if len(cheios) != 48:
+        raise SystemExit("CMAC-TDES: esperava 48 tags cheias, achei %d" % len(cheios))
+    v = max(cheios, key=lambda r: int(r["Mlen"]))
+    cmac = {"chave": bytes.fromhex(v["Key1"] + v["Key2"] + v["Key3"]),
+            "msg": bytes.fromhex(v["Msg"])[:int(v["Mlen"])],
+            "tag": bytes.fromhex(v["Mac"])}
+
+    blocos = {}
+    for bloco in (VEC / "tr31" / "x9143_B_TDES.rsp").read_text().split("\n\n"):
+        d = dict(x.split(" = ", 1) for x in bloco.splitlines() if " = " in x)
+        if "KB" in d:
+            blocos[d["COUNT"]] = d
+    if len(blocos) != 6:
+        raise SystemExit("TR-31 B: esperava 6 blocos, achei %d" % len(blocos))
+    b = blocos["3"]
+    if not b["KB"].startswith("B0080P0T"):
+        raise SystemExit("TR-31 B: o bloco 3 nao e o esperado")
+    tr31b = {"kbpk": bytes.fromhex(b["KBPK"]), "key": bytes.fromhex(b["KEY"]),
+             "kb": b["KB"].encode("ascii")}
+    return cmac, tr31b
+
+
 def tdes_vetores():
     """Vetores do autoteste de DES/3DES, do CAVP (vectors/tdes/), copiados.
 
@@ -658,6 +704,21 @@ def main():
             hx(v["chave"], 24), len(v["chave"]), hx(v["iv"], 8),
             hx(v["entrada"], mx), hx(v["saida"], mx), len(v["entrada"]), v["cifrar"]))
     L.append("};")
+    L.append("")
+    cmac3, tr31b = tr31b_e_cmac_tdes()
+    L.append("/* Etapa 8.7: CMAC-TDES (CAVP, CMACGenTDES3.rsp, tag cheia) e key block")
+    L.append(" * X9.143 versao B (valor de terceiros, vectors/tr31/x9143_B_TDES.rsp,")
+    L.append(" * bloco 3). Autoteste de primeiro uso do 3DES. */")
+    L.append(carr("kat_cmac_tdes_chave", cmac3["chave"]))
+    L.append(carr("kat_cmac_tdes_msg", cmac3["msg"]))
+    L.append(f"#define KAT_CMAC_TDES_MSG_LEN {len(cmac3['msg'])}u")
+    L.append(carr("kat_cmac_tdes_tag", cmac3["tag"]))
+    L.append(carr("kat_tr31b_kbpk", tr31b["kbpk"]))
+    L.append(f"#define KAT_TR31B_KBPK_LEN {len(tr31b['kbpk'])}u")
+    L.append(carr("kat_tr31b_key", tr31b["key"]))
+    L.append(f"#define KAT_TR31B_KEY_LEN {len(tr31b['key'])}u")
+    L.append(carr("kat_tr31b_kb", tr31b["kb"]))
+    L.append(f"#define KAT_TR31B_KB_LEN {len(tr31b['kb'])}u")
     L.append("")
     L.append(carr("kat_tr31_kbpk", tr31["kbpk"]))
     L.append(carr("kat_tr31_key", tr31["key"]))

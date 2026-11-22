@@ -17,6 +17,7 @@
 #include "cvv.h"
 #include "des.h"
 #include "pkcs8.h"
+#include "kat.h"
 #include "wipe.h"
 
 /* Slot completo -- com a chave. Este tipo NÃO aparece no header: nada fora
@@ -70,6 +71,8 @@ static uint8_t g_pin_ok;
 
 static uint8_t g_comp_n;         /* quantos entraram  */
 static uint8_t g_comp_total;     /* quantos foram anunciados */
+static uint8_t g_comp_alg;       /* etapa 8.7: 'A' ou 'T', fixado no 0 */
+static uint8_t g_comp_len;       /* 32, ou 16 / 24 para 3DES */
 
 /* Uma so fonte de verdade: o host e a tabela de comandos precisam do mesmo
  * numero, e um `3` repetido em dois arquivos e um `4` pela metade esperando
@@ -186,6 +189,8 @@ void keystore_init(void)
     wipe_padrao(g_comp, sizeof g_comp);
     g_comp_n     = 0u;
     g_comp_total = 0u;
+    g_comp_alg   = 0u;
+    g_comp_len   = 0u;
     wipe_padrao(g_rsa, sizeof g_rsa);
     wipe_padrao(g_der, sizeof g_der);
     g_rsa_ok = 0u;
@@ -251,6 +256,8 @@ int keystore_prova_zeroizacao(void)
     acc |= g_lmk_comps;
     acc |= g_comp_n;
     acc |= g_comp_total;
+    acc |= g_comp_alg;
+    acc |= g_comp_len;
 
     return (acc == 0u) ? 1 : 0;
 }
@@ -304,11 +311,11 @@ static ks_handle_t instala_em(uint32_t i, const uint8_t uso[2],
         return KS_HANDLE_INVALIDO;
     }
     if (algoritmo == KS_ALG_TDES) {
-        /* Chave 3DES: comprimento duplo ou triplo, e so no slot efemero da
-         * porta host. Os slots do console e o registro na flash seguem so
-         * com AES-256 ate a troca de chaves 3DES (etapa 8.7). */
-        if ((i != EFEMERA) ||
-            ((key_len != TDES_CHAVE_2) && (key_len != TDES_CHAVE_3)) ||
+        /* Chave 3DES: comprimento duplo ou triplo. Desde a etapa 8.7 vale
+         * em qualquer slot: a chave de troca 3DES nasce por componentes no
+         * console e persiste na flash. O que a impede de cifrar dado ou
+         * fazer MAC AES sao uso_dados() e uso_mac(), que exigem AES. */
+        if (((key_len != TDES_CHAVE_2) && (key_len != TDES_CHAVE_3)) ||
             (kcv_tdes(chave, key_len, kcv) != 0)) {
             wipe(kcv, sizeof kcv);
             return KS_HANDLE_INVALIDO;
@@ -1201,15 +1208,22 @@ int keystore_cmac_verifica(ks_handle_t h, const uint8_t *msg, uint32_t msg_n,
     return r;
 }
 
-int comp_componente(uint8_t n, uint8_t total, const uint8_t comp[KS_KEY_MAX],
+int comp_componente(uint8_t n, uint8_t total, uint8_t algoritmo,
+                    const uint8_t *comp, uint8_t comp_n,
                     uint8_t kcv[KS_KCV_LEN])
 {
     uint8_t i;
+    int     v;
 
     if ((comp == 0) || (kcv == 0)) {
         return -1;
     }
     if ((total < KS_COMP_MIN) || (total > KS_COMP_MAX)) {
+        return -1;
+    }
+    if (!(((algoritmo == KS_ALG_AES) && (comp_n == KS_KEY_MAX)) ||
+          ((algoritmo == KS_ALG_TDES) &&
+           ((comp_n == TDES_CHAVE_2) || (comp_n == TDES_CHAVE_3))))) {
         return -1;
     }
 
@@ -1220,22 +1234,28 @@ int comp_componente(uint8_t n, uint8_t total, const uint8_t comp[KS_KEY_MAX],
         wipe_padrao(g_comp, sizeof g_comp);
         g_comp_n     = 0u;
         g_comp_total = total;
+        g_comp_alg   = algoritmo;
+        g_comp_len   = comp_n;
     } else {
-        /* Fora de ordem, ou anunciando um total diferente do que comecou:
-         * recusa SEM tocar no acumulado. Um host que erre a sequencia nao
-         * pode destruir a cerimonia de quem esta na frente da placa. */
-        if ((n != g_comp_n) || (total != g_comp_total)) {
+        /* Fora de ordem, anunciando um total diferente do que comecou, ou
+         * com outro algoritmo ou tamanho: recusa SEM tocar no acumulado.
+         * Um host que erre a sequencia nao pode destruir a cerimonia de
+         * quem esta na frente da placa. */
+        if ((n != g_comp_n) || (total != g_comp_total) ||
+            (algoritmo != g_comp_alg) || (comp_n != g_comp_len)) {
             return -1;
         }
     }
 
     /* O KCV do COMPONENTE, calculado antes de acumular -- e o que o
      * custodiante confere. */
-    if (keystore_kcv(comp, KS_KEY_MAX, kcv) != 0) {
+    v = (algoritmo == KS_ALG_TDES) ? kcv_tdes(comp, comp_n, kcv)
+                                   : keystore_kcv(comp, KS_KEY_MAX, kcv);
+    if (v != 0) {
         return -1;
     }
 
-    for (i = 0u; i < KS_KEY_MAX; i++) {
+    for (i = 0u; i < comp_n; i++) {
         g_comp[i] ^= comp[i];
     }
     g_comp_n++;
@@ -1257,9 +1277,12 @@ ks_handle_t comp_instala(const uint8_t uso[2], uint8_t algoritmo,
 {
     ks_handle_t h = KS_HANDLE_INVALIDO;
 
-    if ((g_comp_total >= KS_COMP_MIN) && (g_comp_n == g_comp_total)) {
+    /* O algoritmo do cabecalho tem de ser o dos componentes: 32 bytes
+     * montados como AES nao viram 3DES na instalacao, nem o contrario. */
+    if ((g_comp_total >= KS_COMP_MIN) && (g_comp_n == g_comp_total) &&
+        (algoritmo == g_comp_alg)) {
         h = keystore_instala(uso, algoritmo, modo, exportabilidade,
-                             g_comp, KS_KEY_MAX);
+                             g_comp, g_comp_len);
     }
 
     /* Limpa em QUALQUER desfecho, inclusive na falha. Uma chave montada
@@ -1270,6 +1293,8 @@ ks_handle_t comp_instala(const uint8_t uso[2], uint8_t algoritmo,
     wipe_padrao(g_comp, sizeof g_comp);
     g_comp_n     = 0u;
     g_comp_total = 0u;
+    g_comp_alg   = 0u;
+    g_comp_len   = 0u;
     return h;
 }
 
@@ -1806,21 +1831,28 @@ fim:
  * ------------------------------------------------------------------ */
 
 int keystore_kek_deriva(ks_handle_t h, uint8_t precisa_modo,
-                        uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX])
+                        uint8_t kbek[KS_KEY_MAX], uint8_t kbak[KS_KEY_MAX],
+                        uint8_t *n)
 {
-    int i = indice(h);
+    int     i = indice(h);
+    uint8_t aes, tdes;
 
-    if ((i < 0) || (kbek == 0) || (kbak == 0)) {
+    if ((i < 0) || (kbek == 0) || (kbak == 0) || (n == 0)) {
         return -1;
     }
+    *n = 0u;
     /* Só uma chave de USO 'K0' protege outra chave. Sem isso, qualquer
      * chave de dados com modo 'B' viraria KEK, e o que foi cifrado como
      * dado poderia ser apresentado como chave -- a confusão de tipo que o
-     * key block existe para fechar. AES-256 porque a derivação X9.143
-     * deste dispositivo é a da KBPK de 32 bytes, a mesma da LMK. */
+     * key block existe para fechar. AES-256 (versão D, a mesma derivação da
+     * LMK) ou, desde a etapa 8.7, 3DES duplo ou triplo (versão B). */
+    aes  = (uint8_t)((g_slots[i].algoritmo == KS_ALG_AES) &&
+                     (g_slots[i].key_len == KS_KEY_MAX));
+    tdes = (uint8_t)((g_slots[i].algoritmo == KS_ALG_TDES) &&
+                     ((g_slots[i].key_len == TDES_CHAVE_2) ||
+                      (g_slots[i].key_len == TDES_CHAVE_3)));
     if ((g_slots[i].uso[0] != (uint8_t)'K') ||
-        (g_slots[i].uso[1] != (uint8_t)'0') ||
-        (g_slots[i].key_len != KS_KEY_MAX)) {
+        (g_slots[i].uso[1] != (uint8_t)'0') || (!aes && !tdes)) {
         return -2;
     }
     /* 'E' embrulha (exportar), 'D' desembrulha (importar), 'B' os dois.
@@ -1830,11 +1862,56 @@ int keystore_kek_deriva(ks_handle_t h, uint8_t precisa_modo,
         return -3;
     }
     g_slots[i].contador_uso++;
-    return (tr31_deriva(g_slots[i].chave, kbek, kbak) == 0) ? 0 : -1;
+    if (aes) {
+        if (tr31_deriva(g_slots[i].chave, kbek, kbak) != 0) {
+            return -1;
+        }
+    } else if (tr31b_deriva(g_slots[i].chave, g_slots[i].key_len,
+                            kbek, kbak) != 0) {
+        return -1;
+    }
+    *n = g_slots[i].key_len;
+    return 0;
+}
+
+int keystore_kek_transporta(uint8_t n_kek, uint8_t algoritmo, uint8_t key_len)
+{
+    if (n_kek == KS_KEY_MAX) {
+        return 1;           /* KEK AES-256: a mais forte deste equipamento */
+    }
+    if ((n_kek != TDES_CHAVE_2) && (n_kek != TDES_CHAVE_3)) {
+        return 0;
+    }
+    return ((algoritmo == KS_ALG_TDES) && (key_len <= n_kek)) ? 1 : 0;
+}
+
+/* O mesmo que embrulha_slot(), em versão B, sob subchaves 3DES de `n`
+ * bytes. FRONTEIRA: dentro. */
+static int embrulha_slot_b(int i, const uint8_t *kbek, const uint8_t *kbak,
+                           uint8_t n, char *saida, uint32_t *saida_n)
+{
+    uint8_t    enchimento[TR31B_BLOCO];
+    tr31_cab_t cab;
+    int        r = -1;
+
+    if (drbg_dispositivo_bytes(enchimento, sizeof enchimento) == 0) {
+        cab.uso[0]          = g_slots[i].uso[0];
+        cab.uso[1]          = g_slots[i].uso[1];
+        cab.algoritmo       = g_slots[i].algoritmo;
+        cab.modo            = g_slots[i].modo;
+        cab.versao_chave[0] = (uint8_t)'0';
+        cab.versao_chave[1] = (uint8_t)'0';
+        cab.exportabilidade = g_slots[i].exportabilidade;
+        r = tr31b_embrulha(kbek, kbak, n, &cab, g_slots[i].chave,
+                           g_slots[i].key_len, enchimento,
+                           (uint8_t)sizeof enchimento, saida, saida_n);
+    }
+    wipe(enchimento, sizeof enchimento);
+    return r;
 }
 
 int keystore_embrulha_kek(ks_handle_t h, const uint8_t kbek[KS_KEY_MAX],
-                          const uint8_t kbak[KS_KEY_MAX],
+                          const uint8_t kbak[KS_KEY_MAX], uint8_t n,
                           char *saida, uint32_t *saida_n)
 {
     int i = indice(h);
@@ -1846,7 +1923,14 @@ int keystore_embrulha_kek(ks_handle_t h, const uint8_t kbek[KS_KEY_MAX],
     if (!exportavel(i)) {
         return -2;
     }
-    return (embrulha_slot(i, kbek, kbak, saida, saida_n) == 0) ? 0 : -1;
+    if (!keystore_kek_transporta(n, g_slots[i].algoritmo,
+                                 g_slots[i].key_len)) {
+        return -3;
+    }
+    if (n == KS_KEY_MAX) {
+        return (embrulha_slot(i, kbek, kbak, saida, saida_n) == 0) ? 0 : -1;
+    }
+    return (embrulha_slot_b(i, kbek, kbak, n, saida, saida_n) == 0) ? 0 : -1;
 }
 
 int keystore_embrulha_lmk(ks_handle_t h, char *saida, uint32_t *saida_n)
@@ -1893,6 +1977,21 @@ int keystore_embrulha_lmk(ks_handle_t h, char *saida, uint32_t *saida_n)
 
 #define REG_ENTRADA  (1u + TR31_ASCII_MAX)
 
+/* O comprimento do bloco de uma entrada, lido dos 4 digitos do cabecalho.
+ * 0 se nao for numero ou passar da entrada: tr31_desembrulha() recusa. */
+static uint32_t reg_bloco_n(const uint8_t *e)
+{
+    uint32_t n = 0u, k;
+
+    for (k = 1u; k <= 4u; k++) {
+        if ((e[k] < (uint8_t)'0') || (e[k] > (uint8_t)'9')) {
+            return 0u;
+        }
+        n = n * 10u + (uint32_t)(e[k] - (uint8_t)'0');
+    }
+    return (n <= TR31_ASCII_MAX) ? n : 0u;
+}
+
 int keystore_registro_monta(uint8_t *buf, uint32_t max, uint32_t *n)
 {
     uint8_t    kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
@@ -1922,8 +2021,15 @@ int keystore_registro_monta(uint8_t *buf, uint32_t max, uint32_t *n)
         buf[pos] = (uint8_t)i;
         if ((embrulha_slot((int)i, kbek, kbak, (char *)&buf[pos + 1u],
                            &kb_n) != 0) ||
-            (kb_n != TR31_ASCII_MAX)) {
+            (kb_n > TR31_ASCII_MAX)) {
             goto fim;
+        }
+        /* Etapa 8.7: o bloco de uma chave 3DES tem 112 caracteres, e a
+         * entrada continua com 144. O resto vai com '0'; o comprimento
+         * verdadeiro esta no cabecalho do bloco, e e ele que a carga le. */
+        while (kb_n < TR31_ASCII_MAX) {
+            buf[pos + 1u + kb_n] = (uint8_t)'0';
+            kb_n++;
         }
         pos += REG_ENTRADA;
         cont++;
@@ -1990,7 +2096,15 @@ int keystore_registro_carrega(const uint8_t *buf, uint32_t n)
             goto fim;                   /* nunca restaurar no slot efemero */
         }
         if (tr31_desembrulha(kbek, kbak, (const char *)&buf[pos + 1u],
-                             TR31_ASCII_MAX, &cab, chave, &klen) != 0) {
+                             reg_bloco_n(&buf[pos + 1u]), &cab, chave,
+                             &klen) != 0) {
+            goto fim;
+        }
+        /* Chave 3DES: a instalacao calcula o KCV com o motor, entao o
+         * autoteste de primeiro uso roda antes. Reprovado, a carga falha
+         * inteira, como com um bloco ruim. */
+        if ((cab.algoritmo == (uint8_t)KS_ALG_TDES) &&
+            (kat_primeiro_uso(KAT_FALHA_TDES) != 0)) {
             goto fim;
         }
         if (instala_em(buf[pos], cab.uso, cab.algoritmo, cab.modo,
