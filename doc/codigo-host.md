@@ -324,7 +324,17 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   LMK e o KCV.
 - **`host/test_pinverif.py`** não fala com a placa. Confere o Python contra os
   24 valores de terceiros e compila `fw/src/pinverif.c` com `gcc` para
-  comparar as contas (manual, seção 41.3).
+  comparar as contas (manual, seção 42.3).
+
+- **`host/cvv.py`** é o CVV em Python: monta a entrada, faz a cifra (DES sob
+  `A`, XOR, 3DES sob `A` e `B`) e extrai os 3 dígitos. O mesmo método dá o
+  CVV, o CVV2 (`000`) e o iCVV (`999`). Calcula com a chave em claro.
+- **`hsmhost.py cvv-confere --lmk LMK [-n N]`** gera uma chave `C0` por volta,
+  pede `W0` nos três códigos de um cartão inventado e confere com o `cvv.py`,
+  troca cada dígito para cobrar a recusa do `W2`, e cobra os erros `11` e `16`.
+- **`host/test_cvv.py`** não fala com a placa. Confere o Python contra os 7
+  valores de terceiros, e o KCV das chaves do jPOS; compila `fw/src/cvv.c` com
+  `gcc` para comparar a montagem da entrada e a extração (manual, seção 42.4).
 
 - **`host/regressao.py --lmk LMK [--rapido]`** é a regressão na placa: roda o
   `ping`, o `post`, os sensores, todos os `confere`, os vetores do CAVP e o

@@ -5,8 +5,9 @@ um **HSM de pagamento comercial**. Entender o que
 esses equipamentos fazem o dia inteiro é o que separa "sei o que é uma
 fronteira criptográfica" de "sei por que aquele comando existe".
 
-O equipamento implementa uma parte do que está aqui: o PIN block formato 4
-e a tradução de PIN (seções 33.4 e 34), e as chaves 3DES (seção 38). A seção 37 explica o que é
+O equipamento implementa uma parte do que está aqui: os PIN blocks formato
+0 e 4 e a tradução de PIN (seções 33 e 34), a verificação de PIN (seção 35),
+o CVV (seção 36) e as chaves 3DES (seção 39). A seção 38 explica o que é
 implementável, o que não é, e por quê. O resto do material é para entender
 o domínio.
 
@@ -217,7 +218,7 @@ O enchimento `A` não é dígito decimal. Quem abre o bloco confere o controle,
 o tamanho, os dígitos e o enchimento. Um bloco aberto com a chave errada, ou
 com o PAN errado, é um bloco ao acaso, e passa nessa conferência uma vez em
 cerca de 2²⁴, ou 17 milhões. Quem domina a conta é o PIN de 12 dígitos, que
-só deixa dois nibbles de enchimento para conferir. A seção 41.2 faz a conta.
+só deixa dois nibbles de enchimento para conferir. A seção 42.2 faz a conta.
 
 ⚠ **A ISO 9564-1 é paga, e não há vetor oficial público do formato 4.** O
 equipamento foi conferido contra valores publicados por uma implementação
@@ -326,7 +327,7 @@ comando que abre o bloco com um PAN e o fecha com outro amarra o PIN de um
 cliente ao cartão de outro. Por isso o `P0` leva um PAN só.
 
 **Do forte para o fraco.** A tradução `40` tira o PIN de um bloco AES e o
-põe num bloco 3DES. A regra da seção 37.2, "uma chave nunca sai embrulhada
+põe num bloco 3DES. A regra da seção 38.2, "uma chave nunca sai embrulhada
 por outra mais fraca", vale para **chaves**, e não para PINs: o PIN segue o
 caminho que a rede tem. O formato 4 no terminal protege o trecho do
 terminal, e não o caminho inteiro.
@@ -538,7 +539,7 @@ cauda de uma binomial:
 ```
 
 Por isso o teste de PC não espera o acaso: ele constrói blocos com toda
-quantidade de decimais, de 0 a 16 (seção 41.3).
+quantidade de decimais, de 0 a 16 (seção 42.3).
 
 **O PVV não determina o PIN.** Há 10 000 PINs de 4 dígitos e 10 000 PVVs,
 e a cifra espalha uns sobre os outros ao acaso. Para um PIN qualquer, a
@@ -647,7 +648,7 @@ não lembra o que já autorizou.
 **Cada veredito é calculado duas vezes.** A conferência do MAC da tabela, a
 cifra e a comparação final do `V2` e do `V6` rodam duas vezes, cada uma a
 partir da sua própria conta. Se discordam, nada sai, a resposta é `91` e o
-erro grave fica marcado (seção 44.2). Um veredito é o que uma falha
+erro grave fica marcado (seção 45.2). Um veredito é o que uma falha
 provocada quer inverter: um `01` que vira `00`, ou uma tabela recusada que
 passa.
 
@@ -679,7 +680,139 @@ resultados com uma segunda implementação em Python.
 
 ---
 
-## 36. DUKPT — uma chave por transação
+## 36. CVV — o código de verificação do cartão
+
+O cartão traz um código de 3 dígitos que só o emissor sabe calcular. O
+emissor não guarda esse código. Ele guarda uma chave, e refaz a conta a cada
+transação. Um único método produz três códigos diferentes:
+
+| Código | Onde fica | Código de serviço | Contra o quê |
+|---|---|---|---|
+| CVV (ou CVC) | na tarja magnética | o da tarja (ex.: `101`, `201`) | tarja inventada a partir só do número do cartão |
+| CVV2 (ou CVC2) | impresso no verso | `000` | compra sem o cartão com dados copiados da tarja |
+| iCVV | no chip, na imagem da tarja | `999` | dados do chip copiados para uma tarja falsa |
+
+O nome muda com a bandeira. O método é o mesmo.
+
+### 36.1 O método
+
+1. **Dados.** Junte o PAN, a validade (4 dígitos) e o código de serviço (3
+   dígitos). Complete com `0` à direita até 32 dígitos. São dois blocos de
+   DES, `D1` e `D2`.
+2. **Primeiro passo.** Cifre `D1` com DES simples, sob a metade esquerda da
+   chave (`A`). Faça o XOR com `D2`.
+3. **Segundo passo.** Cifre o resultado com 3DES, sob a chave inteira
+   (`A` e `B`).
+4. **Extração.** Tome os 3 primeiros dígitos decimais do resultado, da
+   esquerda para a direita. Se não houver 3, complete com as letras, na
+   ordem, com `A`→0 até `F`→5. É a extração do PVV, com 3 dígitos.
+
+```
+   D   = PAN ‖ validade ‖ código de serviço ‖ 0…0          32 dígitos
+   X   = DES_A(D1) ⊕ D2
+   C   = 3DES_AB(X)
+   CVV = os 3 primeiros dígitos decimais de C
+```
+
+**Exemplo, com os valores conferidos por programa.** A chave é a do exemplo
+da seção 35, `0123456789ABCDEF FEDCBA9876543210`. O PAN inventado é
+`9999990123456789`, e a validade é `2812`:
+
+```
+                      CVV (101)          CVV2 (000)         iCVV (999)
+   D1                 9999990123456789   9999990123456789   9999990123456789
+   D2                 2812101000000000   2812000000000000   2812999000000000
+   DES_A(D1)          A77E2DB5E4AE7B1F   A77E2DB5E4AE7B1F   A77E2DB5E4AE7B1F
+   X                  8F6C3DA5E4AE7B1F   8F6C2DB5E4AE7B1F   8F6CB425E4AE7B1F
+   C                  0374D7040AA393CD   0C8F36353390AEAB   3B2FEBA87A91B08B
+   código             037                083                328
+```
+
+Com um PAN de 16 dígitos, `D1` é o mesmo nos três códigos. Só `D2` muda. Mas
+a cifra espalha a diferença, e os três códigos não têm relação visível entre
+si.
+
+**A conta é um MAC.** Os passos 2 e 3 são o *retail MAC* da ISO/IEC 9797-1
+(algoritmo 3) sobre `D1 ‖ D2`, sem enchimento: DES encadeado sob `A`, e no
+último bloco decifrar sob `B` e cifrar sob `A`. Conferido por programa em
+2 000 chaves ao acaso. O CVV é um MAC de 64 bits sobre os dados do cartão,
+reduzido a 3 dígitos decimais.
+
+**Por que três códigos com um método.** O código de serviço entra na conta.
+Quem copia a tarja leva o CVV, e não o CVV2, que não está na tarja. Quem
+copia o chip leva o iCVV, que não é o CVV da tarja: uma tarja falsa feita com
+os dados do chip é recusada.
+
+**A segunda passada é rara.** Faltam decimais quando há 0, 1 ou 2 entre os 16
+dígitos:
+
+```
+   soma, k de 0 a 2, de  C(16,k) · (10/16)^k · (6/16)^(16−k)  =  1 em 18 113
+```
+
+Nenhum dos valores publicados por terceiros cai nesse caso. O teste de PC
+constrói os blocos (seção 42.4).
+
+**Três dígitos são pouco.** São 1 000 valores. Quem pode pedir a verificação
+acha o código em 500 pedidos, em média, e em 1 000 no pior caso. A defesa não
+está no método. Ela está em quem conta as tentativas:
+
+- o emissor bloqueia o cartão depois de algumas tentativas erradas;
+- o **ataque de adivinhação distribuída** (Ali, Arief, Emms e van Moorsel,
+  2017) mostrou que esse controle falha quando cada loja virtual confere o
+  cartão do seu jeito e conta só as próprias tentativas: o atacante espalha
+  os pedidos por centenas de lojas, e nenhuma delas vê o padrão. A partir do
+  número do cartão, a validade e o CVV2 saíram campo a campo. Na rede que
+  contava as tentativas num ponto central, o ataque foi detectado em menos de
+  10 tentativas.
+
+**O CVV2 não pode ser guardado.** O PCI DSS proíbe guardar o código depois
+da autorização, mesmo cifrado. Por isso a verificação só pode ser feita
+refazendo a conta, e a chave só existe dentro do HSM.
+
+### 36.2 O CVV neste equipamento
+
+Dois comandos na porta host, para os três códigos:
+
+| Comando | Pedido | Devolve |
+|---|---|---|
+| `W0` | key block da chave · PAN · validade · código de serviço | o código, 3 dígitos |
+| `W2` | o mesmo · o código | `00` confere, `01` não confere |
+
+**A chave.** Uso `C0` (chave de verificação de cartão), 3DES de comprimento
+**duplo**: é o par "CVK A, CVK B" do mercado. O método usa a metade `A`
+sozinha, e uma chave tripla não tem lugar nele: `11`.
+
+**O modo separa quem emite de quem autoriza.** `W0` é função de **emissão**:
+com ele, quem tem o número e a validade de um cartão calcula o CVV2 dele, que
+é o que se pede numa compra sem o cartão. A chave entregue ao sistema que só
+autoriza tem modo `V`, e com ela `W0` responde `11`. Uma chave de outro uso
+(a de PIN, a de verificação de PIN) não calcula CVV, e a chave de CVV não
+serve a outro comando.
+
+**A validade vai como o emissor a usa.** Pode ser `AAMM` ou `MMAA`. O
+equipamento não a interpreta. Quem gera e quem verifica têm de usar a mesma
+ordem, ou o código não confere.
+
+**O que `W2` revela.** Um bit por pedido, e é o serviço. O controle é o de
+fora: o emissor conta as tentativas por cartão, e o log registra cada `01`.
+
+**Cada veredito é calculado duas vezes**, como no `V2` e no `V6`. A cifra e a
+comparação rodam duas vezes, e uma discordância dá `91`, com o erro grave
+marcado.
+
+**Exemplo de uso**, com as ferramentas de teste:
+
+```bash
+python3 host/hsmhost.py --serial cvv-confere --lmk <LMK em hex> -n 16
+```
+
+Cada volta gera uma chave, pede os três códigos de um cartão inventado e
+confere cada um com uma segunda implementação em Python.
+
+---
+
+## 37. DUKPT — uma chave por transação
 
 Imagine um milhão de terminais em campo. Se todos compartilham a mesma
 chave, um terminal aberto na bancada de alguém compromete a rede inteira.
@@ -706,7 +839,7 @@ As três propriedades que isso compra:
 3. **Nada para distribuir.** O HSM rederiva; não existe base de um milhão de
    chaves para sincronizar.
 
-### 36.1 X9.24-1 (TDES) e X9.24-3 (AES)
+### 37.1 X9.24-1 (TDES) e X9.24-3 (AES)
 
 | | TDES DUKPT (X9.24-1) | AES DUKPT (X9.24-3) |
 |---|---|---|
@@ -725,7 +858,7 @@ o assunto da próxima seção.
 
 ---
 
-## 37. O que este projeto pode e o que não pode ensinar
+## 38. O que este projeto pode e o que não pode ensinar
 
 A separação não é por dificuldade. É por **hardware** e por **procedência
 de vetor de teste**.
@@ -733,17 +866,17 @@ de vetor de teste**.
 | Assunto | Aqui? | O que decide |
 |---|---|---|
 | PIN block formato 4 | **feito** | é AES, e AES é o que existe no fabric |
-| Chaves 3DES: gerar, conferir, exportar | **feito** | motor em software, com vetores oficiais (seção 38.8) |
-| PIN block formato 0 e 3 | **planejado** | a cifra é o 3DES, que entra no equipamento |
-| Tradução de PIN | **feita** (`P0`, só formato 4) | o valor está no formato do comando e no oráculo, não na cifra |
+| Chaves 3DES: gerar, conferir, exportar | **feito** | motor em software, com vetores oficiais (seção 39.8) |
+| PIN block formato 0 | **feito** (seção 33.1) | a cifra é o 3DES, que entra no equipamento |
+| Tradução de PIN | **feita** (`P0`, formatos 0 e 4) | o valor está no formato do comando e no oráculo, não na cifra |
 | Verificação de PIN e ataque de decimalização | **feito** (seção 35) | é ataque de **API**, sobre o método real |
 | DUKPT AES (X9.24-3) | **planejado** | é AES |
-| CVV / CVC | **planejado** | inerentemente 3DES; não há variante AES em uso |
+| CVV, CVV2 e iCVV | **feito** (seção 36) | inerentemente 3DES; não há variante AES em uso |
 | PVV | **feito** (seção 35.2) | idem |
 | DUKPT TDES (X9.24-1) | **planejado** | idem |
 | Criptogramas EMV, emissão de PIN | fora, por enquanto | são funções de emissor, maiores que as demais |
 
-### 37.1 Um HSM precisa de 3DES?
+### 38.1 Um HSM precisa de 3DES?
 
 A resposta depende de qual HSM, e a diferença ensina mais que a resposta.
 
@@ -775,7 +908,7 @@ de pagamento trabalha, e o mercado trabalha com 3DES. Um equipamento só de
 AES ensinaria o destino da migração, e não o caminho em que todo mundo
 ainda está.
 
-### 37.2 Como o 3DES entra aqui
+### 38.2 Como o 3DES entra aqui
 
 O coprocessador deste projeto amarra o tamanho de chave em **AES-256, sem
 caminho para AES-128** — porque um modo mais fraco alcançável por escrita em
@@ -792,9 +925,9 @@ Três regras cercam o motor legado:
   a chave mais fraca do sistema define a força de todas.
 - **DES simples não existe.** As chaves têm comprimento duplo ou triplo.
 
-A seção 38 explica o DES e o 3DES.
+A seção 39 explica o DES e o 3DES.
 
-### 37.3 O obstáculo maior são os vetores
+### 38.3 O obstáculo maior são os vetores
 
 A regra inviolável deste projeto diz que, se um teste de resposta conhecida
 falha, **o erro está no código, não no vetor** — e isso só vale se a
@@ -815,7 +948,7 @@ escolheu. Preferir a lacuna
 honesta à cobertura fingida é o mesmo critério que orienta o resto do
 documento.
 
-### 37.4 Uma regra que não se negocia
+### 38.4 Uma regra que não se negocia
 
 ⚠ **Nenhum número de cartão real, nunca.** Pela mesma razão que nenhuma
 chave de produção. Gerar CVV ou PIN para um PAN que existe deixa de ser
@@ -823,7 +956,7 @@ exercício, e o fato de o dispositivo ser de brinquedo não muda isso.
 
 ---
 
-## 38. DES e 3DES — a cifra que o mercado ainda usa
+## 39. DES e 3DES — a cifra que o mercado ainda usa
 
 O AES tem seção própria na Parte I. O DES entra aqui, na Parte VII, porque é
 em pagamentos que ele sobrevive. Quem opera um HSM de pagamento lida com
@@ -831,7 +964,7 @@ chaves 3DES todos os dias, e precisa saber o que elas são, o que os termos
 "comprimento duplo" e "paridade" querem dizer, e por que a cifra está sendo
 aposentada.
 
-### 38.1 A rede de Feistel
+### 39.1 A rede de Feistel
 
 O DES é uma **rede de Feistel**. A ideia resolve um problema de projeto:
 como construir uma cifra que se desfaz, a partir de uma função que não
@@ -873,7 +1006,7 @@ Um exemplo de brinquedo, com bloco de 8 bits, três rodadas, subchaves
 Repare que essa `f` não tem inversa única, e a cifra se desfaz do mesmo
 jeito.
 
-### 38.2 O DES por dentro
+### 39.2 O DES por dentro
 
 O DES (FIPS 46, de 1977) cifra blocos de **64 bits** com uma chave de **56
 bits**, em **16 rodadas** de Feistel.
@@ -921,7 +1054,7 @@ rodada as metades giram um ou dois bits, e uma tabela escolhe 48 dos 56 bits
 para formar a subchave. Em 16 rodadas, cada bit da chave é usado cerca de 14
 vezes.
 
-### 38.3 A chave: 64 bits que são 56
+### 39.3 A chave: 64 bits que são 56
 
 Uma chave DES é escrita com 8 bytes, mas a cifra só usa 7 bits de cada
 byte. O bit mais baixo é de **paridade**: ele é ajustado para que o byte
@@ -943,7 +1076,7 @@ O DES tem ainda um pequeno conjunto de **chaves fracas**: quatro chaves com
 todas as subchaves iguais, em que cifrar duas vezes devolve o texto
 original, e seis pares de chaves semifracas. Um gerador de chaves as evita.
 
-### 38.4 Por que o DES caiu
+### 39.4 Por que o DES caiu
 
 Pela chave. 56 bits são 2⁵⁶ chaves, cerca de 72 quatrilhões, e isso é pouco
 para busca exaustiva:
@@ -959,7 +1092,7 @@ A cifra não foi quebrada: ela foi alcançada. A lição se repete no projeto de
 qualquer sistema: uma cifra sem defeito conhecido ainda cai se o espaço de
 chaves for pequeno.
 
-### 38.5 O 3DES
+### 39.5 O 3DES
 
 O remédio foi usar o DES três vezes, com chaves diferentes. É o **3DES**,
 também chamado **TDES** ou **TDEA** (SP 800-67):
@@ -992,13 +1125,13 @@ O **comprimento duplo** é o mais comum em pagamentos, por herança: 16 bytes
 cabiam onde os equipamentos antigos guardavam chaves. O NIST deixou de
 aceitá-lo para cifrar em 2015, e o comprimento triplo, depois de 2023
 (SP 800-131A). A rede de pagamento segue outro calendário, o do PCI, e ainda
-está migrando (seção 37.1).
+está migrando (seção 38.1).
 
 **O KCV de uma chave 3DES** é calculado com o próprio 3DES: cifram-se 8
 bytes de zeros, e os primeiros 3 bytes do resultado são o KCV. A chave de
 comprimento duplo `0123456789ABCDEF FEDCBA9876543210` tem KCV `08D7B4`.
 
-### 38.6 O bloco de 64 bits
+### 39.6 O bloco de 64 bits
 
 O 3DES consertou a chave, e não o bloco. Com blocos de 64 bits, depois de
 cerca de 2³² blocos cifrados com a mesma chave (32 GB), dois blocos cifrados
@@ -1012,7 +1145,7 @@ forma: no formato 0, sem enchimento aleatório, o mesmo PIN na mesma conta dá
 sempre o mesmo bloco cifrado (seção 33.1). O formato 4 resolve isso com o
 bloco de 128 bits do AES, que tem espaço para o enchimento aleatório.
 
-### 38.7 DES, 3DES e AES, lado a lado
+### 39.7 DES, 3DES e AES, lado a lado
 
 | | DES | 3DES | AES |
 |---|---|---|---|
@@ -1032,10 +1165,10 @@ concurso público que cobrava desempenho em software. E o AES não tem bits de
 paridade nem chaves fracas: toda sequência de bits do tamanho certo é uma
 chave boa.
 
-### 38.8 O 3DES neste equipamento
+### 39.8 O 3DES neste equipamento
 
 O 3DES é um **motor separado, em software**, ao lado do AES do coprocessador.
-Ele serve às funções de pagamento, e a LMK continua AES-256 (seção 37.2).
+Ele serve às funções de pagamento, e a LMK continua AES-256 (seção 38.2).
 
 **Gerar uma chave 3DES.** O `K0` ganhou um campo opcional no fim do pedido:
 
@@ -1060,12 +1193,12 @@ e o equipamento responde `16`: DES simples não existe aqui.
 
 O que o equipamento garante sobre a chave que gera:
 
-- **Paridade ímpar** em todo byte (seção 38.3).
+- **Paridade ímpar** em todo byte (seção 39.3).
 - **Nenhuma chave fraca.** Se alguma das partes cair numa das 16 chaves
   fracas ou semifracas do DES, ou se duas partes saírem iguais, o
   equipamento sorteia de novo. A chance é desprezível; a regra está na
   SP 800-67, e um gerador que a ignora não passa numa avaliação.
-- **KCV calculado com 3DES**, como na seção 38.5. O `K2` devolve o mesmo
+- **KCV calculado com 3DES**, como na seção 39.5. O `K2` devolve o mesmo
   KCV para o mesmo bloco, e o host o confere sem conhecer a chave.
 
 **A chave 3DES no key block.** O cabeçalho leva o algoritmo `T`, e o bloco

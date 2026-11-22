@@ -147,6 +147,7 @@ handler, resultado no log. Nenhum comando de cerimônia está nela.
 | `pkcs8.c` | a chave privada RSA-2048 e a P-256 em PKCS#8, DER: é o conteúdo do key block de uma chave assimétrica. Um escritor e um leitor de DER mínimos, e estritos. Calcula o expoente privado `d` ao montar. Só bytes, sem coprocessador |
 | `pinblock.c` | a forma do PIN block ISO 9564-1, formatos 0 e 4: monta o campo do PAN de cada formato, confere o campo do PIN e converte entre a forma do formato 0 e a do formato 4, sem desvio pelo valor. Não tem chave nem cifra. Dentro do key store o PIN fica sempre na forma do formato 4. A cifra e o campo do PIN em claro ficam em `keystore.c` (`keystore_pin_abre()`, `keystore_pin_fecha()`) |
 | `pinverif.c` | as contas da verificação de PIN que não têm chave: decimalização, soma e subtração do offset módulo 10, montagem do bloco de entrada do PVV e extração do PVV. O PIN natural e o resultado da cifra são segredo, e as funções escolhem por máscara. A cifra fica em `keystore.c` (`keystore_pin_offset()`, `keystore_pin_pvv()`), junto com o MAC da tabela de decimalização, amarrado ao KCV da chave de verificação (`keystore_tabela_autoriza()`; a conferência fica dentro de `keystore_pin_offset()`, contra o KCV da chave do slot) |
+| `cvv.c` | as contas do CVV que não têm chave: a montagem dos 16 bytes de entrada (PAN, validade, código de serviço) e a extração dos 3 dígitos, por máscara, como a do PVV. A cifra fica em `keystore.c` (`keystore_cvv()`), que exige uso `C0`, 3DES duplo, e confere o modo |
 
 ### Fase 7: assimétrico
 

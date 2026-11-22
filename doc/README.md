@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 121 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 125 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
@@ -56,8 +56,8 @@ cobre o domínio para o qual o projeto passou a apontar: PIN blocks ISO 9564
 (formatos 0, 1, 3 e 4), tradução de PIN, verificação por PVV e IBM 3624, a
 tabela de decimalização, e DUKPT nas variantes TDES e AES.
 
-A seção 37 diz o que deste domínio o equipamento faz, o que está planejado
-e como o 3DES entra. A seção 38 explica o DES e o 3DES.
+A seção 38 diz o que deste domínio o equipamento faz, o que está planejado
+e como o 3DES entra. A seção 39 explica o DES e o 3DES.
 
 ## Referência
 

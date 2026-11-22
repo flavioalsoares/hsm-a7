@@ -332,6 +332,24 @@ class Host:
         erro, _ = self.pede("V6", campos.encode(), aceita=(0, 1))
         return erro == 0
 
+    # -- CVV, CVV2 e iCVV (fase 8, etapa 8.6) -----------------------
+    @staticmethod
+    def _cvv_campos(cvk, pan, validade, servico):
+        return cvk + "%02d" % len(pan) + pan + validade + servico
+
+    def cvv_gera(self, cvk, pan, validade, servico):
+        """W0. `servico`: o da tarja para o CVV, 000 para o CVV2, 999 para
+        o iCVV. Devolve os 3 digitos."""
+        _, c = self.pede("W0", self._cvv_campos(cvk, pan, validade,
+                                                 servico).encode())
+        return c[:3].decode()
+
+    def cvv_verifica(self, cvk, pan, validade, servico, cvv):
+        """W2: sai um bit."""
+        campos = self._cvv_campos(cvk, pan, validade, servico) + cvv
+        erro, _ = self.pede("W2", campos.encode(), aceita=(0, 1))
+        return erro == 0
+
 
 # --------------------------------------------------------------------
 # ECDSA P-256: a conferencia em Python, com inteiros. E a segunda
@@ -982,6 +1000,77 @@ def pinv_confere(h, lmk, n, bloco_console=None, kcv_console=None):
     return 0
 
 
+def cvv_confere(h, lmk, n):
+    """CVV, CVV2 e iCVV (W0, W2), conferidos com o cvv.py. O Python faz o
+    papel do emissor, que refaz a conta com a chave em claro.
+
+    ⚠ PRECISA DA LMK, para abrir o bloco da CVK. E o brinquedo aparecendo,
+    como no `confere`.
+    ⚠ Os PANs sao inventados (prefixo 999999). Nenhum PAN real, nunca."""
+    import cvv
+    import tr31
+    from hsmtool import _kcv_local
+
+    d = h.diag()
+    if d["kcv_lmk"] != _kcv_local(lmk).hex().upper():
+        print("KCV da LMK nao confere: dispositivo %s, informada %s"
+              % (d["kcv_lmk"], _kcv_local(lmk).hex().upper()))
+        return 1
+
+    def recusa(codigo, fn, *args):
+        try:
+            fn(*args)
+        except HostErro as e:
+            assert e.codigo == codigo, "%s: %d, esperado %d" % (
+                fn.__name__, e.codigo, codigo)
+        else:
+            raise AssertionError("%s aceito, esperado %d"
+                                 % (fn.__name__, codigo))
+
+    def digitos(k):
+        return "".join(str(b % 10) for b in os.urandom(k))
+
+    tarja = ["101", "201", "221", "120"]
+    for volta in range(n):
+        na = 12 + volta % 8
+        pan = "999999" + digitos(na - 6)
+        val = digitos(4)
+        k_b, _ = h.gen("C0", "C", "E", "T2")
+        k, _ = tr31.desembrulha(lmk, k_b)
+        for sc in (tarja[volta % len(tarja)], cvv.CVV2, cvv.ICVV):
+            c = h.cvv_gera(k_b, pan, val, sc)
+            assert c == cvv.gera(k, pan, val, sc), "W0: codigo %s" % sc
+            assert h.cvv_verifica(k_b, pan, val, sc, c), \
+                "W2: recusou o certo (%s)" % sc
+            for j in range(3):                 # um digito errado por vez
+                ruim = c[:j] + str((int(c[j]) + 1 + volta % 9) % 10) + c[j + 1:]
+                assert not h.cvv_verifica(k_b, pan, val, sc, ruim), \
+                    "W2: aceitou %d (%s)" % (j, sc)
+        # outra validade, outro PAN: a conta acompanha
+        outra = "%04d" % ((int(val) + 1) % 10000)
+        assert h.cvv_gera(k_b, pan, outra, "000") == \
+            cvv.gera(k, pan, outra, "000"), "W0: outra validade"
+        # modos, usos, comprimento e algoritmo
+        so_v, _ = h.gen("C0", "V", "E", "T2")
+        recusa(11, h.cvv_gera, so_v, pan, val, "000")
+        so_g, _ = h.gen("C0", "G", "E", "T2")
+        recusa(11, h.cvv_verifica, so_g, pan, val, "000", "123")
+        tripla, _ = h.gen("C0", "C", "E", "T3")
+        recusa(11, h.cvv_gera, tripla, pan, val, "000")
+        aes, _ = h.gen("C0", "C", "E")
+        recusa(11, h.cvv_gera, aes, pan, val, "000")
+        pvk, _ = h.gen("V2", "C", "E", "T2")
+        recusa(11, h.cvv_gera, pvk, pan, val, "000")
+        # forma
+        recusa(16, h.cvv_gera, k_b, pan[:11], val, "000")
+        recusa(16, h.cvv_gera, k_b, pan, val[:3] + "A", "000")
+        recusa(16, h.cvv_verifica, k_b, pan, val, "000", "12A")
+        print("volta %d: W0 W2 conferidos (CVV, CVV2, iCVV; PAN de %d)"
+              % (volta + 1, na))
+    print("%d de %d voltas conferidas" % (n, n))
+    return 0
+
+
 def pin_confere(h, lmk, n):
     """Traducao de PIN (P0), conferida com o pinblock.py. O Python faz o
     papel do terminal, que cifra o PIN sob a chave de origem, e o do
@@ -1174,6 +1263,9 @@ def main(argv=None):
                         "confere que o MAC e o que o Python calcula")
     p.add_argument("--kcv", default=None,
                    help="com --tabela: o KCV da chave V1 da tabela")
+    p = sub.add_parser("cvv-confere")
+    p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
+    p.add_argument("-n", type=int, default=10)
     p = sub.add_parser("confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
@@ -1257,6 +1349,8 @@ def main(argv=None):
                                a.formatos).hex().upper())
         elif a.cmd == "pin-confere":
             return pin_confere(h, bytes.fromhex(a.lmk), a.n)
+        elif a.cmd == "cvv-confere":
+            return cvv_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "pinv-confere":
             return pinv_confere(h, bytes.fromhex(a.lmk), a.n, a.tabela, a.kcv)
         elif a.cmd == "confere":

@@ -14,6 +14,7 @@
 #include "tr31.h"
 #include "pinblock.h"
 #include "pinverif.h"
+#include "cvv.h"
 #include "des.h"
 #include "pkcs8.h"
 #include "wipe.h"
@@ -1010,6 +1011,127 @@ int keystore_pin_pvv(ks_handle_t h, int gerar, const uint8_t *pan,
     wipe(calc, sizeof calc);
     wipe(calc2, sizeof calc2);
     keystore_pin_apaga();
+    return r;
+}
+
+/* ------------------------------------------------------------------ */
+/* CVV, CVV2 e iCVV (fase 8, etapa 8.6)                                */
+/* ------------------------------------------------------------------ */
+
+/* 1 se o slot e chave de verificacao de cartao: uso C0, 3DES de comprimento
+ * duplo, e o `modo` permite `precisa`. O metodo usa a metade esquerda da
+ * chave sozinha, e o par A/B do mercado e uma chave dupla: chave tripla nao
+ * tem lugar nele. */
+static int cvk_pode(int i, uint8_t precisa)
+{
+    if ((g_slots[i].algoritmo != (uint8_t)KS_ALG_TDES) ||
+        (g_slots[i].key_len != (uint8_t)TDES_CHAVE_2) ||
+        (g_slots[i].uso[0] != (uint8_t)KS_USO_CVK[0]) ||
+        (g_slots[i].uso[1] != (uint8_t)KS_USO_CVK[1])) {
+        return 0;
+    }
+    return modo_mac_ok(g_slots[i].modo, precisa);
+}
+
+/* Uma conta do CVV: X = DES_A(D1) xor D2, C = 3DES_AB(X). O DES de A sai do
+ * motor de 3DES com a chave A.A (K1 = K2: o meio desfaz o primeiro passo),
+ * porque ha um contexto so no firmware. As subchaves e os intermediarios sao
+ * apagados na saida. FRONTEIRA: dentro. */
+static int cvk_cifra(int i, const uint8_t dados[CVV_DADOS],
+                     uint8_t saida[DES_BLOCO])
+{
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    uint8_t     aa[TDES_CHAVE_2], x[DES_BLOCO];
+    uint32_t    j;
+    int         r = -1;
+
+    for (j = 0u; j < DES_CHAVE; j++) {
+        aa[j]             = g_slots[i].chave[j];
+        aa[DES_CHAVE + j] = g_slots[i].chave[j];
+    }
+    if (tdes_prepara(ctx, aa, TDES_CHAVE_2) == 0) {
+        tdes_bloco(ctx, dados, x, 1);
+        for (j = 0u; j < DES_BLOCO; j++) {
+            x[j] ^= dados[DES_BLOCO + j];
+        }
+        if (tdes_prepara(ctx, g_slots[i].chave, TDES_CHAVE_2) == 0) {
+            tdes_bloco(ctx, x, saida, 1);
+            r = 0;
+        }
+    }
+    tdes_apaga(ctx);
+    wipe(aa, sizeof aa);
+    wipe(x, sizeof x);
+    return r;
+}
+
+/* FRONTEIRA: dentro. O resultado da cifra e segredo ate virar CVV, e o CVV
+ * calculado na verificacao nao sai: so o veredito. */
+int keystore_cvv(ks_handle_t h, int gerar, const uint8_t dados[CVV_DADOS],
+                 uint8_t cvv[CVV_DIGITOS])
+{
+    int      i = indice(h);
+    uint8_t  ca[DES_BLOCO], cb[DES_BLOCO];
+    uint8_t  calc[CVV_DIGITOS], calc2[CVV_DIGITOS];
+    uint32_t j;
+    uint8_t  dif = 0u;
+    int      r, va, vb;
+
+    if ((i < 0) || (dados == 0) || (cvv == 0)) {
+        return -3;
+    }
+    if (!cvk_pode(i, gerar ? KS_MODO_GERA : KS_MODO_VERIFICA)) {
+        return -1;
+    }
+    if ((cvk_cifra(i, dados, ca) != 0) || (cvk_cifra(i, dados, cb) != 0)) {
+        r = -3;
+    } else {
+        for (j = 0u; j < DES_BLOCO; j++) {
+            dif |= (uint8_t)(ca[j] ^ cb[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        } else {
+            /* Uma extracao de cada cifra: a comparacao final tambem e
+             * feita duas vezes. */
+            cvv_extrai(ca, calc);
+            cvv_extrai(cb, calc2);
+            g_slots[i].contador_uso++;
+            if (gerar) {
+                dif = 0u;
+                for (j = 0u; j < CVV_DIGITOS; j++) {
+                    dif |= (uint8_t)(calc[j] ^ calc2[j]);
+                    cvv[j] = (uint8_t)(calc[j] + (uint8_t)'0');
+                }
+                if (dif != 0u) {
+                    erro_grave_marca();
+                    wipe(cvv, CVV_DIGITOS);
+                    r = -2;
+                } else {
+                    r = 0;
+                }
+            } else {
+                uint8_t da = 0u, db = 0u;
+                for (j = 0u; j < CVV_DIGITOS; j++) {
+                    da |= (uint8_t)(calc[j]  ^ (uint8_t)(cvv[j] - (uint8_t)'0'));
+                    db |= (uint8_t)(calc2[j] ^ (uint8_t)(cvv[j] - (uint8_t)'0'));
+                }
+                va = (da == 0u) ? 1 : 0;
+                vb = (db == 0u) ? 1 : 0;
+                if (va != vb) {
+                    erro_grave_marca();
+                    r = -2;
+                } else {
+                    r = va ? 0 : 1;
+                }
+            }
+        }
+    }
+    wipe(ca, sizeof ca);
+    wipe(cb, sizeof cb);
+    wipe(calc, sizeof calc);
+    wipe(calc2, sizeof calc2);
     return r;
 }
 

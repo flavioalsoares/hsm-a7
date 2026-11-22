@@ -80,6 +80,23 @@ PIN_SHA="6d1880ab9cfdee975452de6905c5172465ee5ea89a528450dfb3e88b1685667e"
 PINV_URL="https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_pin.py"
 PINV_SHA="4abfa08f7934fdba39b3182bd8ac3f183f546bede28b317dec2e1eb75b1e2938"
 
+# CVV, CVV2 e iCVV: o metodo esta em documentacao de bandeira, sem vetor
+# oficial publico. Sete valores de TRES fontes independentes, cada arquivo
+# fixado por commit e por hash. Fonte secundaria. Ver o MANIFEST.
+#   psec (MIT): o teste e o exemplo da documentacao da funcao
+CVV_PSEC_T_URL="https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_cvv.py"
+CVV_PSEC_T_SHA="c376802d0ca558952c04b85372fff96206b74c8b2b53713cb5c487a5d63310b4"
+CVV_PSEC_D_URL="https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/psec/cvv.py"
+CVV_PSEC_D_SHA="da57b3a769877f81ce82530b1554c47c4720e41d6cddd59983b12128617fcc5f"
+#   jPOS (AGPL): o teste do modulo de seguranca em software
+CVV_JPOS_URL="https://raw.githubusercontent.com/jpos/jPOS/71a6ccbd006432010e3c61ec8e1583c2c0eebca5/jpos/src/test/java/org/jpos/security/jceadapter/JCESecurityModuleTest.java"
+CVV_JPOS_SHA="697bca950f02b1f3561d149c87dc253296ca2b0951affe9fbc1f4590ab686fe6"
+#   jmeter-iso8583 (MIT): o teste e a classe base, que tem a chave
+CVV_JM_T_URL="https://raw.githubusercontent.com/tilln/jmeter-iso8583/b90aaecfa532e2e662404f7018218fdbb9c294aa/src/test/java/nz/co/breakpoint/jmeter/iso8583/CalculateCVVFunctionTest.java"
+CVV_JM_T_SHA="e9e12d5fa710353dfa2c61a75ade0a3e2a6045b523a89fb176f5c126ae2ab3d6"
+CVV_JM_B_URL="https://raw.githubusercontent.com/tilln/jmeter-iso8583/b90aaecfa532e2e662404f7018218fdbb9c294aa/src/test/java/nz/co/breakpoint/jmeter/iso8583/ISO8583TestBase.java"
+CVV_JM_B_SHA="76934fc3951901d2666848bb06d0540b09d6b1f523489ed1b23974feb765263a"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -118,7 +135,7 @@ fetch() {
     fi
 }
 
-mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa,pinblock,pinverif,tdes}
+mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa,pinblock,pinverif,cvv,tdes}
 
 echo "=== baixando"
 fetch "$AES_URL"  "$AES_SHA"  "$TMP/KAT_AES.zip"
@@ -129,6 +146,11 @@ fetch "$CMAC_URL" "$CMAC_SHA" "$TMP/cmactestvectors.zip"
 fetch "$TR31_URL" "$TR31_SHA" "$TMP/psec_test_tr31.py"
 fetch "$PIN_URL" "$PIN_SHA" "$TMP/psec_test_pinblock.py"
 fetch "$PINV_URL" "$PINV_SHA" "$TMP/psec_test_pin.py"
+fetch "$CVV_PSEC_T_URL" "$CVV_PSEC_T_SHA" "$TMP/psec_test_cvv.py"
+fetch "$CVV_PSEC_D_URL" "$CVV_PSEC_D_SHA" "$TMP/psec_cvv.py"
+fetch "$CVV_JPOS_URL" "$CVV_JPOS_SHA" "$TMP/jpos_JCESecurityModuleTest.java"
+fetch "$CVV_JM_T_URL" "$CVV_JM_T_SHA" "$TMP/jm_CalculateCVVFunctionTest.java"
+fetch "$CVV_JM_B_URL" "$CVV_JM_B_SHA" "$TMP/jm_ISO8583TestBase.java"
 fetch "$TDES_KAT_URL" "$TDES_KAT_SHA" "$TMP/KAT_TDES.zip"
 fetch "$TDES_MMT_URL" "$TDES_MMT_SHA" "$TMP/tdesmmt.zip"
 fetch "$RSA_URL" "$RSA_SHA" "$TMP/186-3rsatestvectors.zip"
@@ -190,6 +212,10 @@ python3 "$ROOT/scripts/_extrai_pinblock.py" \
 # Verificacao de PIN: 24 valores copiados literalmente.
 python3 "$ROOT/scripts/_extrai_pinverif.py" \
         "$TMP/psec_test_pin.py" "$VEC/pinverif/psec_pin.rsp"
+
+# CVV: 7 valores de 3 fontes, copiados literalmente. A extracao falha se
+# alguma fonte nao tiver exatamente a quantidade esperada.
+python3 "$ROOT/scripts/_extrai_cvv.py" "$TMP" "$VEC/cvv/cvv.rsp"
 
 # CTR_DRBG vem num zip dentro do zip, e o arquivo completo tem 785 KB com
 # 3DES e AES-128/192 que este projeto nao usa. Filtra para [AES-256 ...].

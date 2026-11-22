@@ -15,7 +15,7 @@
 
 #define HSM_VERSAO_MAJOR  0u
 #define HSM_VERSAO_MINOR  8u    /* fase 8 */
-#define HSM_VERSAO_PATCH  5u    /* etapas 8.1 a 8.5, e PKCS#8 */
+#define HSM_VERSAO_PATCH  6u    /* etapas 8.1 a 8.6, e PKCS#8 */
 
 /* A memoria de codigo: comeca no endereco 0 e tem 64 KB. Tem de casar com
  * __neorv32_rom_size no Makefile e com IMEM_SIZE no wrapper. */

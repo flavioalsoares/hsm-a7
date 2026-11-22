@@ -31,7 +31,9 @@ pessoa sozinha. Ver seção 7.
 semeado por entropia física, especificado na SP 800-90A.
 
 **CVV / CVC** — três dígitos derivados de PAN, validade e código de serviço
-sob um par de chaves. Inerentemente 3DES (seções 37 e 38).
+sob um par de chaves 3DES (a chave dupla de uso `C0`). O CVV2 (verso) e o
+iCVV (chip) saem da mesma conta, com os códigos de serviço `000` e `999`.
+Seção 36.
 
 **Decimalização** — mapear os dígitos hexadecimais que uma cifra produz
 para dígitos decimais, para formar um PIN. A tabela que faz esse mapeamento
@@ -39,7 +41,7 @@ foi a origem do ataque de Bond e Zieliński (seções 15.2 e 35.3).
 
 **DUKPT** — *Derived Unique Key Per Transaction*. Esquema em que cada
 transação usa uma chave distinta derivada de uma BDK, identificada por um
-KSN. Duas normas: X9.24-1 (TDES, legado) e X9.24-3 (AES). Seção 36.
+KSN. Duas normas: X9.24-1 (TDES, legado) e X9.24-3 (AES). Seção 37.
 
 **eFUSE** — memória de programação única do FPGA. **Proibida neste
 projeto**: erro vira brick permanente.
@@ -58,19 +60,19 @@ da LMK por propósito.
 
 **KCV** — *Key Check Value*. Três bytes do resultado de cifrar um bloco de
 zeros com a chave. Permite verificar sem revelar. O KCV de uma chave 3DES é
-calculado com 3DES (seção 38.5).
+calculado com 3DES (seção 39.5).
 
 **3DES / TDES / TDEA** — o DES aplicado três vezes, cifrando, decifrando e
 cifrando. Chave de **comprimento duplo** (16 bytes) ou **triplo** (24
-bytes). Legado, e ainda o algoritmo dominante em pagamentos. Seção 38.
+bytes). Legado, e ainda o algoritmo dominante em pagamentos. Seção 39.
 
 **Paridade (de chave DES)** — o bit baixo de cada byte de uma chave DES,
 ajustado para o byte ter um número ímpar de bits em 1. Detecta chave
-corrompida; a cifra não o usa. Seção 38.3.
+corrompida; a cifra não o usa. Seção 39.3.
 
 **KSN** — *Key Serial Number*. Identificador do dispositivo mais o contador
 de transação, enviado junto com cada transação DUKPT. Com ele e a BDK, o HSM
-rederiva a chave usada. Seção 36.
+rederiva a chave usada. Seção 37.
 
 **KEK** — *Key Encryption Key*. Chave cuja função é proteger outras chaves.
 
@@ -82,7 +84,7 @@ clocks. Aqui, 50 → 100 MHz.
 
 **PAN** — *Primary Account Number*. O número do cartão. Entra na formação
 do PIN block para amarrar o PIN à conta. **Nunca usar um PAN real neste
-projeto** (seção 37.4).
+projeto** (seção 38.4).
 
 **PIN block** — formato que combina PIN e número da conta para transporte.
 Os formatos da ISO 9564 e suas fraquezas estão na seção 33; os ataques
@@ -384,6 +386,8 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `V2` | `V3` | COMUM ‖ tabela autorizada(32) ‖ dados de validação(16) ‖ tamanho(2) ‖ offset | — (o veredito é o erro) | `OPERATIONAL` |
 | `V4` | `V5` | COMUM ‖ índice da chave(1) | PVV(4) | `OPERATIONAL` |
 | `V6` | `V7` | COMUM ‖ índice da chave(1) ‖ PVV(4) | — (o veredito é o erro) | `OPERATIONAL` |
+| `W0` | `W1` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) | código(3) | `OPERATIONAL` |
+| `W2` | `W3` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) ‖ código(3) | — (o veredito é o erro) | `OPERATIONAL` |
 
 COMUM = bloco da chave de PIN ‖ bloco da chave de verificação ‖ formato(1) ‖
 tamanho do PAN(2) ‖ PAN ‖ PIN block(16 ou 32).
@@ -400,7 +404,7 @@ digest é SHA-256, calculado pelo host. A seção 30 explica os dois.
 
 No `K0`, os dois últimos campos são opcionais e vêm juntos: `A4` é AES-256,
 que também é o padrão sem o campo; `T2` é 3DES de comprimento duplo; `T3` é
-3DES de comprimento triplo. Outro valor responde `16`. A seção 38.8 explica
+3DES de comprimento triplo. Outro valor responde `16`. A seção 39.8 explica
 o que cada comando faz com uma chave 3DES.
 
 `P0` traduz um PIN block ISO 9564 de uma chave de PIN para outra, e de um
@@ -419,6 +423,11 @@ pede modo `G` ou `C`, e verificar pede `V` ou `C`. A tabela autorizada são os
 console devolveu para aquela chave `V1`. Os dados de validação vão em 16 dígitos hexadecimais. O
 offset tem de 4 a 12 dígitos, e o tamanho vai em dois dígitos decimais. No
 PVV o PAN tem de 12 a 19 dígitos.
+
+`W0` e `W2` são o CVV, o CVV2 e o iCVV (seção 36): o código de serviço
+escolhe qual. A CVK é 3DES de comprimento duplo, de uso `C0`; gerar pede
+modo `G` ou `C`, e verificar pede `V` ou `C`. O PAN tem de 12 a 19 dígitos.
+A validade vai como o emissor a usa, e o equipamento não a interpreta.
 
 `K4` e `K6` trocam chave com outra instituição sob uma **KEK** — chave de
 uso `K0` que as duas têm, formada por componentes no console
@@ -669,7 +678,7 @@ DES e 3DES             roda no primeiro uso
 As nove primeiras linhas são testes que rodam no boot. As três últimas são
 **autotestes de primeiro uso**: cada um roda antes do primeiro comando que
 usa o algoritmo, e a linha só mostra `FALHOU` se ele já reprovou desde o
-boot (seções 30 e 38.8).
+boot (seções 30 e 39.8).
 
 Das linhas do boot, as oito primeiras dizem oito verdades diferentes.
 
@@ -1151,6 +1160,10 @@ que não foi escrito:
 - **RFC 8017** (PKCS #1 v2.2) — RSA, e o enchimento de assinatura v1.5
 - **PCI PIN Security Requirements** e **PCI PTS HSM** — de onde vêm dual
   control e split knowledge como exigência
+- **PCI DSS** — entre outras coisas, a proibição de guardar o CVV2 depois
+  da autorização
+- **ISO/IEC 9797-1** — os MACs de cifra de bloco; o algoritmo 3 é o *retail
+  MAC*, a mesma conta do CVV
 
 ### Ataques
 
@@ -1173,6 +1186,9 @@ que não foi escrito:
   Theorem* (2000), e Walter, C. e Thompson, S. — *Distinguishing Exponent
   Digits by Observing Modular Subtractions* (2001) — a subtração final do
   produto de Montgomery como canal lateral
+- Ali, M. A., Arief, B., Emms, M. e van Moorsel, A. — *Does the Online Card
+  Payment Landscape Unwittingly Facilitate Fraud?*, IEEE Security & Privacy
+  15(2), 2017 — a adivinhação distribuída do CVV2
 - Bleichenbacher, D. — falsificação de assinaturas RSA com `e = 3` contra
   verificadores que interpretam o enchimento (2006); registro público:
   CVE-2006-4339

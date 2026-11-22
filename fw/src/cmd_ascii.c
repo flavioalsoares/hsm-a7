@@ -31,6 +31,7 @@
 #include "state.h"
 #include "pinblock.h"
 #include "pinverif.h"
+#include "cvv.h"
 #include "des.h"
 #include "kat.h"
 #include "tr31.h"
@@ -1326,6 +1327,86 @@ static uint8_t h_v4(leitor_t *in, escritor_t *out) { return pvv_cmd(in, out, 1);
 static uint8_t h_v6(leitor_t *in, escritor_t *out) { return pvv_cmd(in, out, 0); }
 
 /* ------------------------------------------------------------------ */
+/* CVV, CVV2 e iCVV (etapa 8.6)                                        */
+/* ------------------------------------------------------------------ */
+
+/* W0  gerar CVV:     bloco CVK . PAN (2 + n) . validade (4) . codigo de
+ *                    servico (3)                       -> CVV (3)
+ * W2  verificar CVV: o mesmo . CVV (3)                 -> 00 ou 01
+ *
+ * Um par de comandos para os tres codigos: CVV (o codigo de servico da
+ * tarja), CVV2 (000) e iCVV (999). E o mesmo metodo; o codigo de servico
+ * entra na conta. A validade vai como o emissor a usa (AAMM ou MMAA): o
+ * equipamento nao a interpreta, e gerar e verificar tem de usar a mesma.
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao.
+ *   vazamento    W2 devolve UM BIT, e e o servico. Com ele, quem tem o
+ *                bloco da chave acha o CVV de um cartao em ate 1000
+ *                pedidos: 3 digitos sao pouco. Nao ha conserto dentro do
+ *                metodo; o controle e de fora (o emissor conta tentativas
+ *                por cartao) e o log, que registra cada 01.
+ *
+ *                W0 e funcao de EMISSAO: quem a chama tem o CVV de qualquer
+ *                PAN, e o CVV2 e o que se pede numa compra sem o cartao. O
+ *                controle e o modo da chave: o bloco entregue ao autorizador
+ *                tem modo 'V', e com ele W0 responde 11. Uma chave de outro
+ *                uso (a de PIN, a de verificacao de PIN) nao calcula CVV, e
+ *                a CVK nao serve a outro comando.
+ *
+ *                O codigo de servico e escolha do chamador. Com uma chave
+ *                'C', W0 com 000 da o CVV2 de qualquer cartao de que se
+ *                tenha a tarja: e por isso que o emissor separa a chave de
+ *                emitir (G) da de autorizar (V).
+ *   exportability nao se aplica: nenhuma chave sai.
+ *   log          sim, antes; o 01 fica registrado.
+ *
+ * FRONTEIRA: dentro. O handler ve o PAN, a validade e o CVV, que vem e vao
+ * pela porta. A chave e o resultado da cifra ficam em keystore.c. */
+static uint8_t cvv_cmd(leitor_t *in, escritor_t *out, int gerar)
+{
+    const uint8_t *kb, *pan;
+    uint16_t       kbn;
+    uint8_t        val[CVV_VALIDADE], sc[CVV_SERVICO], cvv[CVV_DIGITOS];
+    uint8_t        dados[CVV_DADOS];
+    ks_info_t      info;
+    int32_t        pn;
+    uint32_t       i;
+    uint8_t        r;
+
+    if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK)           { return r; }
+    pn = le_dec(in, 2u);
+    if (pn == -1)                                            { return ASCII_MALFORMADA; }
+    if ((pn < (int32_t)CVV_PAN_MIN) || (pn > (int32_t)CVV_PAN_MAX)) { return ASCII_PARAM; }
+    if ((uint32_t)in->pos + (uint32_t)pn > in->n)            { return ASCII_MALFORMADA; }
+    pan = &in->p[in->pos];
+    in->pos = (uint16_t)(in->pos + (uint16_t)pn);
+    if ((r = le_digitos(in, val, CVV_VALIDADE)) != ASCII_OK) { return r; }
+    if ((r = le_digitos(in, sc, CVV_SERVICO)) != ASCII_OK)   { return r; }
+    if (!gerar) {
+        if ((r = le_digitos(in, cvv, CVV_DIGITOS)) != ASCII_OK) { return r; }
+    }
+    if ((r = fim(in)) != ASCII_OK)                           { return r; }
+    if (cvv_dados(pan, (uint32_t)pn, val, sc, dados) != 0)   { return ASCII_PARAM; }
+
+    if ((r = abre_bloco(kb, kbn, &info)) != ASCII_OK)        { return r; }
+    r = pinv_codigo(keystore_cvv(KS_HANDLE_EFEMERA, gerar, dados, cvv));
+    if (gerar && (r == ASCII_OK)) {
+        for (i = 0u; i < CVV_DIGITOS; i++) {
+            poe(out, cvv[i]);
+        }
+    }
+    /* O CVV2 e dado sensivel de autenticacao: a copia local nao fica na
+     * pilha. Os buffers da mensagem o despachante apaga. */
+    wipe(cvv, sizeof cvv);
+    return r;
+}
+
+static uint8_t h_w0(leitor_t *in, escritor_t *out) { return cvv_cmd(in, out, 1); }
+static uint8_t h_w2(leitor_t *in, escritor_t *out) { return cvv_cmd(in, out, 0); }
+
+/* ------------------------------------------------------------------ */
 /* Tabela                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -1357,6 +1438,8 @@ static const ascii_entry_t g_ascii[] = {
     { 'V', '2', ST_OPER,   h_v2, L },
     { 'V', '4', ST_OPER,   h_v4, L },
     { 'V', '6', ST_OPER,   h_v6, L },
+    { 'W', '0', ST_OPER,   h_w0, L },
+    { 'W', '2', ST_OPER,   h_w2, L },
     { 'R', '0', ST_OPER,   h_r0, L },
     { 'R', '2', ST_OPER,   h_r2, L },
     { 'R', '4', ST_OPER,   h_r4, L },

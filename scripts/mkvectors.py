@@ -407,6 +407,79 @@ def tdes():
     escreve("tdes_kcv", ["%02x" % x for x in kcvs], 2)
 
 
+def cvv():
+    """Vetores do tb_cvv (etapa 8.6). Chaves embrulhadas sob a LMK do tb pelo
+    host/tr31.py, e os casos que o tb pede ao W0 e ao W2.
+
+    Os quatro primeiros casos sao valores de TERCEIROS, lidos aqui de
+    vectors/cvv/cvv.rsp (ver o MANIFEST) e nao recalculados: a chave da
+    fonte vai para dentro de um key block, e o tb exige do firmware o CVV que
+    a fonte publicou. Os PANs sao os das fontes, padroes de teste publicados.
+    Os dois ultimos sao deste projeto, com PAN inventado (prefixo 999999) de
+    19 e de 12 digitos, que as fontes nao cobrem; o CVV sai do host/cvv.py.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import cvv as cvvpy
+    import des
+    import tr31
+
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    ench = bytes(range(16))
+
+    def bloco(chave, uso="C0", modo="C"):
+        b = tr31.embrulha(lmk, chave, uso=uso, algoritmo="T", modo=modo,
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != 112:
+            raise SystemExit("CVV: key block de %d caracteres" % len(b))
+        return ["%02x" % ord(c) for c in b]
+
+    # os valores de terceiros, do arquivo fixado por hash
+    reg, terc = {}, []
+    for linha in (VEC / "cvv" / "cvv.rsp").read_text().splitlines() + [""]:
+        linha = linha.strip()
+        if not linha:
+            if reg:
+                terc.append(reg)
+                reg = {}
+        elif not linha.startswith("#"):
+            k, v = [x.strip() for x in linha.split("=", 1)]
+            reg[k] = v
+    psec = [v for v in terc if v["SC"] == "111"]
+    jm = [v for v in terc if v["PAN"] == "4444333322221111"]
+    if len(psec) != 1 or len(jm) != 3:
+        raise SystemExit("CVV: vectors/cvv/cvv.rsp nao tem os casos esperados")
+    k_psec = bytes.fromhex(psec[0]["KEY"])
+    k_jm = bytes.fromhex(jm[0]["KEY"])
+
+    kp = des.paridade_impar(hashlib.sha256(b"tb_cvv: chave").digest()[:16])
+    k3 = des.paridade_impar(hashlib.sha256(b"tb_cvv: tripla").digest()[:24])
+    escreve("cvv_k1", bloco(k_psec), 2)
+    escreve("cvv_k2", bloco(k_jm), 2)
+    escreve("cvv_kp", bloco(kp), 2)
+    escreve("cvv_kv", bloco(kp, modo="V"), 2)          # so verifica
+    escreve("cvv_kg", bloco(kp, modo="G"), 2)          # so gera
+    escreve("cvv_kt", bloco(k3), 2)                    # tripla: recusada
+    escreve("cvv_pvk", bloco(kp, uso="V2"), 2)         # outro uso: recusada
+
+    pan19 = "999999" + "0123456789012"
+    pan12 = "999999012345"
+    casos = [(v["PAN"], v["EXP"], v["SC"], v["CVV"]) for v in psec + jm]
+    casos += [(pan19, "2812", "201", cvvpy.gera(kp, pan19, "2812", "201")),
+              (pan12, "2812", "000", cvvpy.gera(kp, pan12, "2812", "000"))]
+    for c in casos[:4]:
+        k = k_psec if c[2] == "111" else k_jm
+        if cvvpy.gera(k, *c[:3]) != c[3]:
+            raise SystemExit("CVV: o Python nao reproduz %s" % (c,))
+    # registro de 31 bytes ASCII: tamanho do PAN (2) . PAN (19, completado
+    # com espaco) . validade (4) . codigo de servico (3) . CVV (3)
+    dados = b"".join(("%02d" % len(p) + p.ljust(19) + e + sc + c).encode()
+                     for p, e, sc, c in casos)
+    if len(dados) != 31 * 6:
+        raise SystemExit("CVV: registro com tamanho errado")
+    escreve("cvv_casos", ["%02x" % x for x in dados], 2)
+
+
 def rsa_r2(prefixo):
     """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
     embrulhada sob a LMK que o tb_rsa monta na cerimonia.
@@ -460,6 +533,7 @@ def main():
     ecdsa()
     pin()
     tdes()
+    cvv()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.

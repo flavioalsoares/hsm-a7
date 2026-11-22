@@ -1,0 +1,61 @@
+# CVV, CVV2 e iCVV -- valores conhecidos de terceiros, de tres fontes.
+#
+# NAO E VETOR OFICIAL. Ver vectors/MANIFEST.txt para a procedencia e
+# para o que estes valores cobrem e o que NAO cobrem.
+#
+# KEY  a chave de verificacao de cartao, 3DES de comprimento duplo
+#      (CVK A . CVK B)
+# KCV  o KCV copiado da fonte, quando ela traz; A/B quando sao duas
+# PAN  o numero da fonte (padrao de teste, nao e cartao)
+# EXP  a validade, como a fonte a escreve; SC  o codigo de servico
+
+# psec, tests/test_cvv.py
+KEY = 99999999999999998888888888888888
+PAN = 2222222222222222
+EXP = 3333
+SC = 111
+CVV = 361
+
+# psec, psec/cvv.py (exemplo)
+KEY = 0123456789ABCDEFFEDCBA9876543210
+PAN = 1234567890123456
+EXP = 9912
+SC = 220
+CVV = 170
+
+# jPOS, testCalculateCVDImpl1
+KEY = 12345678123456781234567812345678
+KCV = 6FB1C8
+PAN = 123456789012
+EXP = 1108
+SC = 000
+CVV = 204
+
+# jPOS, testCalculateCVDImpl2
+KEY = 12345678123456788765432187654321
+KCV = 6FB1C8/AAB151
+PAN = 123456789012
+EXP = 1108
+SC = 000
+CVV = 453
+
+# jmeter-iso8583, shouldCalculateCVV
+KEY = 13131313131313131313131313131313
+PAN = 4444333322221111
+EXP = 9911
+SC = 101
+CVV = 662
+
+# jmeter-iso8583, shouldCalculateCVV
+KEY = 13131313131313131313131313131313
+PAN = 4444333322221111
+EXP = 9911
+SC = 000
+CVV = 114
+
+# jmeter-iso8583, shouldCalculateCVV
+KEY = 13131313131313131313131313131313
+PAN = 4444333322221111
+EXP = 9911
+SC = 999
+CVV = 163

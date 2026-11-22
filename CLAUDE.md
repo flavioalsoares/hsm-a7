@@ -808,7 +808,7 @@ Não trocar por desvio condicional.
 Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vigor
 está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
 DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos (**feita**), 8.5
-verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV, 8.7 troca de chaves 3DES,
+verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV (**feita**), 8.7 troca de chaves 3DES,
 8.8 DUKPT, 8.9 MAC e dados com 3DES.
 
 ⚠ **O 3DES entra, por decisão do usuário (2026-11-14), e o critério é o mercado de
@@ -940,6 +940,32 @@ por máscara e não indexa a tabela pelo valor secreto. Mexer nele exige mexer e
 ⚠ **Os valores de offset e de PVV são de terceiros**, e não cobrem PIN com mais de
 4 dígitos nem a segunda passada do PVV. Esses casos são conferidos entre o C e o
 Python.
+
+**Etapa 8.6 (CVV, CVV2 e iCVV): ✅ validada em hardware 2026-11-21.** `tb_cvv` 2 h 36, `tb_ascii` 2 h 38; `regressao.py` com 19 passos em 353 s, `cvv-confere` em 16,5 s. Firmware `0.8.6`, 52 772 bytes. Próxima: etapa 8.7. Comandos ASCII `W0` (gerar o
+código) e `W2` (verificar). O código de serviço escolhe qual: o da tarja (CVV),
+`000` (CVV2), `999` (iCVV). As contas sem chave estão em `fw/src/cvv.c`; a cifra,
+em `keystore_cvv()`.
+
+⚠ **A chave de CVV é uso `C0`, 3DES de comprimento DUPLO** (o par CVK A, CVK B).
+O método usa a metade `A` sozinha: chave tripla responde `11`. O DES de `A` sai
+do motor de 3DES com a chave `A ‖ A`, no único contexto (`tdes_ctx_comum()`).
+
+⚠ **`W0` é função de emissão**: dá o CVV2 de qualquer cartão de que se tenha o
+número e a validade. O controle é o modo da chave (`G`/`V`/`C`), conferido em
+`cvk_pode()`. Não afrouxar.
+
+⚠ **O veredito do `W2` é calculado duas vezes**, como o do `V2`/`V6`. Não
+"simplificar".
+
+⚠ **Os vetores de CVV são de TRÊS fontes de terceiros** (`psec`, jPOS,
+`jmeter-iso8583`; decisão do usuário, 2026-11-21), fixados por commit e hash no
+`MANIFEST.txt`. O `tb_cvv` leva as chaves das fontes para dentro de key blocks e
+exige o código publicado. Nenhum cobre a extração com menos de 3 decimais (1 em
+18 113): esse caso é conferido entre o C e o Python. Mexer no método exige mexer
+em `fw/src/cvv.c` e `host/cvv.py`, e rodar `host/test_cvv.py` (0,3 s).
+
+⚠ **A extração do CVV repete a do PVV** (`cvv_extrai()` e `pinv_pvv_extrai()`), de
+propósito: generalizar mudaria código validado. Corrigir uma exige olhar a outra.
 
 ## Bancada — leia `doc/bancada.md` antes de depurar hardware
 

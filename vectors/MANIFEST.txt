@@ -159,6 +159,48 @@ uso    fase 8, etapa 8.5. Baixado em 2026-11-15.
        A tabela destes valores (`1234567890123456`) não é a tabela padrão
        do método. Ela serve para conferir a conta.
 
+[CVV, CVV2 e iCVV]  valores conhecidos de TERCEIROS, de três fontes
+url    https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_cvv.py
+sha256 c376802d0ca558952c04b85372fff96206b74c8b2b53713cb5c487a5d63310b4
+url    https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/psec/cvv.py
+sha256 da57b3a769877f81ce82530b1554c47c4720e41d6cddd59983b12128617fcc5f
+url    https://raw.githubusercontent.com/jpos/jPOS/71a6ccbd006432010e3c61ec8e1583c2c0eebca5/jpos/src/test/java/org/jpos/security/jceadapter/JCESecurityModuleTest.java
+sha256 697bca950f02b1f3561d149c87dc253296ca2b0951affe9fbc1f4590ab686fe6
+url    https://raw.githubusercontent.com/tilln/jmeter-iso8583/b90aaecfa532e2e662404f7018218fdbb9c294aa/src/test/java/nz/co/breakpoint/jmeter/iso8583/CalculateCVVFunctionTest.java
+sha256 e9e12d5fa710353dfa2c61a75ade0a3e2a6045b523a89fb176f5c126ae2ab3d6
+url    https://raw.githubusercontent.com/tilln/jmeter-iso8583/b90aaecfa532e2e662404f7018218fdbb9c294aa/src/test/java/nz/co/breakpoint/jmeter/iso8583/ISO8583TestBase.java
+sha256 76934fc3951901d2666848bb06d0540b09d6b1f523489ed1b23974feb765263a
+extrai 7 valores, pelo scripts/_extrai_cvv.py
+uso    fase 8, etapa 8.6. Baixado em 2026-11-21. Escolha do usuário: as três
+       fontes, depois de uma busca por mais valores.
+
+       ⚠ PROCEDÊNCIA: FONTE SECUNDÁRIA, como a do PIN block.
+
+       O método está em documentação de bandeira, e não há vetor oficial
+       público. Os valores vêm de testes de três bibliotecas abertas e
+       independentes: `psec` (MIT; um valor do teste e um do exemplo da
+       documentação da função), jPOS (AGPL; dois do teste do módulo de
+       segurança em software) e `jmeter-iso8583` (MIT; três do teste da
+       função de CVV). Os sete concordam com um mesmo algoritmo.
+
+       No jPOS a chave está cifrada sob a LMK de teste da biblioteca, e o
+       valor em claro está num comentário ("4 times 12345678"). O KCV da
+       declaração vai junto, e `host/test_cvv.py` o confere contra a chave.
+
+       O que eles cobrem: chave dupla com A ≠ B e com A = B; PAN de 12 e de
+       16 dígitos; os códigos de serviço da tarja (`101`, `111`, `220`), do
+       verso (`000`) e do chip (`999`), os três sobre o mesmo cartão.
+
+       O que NÃO cobrem: o caso em que o resultado da cifra tem menos de 3
+       dígitos decimais e as letras completam o código (1 bloco em 18 113);
+       PAN de 13 a 15 e de 17 a 19 dígitos. Esses casos são conferidos só
+       entre o C e o Python.
+
+       Os PANs (`2222222222222222`, `1234567890123456`, `123456789012`,
+       `4444333322221111`) são das fontes. São padrões de teste publicados,
+       não números de cartão. Os testes deste projeto usam o prefixo
+       `999999`.
+
 # =====================================================================
 # ARQUIVOS NO REPOSITÓRIO (hash do que está versionado)
 # =====================================================================
@@ -188,6 +230,7 @@ f0e4a23c88630ab5f35cce8f6ad10b5ced08ae5745c4cccf652aa881a8046292  rsa/KeyGen_186
 884959d3b61c4a9af5fd5bb3619d78958f92ac17145a43585aae9facaf7bd1e2  pinblock/iso9564_f4.rsp
 98b88b6037af73855532a0ebdd01b7a93e73ab24553b0c200183a7797763fc78  pinblock/iso9564_f0.rsp
 62cf7c4db04055b3e84e7b4c7439f80563b795cdb28c970ab4cd47d077ae8018  pinverif/psec_pin.rsp
+fb358f0ea2674cf8eb11583d1825455ac652adcba58716250bfa7299731fcc8e  cvv/cvv.rsp
 4d4969210c1d61550a908818b4f61d01f8b6048a40afa9ae09a788a96965d36c  tdes/TCBCMMT2.rsp
 0ea39ced9720b3855c8d517e1b0a9493b9b515eaa426d6580f592024685590c6  tdes/TCBCMMT3.rsp
 ff3b3f84784e1e4f11d23a9a9497d9bf95bd60b474259c28b979543556f80fbd  tdes/TCBCinvperm.rsp

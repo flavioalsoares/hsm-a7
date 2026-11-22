@@ -79,6 +79,7 @@ typedef uint8_t ks_handle_t;
 #define KS_USO_PIN      "P0"   /* chave de PIN -- fase 8 */
 #define KS_USO_PVK_OFFSET "V1" /* verificacao de PIN, metodo do offset */
 #define KS_USO_PVK_PVV    "V2" /* verificacao de PIN, PVV              */
+#define KS_USO_CVK      "C0"   /* verificacao de cartao: CVV -- etapa 8.6 */
 #define KS_USO_ASSINA   "S0"   /* par assimetrico de assinatura -- fase 7 */
 
 #define KS_ALG_AES      'A'
@@ -297,6 +298,20 @@ int keystore_pin_pvv(ks_handle_t h, int gerar, const uint8_t *pan,
 int keystore_tabela_autoriza(const uint8_t tab[16],
                              const uint8_t kcv[KS_KCV_LEN],
                              uint8_t mac[KS_TABELA_MAC]);
+
+/* CVV, CVV2 e iCVV (etapa 8.6). `dados` sao os 16 bytes que cvv_dados()
+ * monta do PAN, da validade e do codigo de servico. Com `gerar`, escreve os
+ * 3 digitos ASCII em `cvv`; sem, confere os que estao la.
+ *
+ * A chave do slot precisa ser 3DES de comprimento DUPLO (o par CVK A, CVK B),
+ * de uso C0. Gerar pede modo 'G' ou 'C'; conferir, 'V' ou 'C'. A cifra e o
+ * veredito sao calculados duas vezes.
+ *
+ * Devolve 0 (gerado, ou conferiu); 1 se nao conferiu; -1 se o uso, o
+ * algoritmo, o comprimento ou o modo proibe; -2 se duas execucoes
+ * discordaram (erro grave marcado); -3 em erro interno. */
+int keystore_cvv(ks_handle_t h, int gerar, const uint8_t dados[16],
+                 uint8_t cvv[3]);
 
 /* MAC sob a chave de um slot -- CMAC-AES-256, SP 800-38B.
  *

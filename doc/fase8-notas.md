@@ -16,7 +16,7 @@ pagamento.
 | 8.3 | Chave 3DES no key store: algoritmo `T` no key block, paridade, KCV | pronta, validada na placa em 2026-11-15 |
 | 8.4 | PIN block formato 0, tradução entre formatos e entre chaves | pronta, validada na placa em 2026-11-15 |
 | 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | validada na placa em 2026-11-15 |
-| 8.6 | CVV: gerar e verificar | a fazer |
+| 8.6 | CVV: gerar e verificar | validada na placa em 2026-11-21 |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | a fazer |
 | 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | a fazer |
 | 8.9 | MAC de mensagem e cifra de dados com 3DES | a fazer |
@@ -135,8 +135,8 @@ faz o papel do terminal e o do destino.
 As duas etapas andam juntas: o motor sozinho não tem comando que o exercite. O
 primeiro uso dele é o KCV de uma chave 3DES.
 
-A teoria está no manual, seção 38. O que o equipamento faz com uma chave 3DES
-está na seção 38.8.
+A teoria está no manual, seção 39. O que o equipamento faz com uma chave 3DES
+está na seção 39.8.
 
 ### As peças
 
@@ -304,7 +304,7 @@ Estado: pronto. Na placa em 2026-11-15: `hsmtool build` respondeu `v0.8.5` e CON
 Quatro comandos na porta host (`V0` gerar offset, `V2` verificar offset, `V4`
 gerar PVV, `V6` verificar PVV) e um no console (`0x80 TABELA_AUTORIZA`). A
 teoria está no manual: seção 35 (os dois métodos, com exemplo numérico, o
-ataque de decimalização e a defesa) e 41.3 (os testes e a matemática deles).
+ataque de decimalização e a defesa) e 42.3 (os testes e a matemática deles).
 
 ### As peças
 
@@ -444,6 +444,112 @@ de começar, ele compara o KCV da LMK informada com o do `D0` e para se não
 conferem. Sem a LMK, ninguém faz essa conferência. Em produção ela não existe,
 porque ninguém tem a LMK inteira: aqui ela é de desenvolvimento.
 
+## Etapa 8.6: CVV, CVV2 e iCVV
+
+Estado: pronto. Na placa em 2026-11-21: `hsmtool build` respondeu `v0.8.6` e CONFERE; `regressao.py` passou nos 19 passos em 353 s, com o `cvv-confere` em 16,5 s. Firmware de 52 772 bytes (81% da IMEM). Timing +0,572 ns, 0 critical warnings.
+
+Dois comandos na porta host: `W0` (gerar o código) e `W2` (verificar). O
+código de serviço escolhe qual dos três: o da tarja para o CVV, `000` para o
+CVV2, `999` para o iCVV. A teoria está no manual: seção 36 (o método, com
+exemplo numérico nos três códigos, a ligação com o retail MAC, a busca de
+1 000 valores e o ataque de adivinhação distribuída) e 42.4 (os testes e a
+matemática deles).
+
+### As peças
+
+| Arquivo | O que faz |
+|---|---|
+| `fw/src/cvv.c` | as contas sem chave: montagem dos 16 bytes de entrada e extração dos 3 dígitos, por máscara |
+| `fw/src/keystore.c` | `keystore_cvv()`: a cifra (DES sob `A`, XOR, 3DES sob `A` e `B`), feita duas vezes, e o veredito duplo |
+| `fw/src/cmd_ascii.c` | os handlers `W0` e `W2` |
+| `host/cvv.py` | o método em Python |
+| `host/hsmhost.py` | os dois comandos, e o `cvv-confere` |
+| `scripts/_extrai_cvv.py` | copia os 7 valores das três fontes para `vectors/cvv/cvv.rsp` |
+
+### Decisões
+
+- **Os vetores vêm de três fontes** (decisão do usuário, 2026-11-21). A
+  primeira busca achou só 2 valores, na mesma biblioteca da 8.5. O usuário
+  pediu uma busca mais funda antes de começar, e ela achou mais 5, em duas
+  bibliotecas independentes. Os 7 concordam com o mesmo algoritmo.
+- **Uso `C0`, 3DES de comprimento duplo.** É o código da X9.143 para a chave
+  de verificação de cartão, e o par "CVK A, CVK B" do mercado. O método usa a
+  metade `A` sozinha; chave tripla responde `11`.
+- **Um par de comandos para os três códigos.** O método é o mesmo, e o
+  código de serviço entra na conta. Os comandos são do projeto: `W0`/`W2`,
+  letra que nenhum outro comando usa.
+- **O DES de `A` sai do motor de 3DES com a chave `A ‖ A`.** Com `K1 = K2`, o
+  segundo passo desfaz o primeiro, e sobra o DES de `A`. O firmware tem um
+  contexto de 3DES só (`tdes_ctx_comum()`); as subchaves são preparadas duas
+  vezes por conta.
+- **As contas sem chave ficam em `cvv.c`, e não em `pinverif.c`.** A extração
+  é a do PVV com 3 dígitos em vez de 4, mas generalizar a função do PVV
+  mudaria código validado e pediria de novo o `tb_pinv` (3 h 21). São 20
+  linhas repetidas, com comentário apontando a origem.
+- **A validade vai como o emissor a usa** (`AAMM` ou `MMAA`). O equipamento não
+  a interpreta.
+- **O PAN tem de 12 a 19 dígitos.** 19 + 4 + 3 = 26 dígitos, que cabem nos 32
+  dos dois blocos.
+- **Cada veredito é calculado duas vezes**, como no `V2` e no `V6`: a cifra,
+  com as subchaves preparadas de novo, e a comparação final, uma a partir de
+  cada cifra. O código gerado também sai de duas contas.
+- **A cópia local do código é apagada** no fim do handler: o CVV2 é dado
+  sensível de autenticação, e o PCI DSS proíbe guardá-lo.
+
+### O checklist
+
+| Item | `W0` e `W2` |
+|---|---|
+| Estados | `OPERATIONAL` |
+| Dual control | não: é operação |
+| Exportabilidade | não se aplica: nenhuma chave sai |
+| Log | antes; o `01` fica registrado |
+
+**Vazamento.**
+
+- `W2` devolve um bit. Quem tem o bloco da chave acha o código de um cartão em
+  até 1 000 pedidos. Não há conserto dentro do método; o controle é o
+  contador de tentativas do emissor e o log.
+- `W0` é função de emissão: dá o CVV2 de qualquer cartão de que se tenha o
+  número e a validade. O controle é o modo da chave: com modo `V`, `W0`
+  responde `11`.
+- O código de serviço é escolha do chamador. Com uma chave `C`, `W0` com
+  `000` dá o CVV2 de um cartão de que se tenha só a tarja. Por isso o emissor
+  separa a chave de emitir (`G`) da de autorizar (`V`).
+- Uma chave de outro uso não calcula CVV (`11`), e a CVK não serve a outro
+  comando: os outros comandos conferem o uso deles.
+
+### Vetores
+
+7 valores de terceiros, de três fontes, em `vectors/cvv/cvv.rsp`. Os cinco
+arquivos de origem estão fixados por commit e por hash no `MANIFEST.txt`, que
+diz o que os valores cobrem e o que não cobrem. Os PANs deles são padrões de
+teste publicados; os testes deste projeto usam o prefixo `999999`.
+
+O testbench leva as chaves das fontes para dentro de key blocks, e exige do
+firmware o código publicado. Abrir um bloco 3DES não confere paridade nem
+chave fraca, e por isso a chave `A = B` do `jmeter-iso8583` entra sem ajuste.
+
+### Medidas
+
+| Medida | Valor |
+|---|---|
+| Firmware | 52 772 bytes de código, 1 436 a mais (81% da IMEM) |
+| RTL | sem mudança |
+
+### Testes
+
+| Teste | O que prova | Tempo |
+|---|---|---|
+| `host/test_cvv.py` | **no PC**: os 7 valores de terceiros, e o KCV das chaves do jPOS; recusas de forma; o C do firmware contra o Python na montagem da entrada (PAN de 12 a 19) e na extração, com 5 100 blocos construídos para toda quantidade de decimais; a chance do caso raro | 0,3 s |
+| `tb_cvv` | pela UART, com o firmware real. `W0` com as chaves e as entradas das fontes: os 4 códigos publicados (um da `psec`, e o CVV, o CVV2 e o iCVV de um cartão do `jmeter-iso8583`). `W0` com PAN inventado de 19 e de 12 dígitos: o código do Python. `W2`: certo nos três códigos, primeiro e último dígito trocados. Recusas: modo `V` no `W0`, modo `G` no `W2`, chave tripla e chave `V2` (`11`); PAN de 11 dígitos e letra na validade (`16`); key block adulterado (`10`) | 2 h 36 |
+| `tb_ascii` | a porta host inteira; a tabela de comandos ganhou duas entradas | 2 h 38 |
+
+`hsmhost.py cvv-confere --lmk LMK [-n N]` é a prova na placa. A cada volta: um
+cartão inventado, com PAN de 12 a 19 dígitos; os três códigos gerados e
+conferidos com o Python; cada dígito trocado, recusado; outra validade; e as
+recusas `11` (modos, chave tripla, chave AES, chave `V2`) e `16`.
+
 ## PKCS#8 no key block
 
 Decisão do usuário em 2026-11-14: o conteúdo do key block de uma chave RSA ou de
@@ -563,8 +669,8 @@ Decisões:
 
 Desde 2026-11-14, uma mudança só de firmware não espera a suíte completa. Ela
 passa pelo testbench novo e pelos que cobrem o código alterado, e a regressão
-do resto roda na placa, com `host/regressao.py`: 18 passos em 311 s (medido em 2026-11-15, com o 3DES, o
-PKCS#8, a conferência do firmware e a verificação de PIN). A suíte
+do resto roda na placa, com `host/regressao.py`: 19 passos em 353 s (medido em 2026-11-21, com o 3DES, o
+PKCS#8, a conferência do firmware, a verificação de PIN e o CVV). A suíte
 completa roda quando o RTL muda e no fim da fase. A tabela está no `CLAUDE.md`.
 
 A suíte completa de 2026-11-15 tem 28 testbenches e levou 11 h 46, com 3 por vez.

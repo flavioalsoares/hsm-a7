@@ -1326,11 +1326,11 @@ O conteúdo dela é a **Parte VII** deste manual. O critério da fase é um só:
 é fazer o melhor projeto possível, é aprender como o mercado trabalha.
 
 - **O 3DES entra**, como motor legado em software, ao lado do AES do
-  coprocessador (seções 37.2 e 38). É o que a rede de pagamento usa.
+  coprocessador (seções 38.2 e 39). É o que a rede de pagamento usa.
 - **Os vetores decidem como cada item entra.** O 3DES tem vetor oficial. As
   funções de pagamento não têm vetor oficial público, e entram com valores
   de implementações abertas, fixados por hash e marcados como fonte
-  secundária (seção 37.3).
+  secundária (seção 38.3).
 
 O item que mais ensina é o **ataque de tabela de decimalização** (seção
 35.3): ele é um ataque sobre a **API**, e não sobre a cifra.
