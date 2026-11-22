@@ -164,6 +164,41 @@ componentes, dual control físico**. A razão é didática — é a família ond
 mecanismos organizacionais (quem autoriza o quê, e como se prova) estão mais
 explícitos e mais bem documentados publicamente.
 
+Os quatro elementos, em poucas linhas cada. As seções 6, 7 e 8 explicam cada
+um em detalhe.
+
+- **LMK** (*Local Master Key*, chave mestra local). É a chave de topo do
+  HSM. Ela fica só dentro do equipamento e nunca sai, nem cifrada. Todas as
+  outras chaves que o HSM usa (de PIN, de MAC, de troca com outra
+  instituição) ficam guardadas fora dele, cifradas sob a LMK. Para usar uma
+  delas, o sistema do banco manda a chave cifrada junto com o pedido, e o
+  HSM a decifra só por dentro. Quem rouba o banco de dados do banco leva
+  chaves que não consegue abrir sem a LMK. Ver a seção 6.
+
+- **Key block TR-31** (hoje norma ANSI X9.143). É o formato em que uma
+  chave cifrada viaja e fica guardada. Tem duas partes: um cabeçalho em
+  texto legível, que diz o que a chave pode fazer (por exemplo, "só
+  verifica PIN" ou "não pode sair deste equipamento"), e a chave cifrada.
+  Um código de autenticação (MAC) cobre as duas partes juntas. Por isso
+  ninguém altera o cabeçalho para dar à chave um poder que ela não tinha:
+  qualquer alteração invalida o bloco. Ver a seção 8.
+
+- **Cerimônia de carga com componentes**. É o procedimento para pôr a LMK
+  dentro do HSM sem que nenhuma pessoa a conheça inteira. A chave é dividida
+  em partes (os componentes), e cada parte fica com um custodiante
+  diferente. Na cerimônia, cada custodiante digita a sua parte, e o HSM
+  junta as partes por XOR. Cada parte sozinha não revela nada da chave. A
+  cada parte, o HSM devolve um valor de conferência curto (o KCV), que
+  confirma a digitação sem mostrar a parte. Este princípio tem o nome de
+  *split knowledge* (conhecimento dividido). Ver a seção 7.
+
+- **Dual control físico**. É a regra de que uma operação crítica exige
+  duas pessoas ao mesmo tempo. O *split knowledge* impede que uma pessoa
+  *saiba* a chave inteira; o dual control impede que uma pessoa *aja*
+  sozinha. Num equipamento comercial, cada pessoa se identifica com cartão e
+  senha. Neste projeto, o HSM só aceita os comandos de cerimônia com dois
+  botões da placa apertados ao mesmo tempo. Ver a seção 7.
+
 A Fase 5 do plano acrescenta a interface de host, e a escolha dela foi
 revista: em vez de um subconjunto de PKCS#11, um **command set ASCII** no
 estilo dos HSM de pagamento. Não é troca de sintaxe. PKCS#11 é uma API de
