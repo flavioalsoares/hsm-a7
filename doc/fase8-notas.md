@@ -553,7 +553,7 @@ recusas `11` (modos, chave tripla, chave AES, chave `V2`) e `16`.
 
 ## Etapa 8.7: troca de chaves 3DES
 
-Estado: validada na placa em 2026-11-22. `regressao.py` com 19 passos em 398 s; o passo de 3DES e KEK 3DES (`tdes-confere`) em 27,4 s. Firmware `0.8.7`, 56 104 bytes (86% da IMEM). Timing +0,572 ns, 0 critical warnings, RTL sem mudança. `tb_kek3` levou 5 h 52, sozinho, e é o segundo mais lento da suíte, depois do `tb_ecdsa`. O teste na bancada com os botões (`comp-load --alg T2`) fica para o operador.
+Estado: validada na placa em 2026-11-22. `regressao.py` com 19 passos em 398 s; o passo de 3DES e KEK 3DES (`tdes-confere`) em 27,4 s. Firmware `0.8.7`, 56 104 bytes (86% da IMEM). Timing +0,572 ns, 0 critical warnings, RTL sem mudança. `tb_kek3` levou 5 h 52, sozinho, e é o segundo mais lento da suíte, depois do `tb_ecdsa`. Na bancada, com os botões, em 2026-11-22: KEK 3DES por componentes, KCV `F7BAA8` antes e depois de religar.
 
 Uma KEK (uso `K0`) pode ser 3DES, dupla ou tripla, e troca chave com outra
 instituição em key block **versão B**. A KEK 3DES nasce por componentes no
@@ -670,9 +670,12 @@ dupla e tripla, aberto pelo Python com a KEK, e `K6` de volta; `K6` de blocos B
 que o Python fechou (com exportabilidade `N`, que tem de ser preservada); e as
 recusas da regra de força, nos dois sentidos.
 
-**Na bancada, com os botões** (falta): `comp-load --alg T2` com dois
-componentes, conferir o KCV de cada um com `kcv --tdes`, religar e ver a KEK no
-mesmo handle.
+**Na bancada, com os botões** (2026-11-22, num terminal com TTY): os dois
+componentes do `tb_kek3`, com `comp-load --alg T2 --uso K0 --modo B`. Os KCVs
+dos componentes são `FE0973` e `840617`, iguais aos de `kcv --tdes`. A chave
+ficou no handle 3, com `K0`, `T`, `B`, `E`, 16 bytes e KCV `F7BAA8`, que é o
+KCV publicado da KBPK do bloco 3 do `psec`. Depois de religar, o handle 3 tem
+o mesmo KCV.
 
 ## PKCS#8 no key block
 

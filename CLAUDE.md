@@ -965,7 +965,7 @@ exige o código publicado. Nenhum cobre a extração com menos de 3 decimais (1 
 18 113): esse caso é conferido entre o C e o Python. Mexer no método exige mexer
 em `fw/src/cvv.c` e `host/cvv.py`, e rodar `host/test_cvv.py` (0,3 s).
 
-**Etapa 8.7 (troca de chaves 3DES): ✅ validada em hardware 2026-11-22.** `tb_kek3` 5 h 52 (sozinho; `sim-timeout` de 36 000 s), `tb_ascii` 2 h 52; `regressao.py` com 19 passos em 398 s, `tdes-confere` em 27,4 s. Firmware `0.8.7`, 56 104 bytes. Próxima: etapa 8.8. Uma KEK (`K0`) pode ser 3DES
+**Etapa 8.7 (troca de chaves 3DES): ✅ validada em hardware 2026-11-22.** `tb_kek3` 5 h 52 (sozinho; `sim-timeout` de 36 000 s), `tb_ascii` 2 h 52; `regressao.py` com 19 passos em 398 s, `tdes-confere` em 27,4 s. Na bancada, com os botões: KEK 3DES por componentes, KCV `F7BAA8` antes e depois de religar. Firmware `0.8.7`, 56 104 bytes. Próxima: etapa 8.8. Uma KEK (`K0`) pode ser 3DES
 dupla ou tripla. `K4`/`K6` com ela trocam chave em key block X9.143 **versão B**
 (`tr31b_*()` em `fw/src/tr31.c`, CMAC-TDES em `fw/src/cmac_tdes.c`). A KEK 3DES
 nasce por componentes no console (`comp-load --alg T2/T3`) e persiste na flash.
