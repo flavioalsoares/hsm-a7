@@ -74,7 +74,7 @@ Um HSM com dezesseis slots de chave não guarda dezesseis segredos. Guarda
          │    nunca sai, nem embrulhada
          │
          ├── KBEK / KBAK ── derivadas por CMAC, uma por propósito
-         │      │
+         │      │           (aqui a LMK faz o papel de KBPK, seção 8)
          │      └── protegem key blocks TR-31
          │
          └── chaves de trabalho: BDK, KEK, chaves de dados, ZMK, ZPK...
@@ -95,7 +95,9 @@ servidor de outra filial. É a única operação de destruição que se consegue
 executar em tempo constante sobre dados que não estão na sua posse.
 
 **Separação de propósito.** KBEK (chave de cifra) e KBAK (chave de
-autenticação) são derivadas da LMK por CMAC com rótulos distintos. A chave
+autenticação) são derivadas por CMAC, com rótulos distintos, da chave que
+protege o key block (a KBPK). Para os blocos guardados pelo equipamento, a
+KBPK é a LMK; numa troca com outra instituição, é a KEK (seção 8). A chave
 que cifra o corpo do key block nunca é a mesma que autentica seu cabeçalho.
 Se fosse, quebrar uma quebraria as duas — e existem ataques que exploram
 exatamente o reuso de chave entre modos de operação.
@@ -229,6 +231,75 @@ esses vetores para converter uma chave de um tipo em outro.
 Consequência de projeto: **um byte errado no cabeçalho explode o MAC
 inteiro**. É o comportamento desejado, e é o que torna a implementação
 irritante de acertar.
+
+### KBPK, KBEK e KBAK: as três chaves de um key block
+
+Três chaves participam de um key block, e só uma delas existe guardada:
+
+| Chave | Nome | O que faz |
+|---|---|---|
+| **KBPK** | *Key Block Protection Key* | A chave que protege o bloco. Nunca cifra nada direto: só deriva as outras duas. |
+| **KBEK** | *Key Block Encryption Key* | Cifra o corpo do bloco (a chave transportada). |
+| **KBAK** | *Key Block Authentication Key* | Calcula o MAC sobre o cabeçalho e o corpo em claro. |
+
+Qual chave é a KBPK depende de onde o bloco vai:
+
+- **Bloco guardado pelo equipamento** (o que o `K0` devolve, o que o host
+  manda a cada comando): a KBPK é a **LMK**.
+- **Bloco trocado com outra instituição** (`K4` e `K6`): a KBPK é a **KEK**
+  que as duas partes formaram por componentes. Uma KEK AES-256 dá a versão
+  `D`; uma KEK 3DES dá a versão `B` (seção 39.9).
+
+A KBEK e a KBAK são recalculadas a cada bloco e apagadas depois. Elas nunca
+ficam em slot nenhum.
+
+**A derivação na versão D.** Cada subchave tem 256 bits, e o CMAC-AES
+devolve 128. São duas chamadas por subchave, sobre 8 bytes de entrada:
+
+```
+    contador(1) . propósito(2) . 00 . algoritmo(2) . bits(2)
+
+    contador    01 = primeira metade       02 = segunda metade
+    propósito   0000 = KBEK (cifra)        0001 = KBAK (MAC)
+    algoritmo   0004 = AES-256
+    bits        0100 = 256
+```
+
+Um exemplo com números, do bloco publicado pela biblioteca `psec` (valor de
+terceiros, seção 42.1). A KBPK é
+`88E1AB2A2E3DD38C1FA039A536500CC8A87AB9D62DC92C01058FA79F44657DE6`:
+
+```
+    KBEK, 1a chamada   CMAC(KBPK, 0100000000040100) = 396C9382A6E2E66A088774E1D6E46541
+    KBEK, 2a chamada   CMAC(KBPK, 0200000000040100) = F5EAD67D7204F8DD0D7AE8FDA334D3AC
+    KBAK, 1a chamada   CMAC(KBPK, 0100010000040100) = 4EF24317696213840451890756757E57
+    KBAK, 2a chamada   CMAC(KBPK, 0200010000040100) = 3E0673483888F9B7F9B7517827F95022
+```
+
+A KBEK é a junção das duas primeiras saídas; a KBAK, a das duas últimas. Só
+o terceiro byte da entrada muda entre elas, e as duas não têm nada em comum.
+
+**O bloco, aberto.** O bloco publicado tem 112 caracteres:
+
+```
+    D0112P0AE00E0000                  cabeçalho, 16 caracteres
+    B82679114F470F54 0165EDFBF7E250FC
+    EA43F810D215F8D2 07E2E417C07156A2  corpo cifrado, 32 bytes
+    7E8E31DA05F74255 09593D03A457DC34  MAC, 16 bytes
+```
+
+Decifrar o corpo com a KBEK em AES-CBC, com o MAC como IV, dá:
+
+```
+    0080  3F419E1CB7079442AA37474C2EFBF8B8  1C2965473CE206BB855B01533782
+    bits  a chave, 16 bytes                 enchimento aleatório, 14 bytes
+```
+
+O CMAC-AES com a KBAK sobre o cabeçalho e esse corpo em claro dá
+`7E8E31DA05F7425509593D03A457DC34`, o MAC do bloco: ele é íntegro. O
+corpo tem 2 + 16 + 14 = 32 bytes, múltiplo de 16, e o bloco tem
+16 + 2 × 32 + 2 × 16 = 112 caracteres. Os valores foram conferidos com a
+biblioteca `cryptography` e com `host/tr31.py`.
 
 ### Por que escrever o parser duas vezes
 

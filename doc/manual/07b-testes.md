@@ -534,6 +534,69 @@ conversa com o equipamento de um parceiro real: a referência é uma
 biblioteca aberta, e não a norma, que é paga. E as versões A e C, que o
 equipamento não faz.
 
+### 42.8 O DUKPT TDES
+
+O DUKPT da seção 37.2 é uma conta determinística: a BDK e o KSN dão sempre
+a mesma chave. Por isso há valor esperado para cada passo, e os testes
+conferem cada passo, e não só o resultado.
+
+**Os valores de terceiros.** O anexo A.4 da X9.24-1:2009 traz a IPEK e 34
+transações: o KSN, a chave da transação e o PIN block cifrado. A norma é
+paga. Os valores vêm do arquivo de testes do projeto `openemv/dukpt`, que os
+transcreve, fixado por commit e por hash. É uma fonte só, por decisão do
+usuário.
+
+As 34 transações cobrem:
+
+- a sequência inicial (A.4.2), contadores de 1 a 21: um passo a cada bit 1,
+  com até 4 bits 1;
+- a sequência de rolagem (A.4.3), contadores de `0FF800` (9 bits 1) a
+  `0FFC00` (10 bits 1, o caminho mais longo que a norma permite), e o
+  `100000`, que é o bit mais alto do contador sozinho.
+
+**Duas implementações, dois motores.** O `host/test_dukpt.py` confere o
+Python (`host/dukpt.py`) e o C do firmware (`fw/src/dukpt.c`, compilado no
+PC) contra os 34 valores. O DES do Python é o da biblioteca `cryptography`,
+e o do C é o `des.c`: os dois lados não dividem o motor. Depois, os dois
+calculam a IPEK e a chave de PIN de 300 BDKs e KSNs ao acaso, com
+contadores de 1 a 10 bits 1, e as 300 contas têm de ser iguais.
+
+**O que os valores de terceiros não cobrem:** BDK diferente da do anexo, e o
+KSN inválido. Os 300 casos ao acaso cobrem a primeira lacuna. Para a
+segunda, o teste exige a recusa dos dois lados com o contador zero, com 11
+bits 1 e com 21 bits 1, e a aceitação com 10 bits 1.
+
+**A conta dos contadores válidos.** São válidos os contadores com 1 a 10
+bits 1 entre 21 posições: `C(21,1) + … + C(21,10) = 1 048 575`. Como
+`C(21,k) = C(21,21−k)`, a soma de 0 a 10 é exatamente a metade de `2²¹`, e
+tirando o zero sobram `2²⁰ − 1`. O teste não precisa varrer o milhão: a
+regra é a contagem de bits, e as bordas são 10 (aceito) e 11 (recusado).
+
+**No firmware real.** O `tb_dukpt` leva a BDK do anexo ao equipamento,
+embrulhada sob a LMK, e pede:
+
+1. o `P2` da transação de contador `0FF800` (9 bits 1): o firmware refaz a chave de PIN, abre o PIN
+   block publicado e o fecha sob uma chave de zona. A saída é formato 0,
+   sem aleatório, e o testbench a compara inteira com a conta do Python;
+2. o `I0` da IPEK do anexo, sob uma KEK 3DES: o cabecalho do bloco tem de
+   ser `B0080B1TX00N0000`, e o KCV, o da IPEK publicada (`AF8C07`);
+3. quatro recusas: KSN de contador zero (`16`), BDK sem modo `X` (`11`), PIN
+   block com um bit trocado (`14`), chave de zona no lugar da KEK (`13`).
+
+O autoteste do 3DES também confere a IPEK e a transação `0FF800` a cada
+primeiro uso, antes de qualquer BDK ser usada.
+
+**O bit trocado do PIN block.** Com um bit trocado, o bloco abre num valor
+ao acaso, e um valor ao acaso passa como formato 0 cerca de uma vez em
+`2²⁴`. O gerador dos vetores escolhe um bit que o Python confirma que não
+passa, para a recusa ser certa e não provável. Na placa, o `dukpt-confere`
+faz o mesmo a cada volta.
+
+**O que estes testes não provam.** Que a conta é a da norma, e não a do
+`openemv/dukpt`: se a transcrição estiver errada, os três lados concordam
+no erro. Que o equipamento conversa com um terminal real. E os MACs e a
+cifra de dados com chave DUKPT, que são da etapa 8.9.
+
 ## 43. Testes do gerador aleatório
 
 Não existe KAT para aleatoriedade. Um gerador que devolve sempre a mesma
@@ -750,7 +813,7 @@ ontem não aparece em teste de laboratório nenhum.
 | RSA, verificação | boot | resposta conhecida, e a recusa da adulterada |
 | RSA, assinatura | primeiro uso | resposta conhecida |
 | ECDSA | primeiro uso | resposta conhecida com `k` fixo, e verificação |
-| DES e 3DES | primeiro uso | resposta conhecida, 25 vetores |
+| DES e 3DES | primeiro uso | resposta conhecida, 25 vetores; o CMAC-TDES e um key block versão B (etapa 8.7); a IPEK e uma transação do DUKPT (etapa 8.8a) |
 | Par assimétrico recém-gerado | a cada geração | assina e verifica antes de entregar |
 | Toda assinatura | a cada assinatura | verificada com a chave pública antes de sair |
 
@@ -790,6 +853,7 @@ implementação independente no PC a refaz ou a desfaz.
 | Verificação de PIN | gera e verifica offset e PVV, a partir de um PIN block | faz o papel do terminal e o do emissor; calcula o MAC da tabela com a LMK |
 | CVV | gera e verifica CVV, CVV2 e iCVV de um cartão | faz o papel do emissor e refaz a conta com a chave aberta |
 | Chaves 3DES | gera e devolve o KCV; com uma KEK 3DES, exporta e importa em bloco versão B | abre o bloco e confere tamanho, paridade e KCV; abre e fecha os blocos B com a KEK, e confere as recusas da regra de força |
+| DUKPT TDES | traduz o PIN de um terminal DUKPT para uma chave de zona; gera a IPEK sob uma KEK | faz o papel do terminal (cifra o PIN sob a chave da transação) e o do destino; abre a IPEK com a KEK e a refaz da BDK; leva a BDK do anexo A.4 e exige o PIN e a IPEK publicados |
 | RSA e ECDSA | gera pares e assina | verifica só com a chave pública |
 | PKCS#8 | gera, e assina com chave vinda de fora | usa a chave do equipamento numa biblioteca, e o contrário |
 

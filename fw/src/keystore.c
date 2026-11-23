@@ -18,6 +18,7 @@
 #include "des.h"
 #include "pkcs8.h"
 #include "kat.h"
+#include "dukpt.h"
 #include "wipe.h"
 
 /* Slot completo -- com a chave. Este tipo NÃO aparece no header: nada fora
@@ -138,13 +139,14 @@ static int header_valido(const uint8_t uso[2], uint8_t algoritmo,
     if ((algoritmo != KS_ALG_AES) && (algoritmo != KS_ALG_TDES)) {
         return 0;
     }
-    /* Sete valores, em dois grupos: cifra (E/D/B) e MAC (G/V/C), mais o
-     * 'N' que não faz nada. Os grupos não se cruzam, e é isso que fecha a
-     * confusão de tipo -- uma chave de cifrar não autentica. */
+    /* Oito valores, em tres grupos: cifra (E/D/B), MAC (G/V/C) e, desde a
+     * etapa 8.8, derivacao ('X', a BDK do DUKPT), mais o 'N' que nao faz
+     * nada. Os grupos nao se cruzam, e e isso que fecha a confusao de tipo
+     * -- uma chave de cifrar nao autentica, e uma BDK nao cifra. */
     if ((modo != KS_MODO_CIFRA) && (modo != KS_MODO_DECIFRA) &&
         (modo != KS_MODO_AMBOS) && (modo != KS_MODO_NENHUM) &&
         (modo != KS_MODO_GERA) && (modo != KS_MODO_VERIFICA) &&
-        (modo != KS_MODO_MAC)) {
+        (modo != KS_MODO_MAC) && (modo != KS_MODO_DERIVA)) {
         return 0;
     }
     if ((exportabilidade != KS_EXP_SIM) && (exportabilidade != KS_EXP_NAO) &&
@@ -611,16 +613,17 @@ static int pin_passada4(int i, const uint8_t pan[PIN_BLOCO],
  *   decifrar:  saida = D( entrada ) ^ pan         saida   = campo do PIN
  *
  * FRONTEIRA: dentro. `meio` e o campo do PIN misturado ao PAN. */
-static int pin_passada0(int i, const uint8_t pan[PIN_BLOCO_0],
-                        const uint8_t entrada[PIN_BLOCO_0],
-                        uint8_t saida[PIN_BLOCO_0], int cifrar)
+static int pin_passada0_chave(const uint8_t *chave, uint8_t key_len,
+                              const uint8_t pan[PIN_BLOCO_0],
+                              const uint8_t entrada[PIN_BLOCO_0],
+                              uint8_t saida[PIN_BLOCO_0], int cifrar)
 {
     tdes_ctx_t *ctx = tdes_ctx_comum();
     uint8_t  meio[PIN_BLOCO_0];
     uint32_t j;
     int      r = -1;
 
-    if (tdes_prepara(ctx, g_slots[i].chave, g_slots[i].key_len) == 0) {
+    if (tdes_prepara(ctx, chave, key_len) == 0) {
         if (cifrar) {
             for (j = 0u; j < PIN_BLOCO_0; j++) {
                 meio[j] = (uint8_t)(entrada[j] ^ pan[j]);
@@ -637,6 +640,16 @@ static int pin_passada0(int i, const uint8_t pan[PIN_BLOCO_0],
     tdes_apaga(ctx);
     wipe(meio, sizeof meio);
     return r;
+}
+
+/* A passada sob a chave do slot `i`. A etapa 8.8 separou a chave do slot: a
+ * chave de PIN do DUKPT nao mora em slot nenhum. FRONTEIRA: dentro. */
+static int pin_passada0(int i, const uint8_t pan[PIN_BLOCO_0],
+                        const uint8_t entrada[PIN_BLOCO_0],
+                        uint8_t saida[PIN_BLOCO_0], int cifrar)
+{
+    return pin_passada0_chave(g_slots[i].chave, g_slots[i].key_len, pan,
+                              entrada, saida, cifrar);
 }
 
 /* 1 se o slot e chave de PIN do formato pedido, e o `modo` permite
@@ -789,6 +802,174 @@ int keystore_pin_fecha(ks_handle_t h, uint8_t formato,
     }
     keystore_pin_apaga();
     (void)hsm_cfs_wipe();
+    return r;
+}
+
+/* ------------------------------------------------------------------
+ * DUKPT TDES -- etapa 8.8a
+ *
+ * A BDK e uma chave de slot como as outras (uso B0, 3DES duplo, modo 'X'),
+ * e chega ao slot efemero pelo key block do host. O que se deriva dela -- a
+ * IPEK de um terminal, a chave de PIN de uma transacao -- nunca entra em
+ * slot nenhum: existe em variavel local, durante a conta, e sai apagado.
+ * ------------------------------------------------------------------ */
+
+/* 1 se o slot e uma BDK TDES que pode derivar. So o modo 'X': uma BDK nao
+ * cifra nem faz MAC, e uma chave de outro uso nao deriva. */
+static int bdk_pode(int i)
+{
+    return (g_slots[i].uso[0] == (uint8_t)KS_USO_BDK[0]) &&
+           (g_slots[i].uso[1] == (uint8_t)KS_USO_BDK[1]) &&
+           (g_slots[i].algoritmo == KS_ALG_TDES) &&
+           (g_slots[i].key_len == DUKPT_TDES_CHAVE) &&
+           (g_slots[i].modo == KS_MODO_DERIVA);
+}
+
+/* Deriva a chave de PIN da transacao e abre o bloco uma vez.
+ * FRONTEIRA: dentro. A chave sai apagada. */
+static int dukpt_abre_uma(int i, const uint8_t ksn[DUKPT_KSN_LEN],
+                          const uint8_t *pan_campo, const uint8_t *bloco,
+                          uint8_t campo4[PIN_BLOCO], int *valido)
+{
+    uint8_t chave[DUKPT_TDES_CHAVE], campo0[PIN_BLOCO_0];
+    int     r = -3;
+
+    *valido = 0;
+    if ((dukpt_tdes_chave_pin(g_slots[i].chave, ksn, chave) == 0) &&
+        (pin_passada0_chave(chave, DUKPT_TDES_CHAVE, pan_campo, bloco,
+                            campo0, 0) == 0)) {
+        *valido = pinblock_f0_para_f4(campo0, campo4);
+        r = 0;
+    }
+    wipe(chave, sizeof chave);
+    wipe(campo0, sizeof campo0);
+    return r;
+}
+
+/* FRONTEIRA: dentro. Como keystore_pin_abre(): o campo do PIN fica em g_pin,
+ * e a conta e feita duas vezes. */
+int keystore_dukpt_pin_abre(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_LEN],
+                            uint8_t formato, const uint8_t *pan_campo,
+                            const uint8_t *bloco)
+{
+    int      i = indice(h);
+    uint8_t  a[PIN_BLOCO], b[PIN_BLOCO];
+    uint32_t j;
+    uint8_t  dif = 0u;
+    int      va = 0, vb = 0;
+    int      r;
+
+    keystore_pin_apaga();
+    if ((i < 0) || (ksn == 0) || (pan_campo == 0) || (bloco == 0)) {
+        return -3;
+    }
+    /* O DUKPT TDES leva o PIN block formato 0, cifrado em 3DES. */
+    if (!bdk_pode(i) || (formato != (uint8_t)PIN_FORMATO_0)) {
+        return -1;
+    }
+    if (!dukpt_ksn_valido(ksn)) {
+        return -5;
+    }
+    if ((dukpt_abre_uma(i, ksn, pan_campo, bloco, a, &va) != 0) ||
+        (dukpt_abre_uma(i, ksn, pan_campo, bloco, b, &vb) != 0)) {
+        r = -3;
+    } else {
+        for (j = 0u; j < PIN_BLOCO; j++) {
+            dif |= (uint8_t)(a[j] ^ b[j]);
+        }
+        if ((dif != 0u) || (va != vb)) {
+            erro_grave_marca();
+            r = -2;
+        } else if (!va) {
+            r = -4;
+        } else {
+            for (j = 0u; j < PIN_BLOCO; j++) {
+                g_pin[j] = a[j];
+            }
+            g_pin_ok = 1u;
+            g_slots[i].contador_uso++;
+            r = 0;
+        }
+    }
+    wipe(a, sizeof a);
+    wipe(b, sizeof b);
+    return r;
+}
+
+/* FRONTEIRA: dentro ate a ultima linha. O que sai em `saida` e criptograma,
+ * e o KCV. A IPEK e derivada duas vezes e comparada antes de ser embrulhada:
+ * uma IPEK errada, injetada num terminal, so apareceria na primeira
+ * transacao dele, em campo. */
+int keystore_dukpt_ipek(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_LEN],
+                        const uint8_t kbek[KS_KEY_MAX],
+                        const uint8_t kbak[KS_KEY_MAX], uint8_t n,
+                        char *saida, uint32_t *saida_n,
+                        uint8_t kcv[KS_KCV_LEN])
+{
+    int        i = indice(h);
+    uint8_t    ipek[DUKPT_TDES_CHAVE], outra[DUKPT_TDES_CHAVE];
+    uint8_t    ench[TR31_BLOCO];
+    tr31_cab_t cab;
+    uint32_t   j;
+    uint8_t    dif = 0u;
+    int        r = -1;
+
+    if ((i < 0) || (ksn == 0) || (kbek == 0) || (kbak == 0) ||
+        (saida == 0) || (saida_n == 0) || (kcv == 0)) {
+        return -1;
+    }
+    if (!bdk_pode(i)) {
+        return -4;
+    }
+    /* A IPEK e 3DES dupla: a regra de forca do K4 vale aqui. */
+    if (!keystore_kek_transporta(n, KS_ALG_TDES, DUKPT_TDES_CHAVE)) {
+        return -3;
+    }
+    if ((dukpt_tdes_ipek(g_slots[i].chave, ksn, ipek) != 0) ||
+        (dukpt_tdes_ipek(g_slots[i].chave, ksn, outra) != 0)) {
+        goto fim;
+    }
+    for (j = 0u; j < DUKPT_TDES_CHAVE; j++) {
+        dif |= (uint8_t)(ipek[j] ^ outra[j]);
+    }
+    if (dif != 0u) {
+        erro_grave_marca();
+        r = -2;
+        goto fim;
+    }
+    /* Cabecalho da IPEK: uso B1 (chave inicial de DUKPT), 3DES, modo 'X'
+     * (ela deriva as chaves do terminal) e exportabilidade 'N': o destino
+     * e o terminal, e de la ela nao sai mais. */
+    cab.uso[0]          = (uint8_t)'B';
+    cab.uso[1]          = (uint8_t)'1';
+    cab.algoritmo       = KS_ALG_TDES;
+    cab.modo            = KS_MODO_DERIVA;
+    cab.versao_chave[0] = (uint8_t)'0';
+    cab.versao_chave[1] = (uint8_t)'0';
+    cab.exportabilidade = KS_EXP_NAO;
+    if ((kcv_tdes(ipek, DUKPT_TDES_CHAVE, kcv) != 0) ||
+        (drbg_dispositivo_bytes(ench, sizeof ench) != 0)) {
+        goto fim;
+    }
+    if (n == KS_KEY_MAX) {
+        r = tr31_embrulha(kbek, kbak, &cab, ipek, DUKPT_TDES_CHAVE, ench,
+                          (uint8_t)TR31_BLOCO, saida, saida_n);
+    } else {
+        r = tr31b_embrulha(kbek, kbak, n, &cab, ipek, DUKPT_TDES_CHAVE, ench,
+                           (uint8_t)TR31B_BLOCO, saida, saida_n);
+    }
+    if (r == 0) {
+        g_slots[i].contador_uso++;
+    } else {
+        r = -1;
+    }
+fim:
+    wipe(ipek, sizeof ipek);
+    wipe(outra, sizeof outra);
+    wipe(ench, sizeof ench);
+    if (r != 0) {
+        wipe(kcv, KS_KCV_LEN);
+    }
     return r;
 }
 

@@ -854,8 +854,122 @@ reescrita para ser uniforme e para suportar chaves de propósitos diferentes
 a partir da mesma raiz — separação de chaves construída no esquema, em vez
 de convencionada por fora.
 
-**A variante AES é implementável neste projeto.** A TDES não, e o motivo é
-o assunto da próxima seção.
+As duas variantes entram neste equipamento. A TDES está na seção 37.2. A
+AES aceita BDK e chave de trabalho AES-128 ou AES-256, como o mercado usa. O
+coprocessador só faz AES-256; o AES-128 entra como um motor em software,
+como o do DES, e só para o DUKPT.
+
+### 37.2 O DUKPT TDES neste equipamento
+
+O HSM faz o lado do **adquirente**. Ele recebe o KSN que veio com a
+transação, refaz a chave que o terminal usou e traduz o PIN para a chave de
+zona. As chaves futuras do terminal ficam no terminal: o HSM não guarda
+registro nenhum.
+
+**O KSN.** São 10 bytes. Os 21 bits da direita são o **contador** de
+transações. O resto identifica a BDK e o terminal.
+
+```
+    KSN   FFFF9876543210E00001
+          |------ identificacao ------||- contador (21 bits) -|
+                                         0 0001  ->  contador 1
+```
+
+**Passo 1: a IPEK** (*Initial PIN Encryption Key*, chave inicial do
+terminal). Ela vem da BDK e do KSN com o contador zerado. São duas
+cifragens 3DES do mesmo valor: uma sob a BDK, outra sob a BDK com uma
+máscara fixa (`C0C0C0C0 00000000 C0C0C0C0 00000000`).
+
+**Passo 2: a chave da transação.** Para cada bit 1 do contador, do mais
+alto para o mais baixo, o bit entra num registrador, e a chave passa pelo
+**processo não reversível** da norma. Cada passo faz dois DES simples: um
+com a metade da esquerda da chave, outro com a metade da esquerda da chave
+com a máscara. São no máximo 10 passos, porque o contador de um KSN válido
+nunca tem mais de 10 bits 1.
+
+O processo não volta: da chave da transação 5 não se calcula a da 4. É isso
+que dá o sigilo do passado.
+
+**Passo 3: a variante de PIN.** A chave da transação é combinada por XOR
+com `00000000000000FF 00000000000000FF`. A chave de PIN é diferente da
+chave de MAC e da chave de dados da mesma transação, porque cada uma tem a
+sua variante.
+
+**Exemplo com os valores do anexo A.4 da X9.24-1** (valores de terceiros,
+ver `vectors/MANIFEST.txt`). Conferido pelo programa, `host/dukpt.py`:
+
+```
+    BDK                 0123456789ABCDEF FEDCBA9876543210
+    KSN                 FFFF9876543210E00001        (contador 1)
+
+    1. IPEK
+       k = KSN com o contador zerado, 8 bytes da esquerda
+                        FFFF9876543210E0
+       esquerda = 3DES(BDK, k)                    = 6AC292FAA1315B4D
+       BDK ^ mascara    C1E385A789ABCDEF 3E1C7A5876543210
+       direita  = 3DES(BDK ^ mascara, k)          = 858AB3A3D7D5933A
+       IPEK                6AC292FAA1315B4D 858AB3A3D7D5933A
+
+    2. contador 1: um bit 1, um passo. registrador = 9876543210E00001
+       nova direita  = DES(esq. da IPEK, reg ^ dir.) ^ dir.
+                     = DES(6AC292FAA1315B4D, 1DFCE791C735933B) ^ dir.
+                     = ED54258B07ECE8F3 ^ 858AB3A3D7D5933A
+                     = 68DE9628D0397BC9
+       IPEK ^ mascara      AA02523AA1315B4D 454A7363D7D5933A
+       nova esquerda = DES(AA02523AA1315B4D, DD3C2751C735933B) ^ 454A7363D7D5933A
+                     = 416C15D746515C99 ^ 454A7363D7D5933A
+                     = 042666B49184CFA3
+       chave da transacao  042666B49184CFA3 68DE9628D0397BC9
+
+    3. variante de PIN     042666B49184CF5C 68DE9628D0397B36
+
+    PIN block em claro (PIN 1234, PAN do anexo)   041274EDCBA9876F
+    cifrado em 3DES com a chave de PIN            1B9C1845EB993A7A
+```
+
+O valor final e a chave da transação são os publicados no anexo.
+
+**Os comandos.** A BDK é uma chave de uso `B0`, 3DES de comprimento duplo,
+com modo `X`. O modo `X` da X9.143 diz "esta chave só deriva outras". Uma
+BDK não cifra nem faz MAC, e nenhuma outra chave deriva.
+
+| Comando | Entra | Sai |
+|---|---|---|
+| `P2` | BDK, chave de zona (`P0`), KSN, formatos, PAN, PIN block do terminal | PIN block sob a chave de zona |
+| `I0` | KEK (`K0`), BDK, KSN | IPEK sob a KEK, KCV da IPEK |
+
+O `P2` é o `P0` com a chave de origem trocada: em vez de uma chave de PIN,
+a BDK e o KSN. O PIN block do terminal é o formato 0. O destino é o formato
+0 ou o 4, como no `P0`.
+
+O `I0` é a carga de chave do terminal. A IPEK sai embrulhada sob a KEK do
+dispositivo de injeção, num key block com uso `B1` (chave inicial de
+DUKPT), modo `X` e exportabilidade `N`: o destino é o terminal, e de lá ela
+não sai. A versão do bloco segue a KEK: D sob KEK AES, B sob KEK 3DES
+(seção 39.9).
+
+**Os KSNs que o HSM recusa** (`16`, antes de qualquer conta):
+
+- o contador zero: é a própria IPEK, que nunca cifra transação;
+- o contador com 11 bits 1 ou mais: um terminal que segue a norma nunca o
+  usa.
+
+Quantos contadores sobram? Os de 1 a 10 bits 1 entre 21 posições:
+
+```
+    C(21,1) + C(21,2) + ... + C(21,10) = 1 048 575
+```
+
+É a metade dos 2²¹ − 1 contadores diferentes de zero, porque C(21,k) =
+C(21,21−k). Um terminal faz no máximo 1 048 575 transações com a mesma
+IPEK. Depois, ele precisa de uma carga nova.
+
+**O que o host pode tentar.** O KSN vem do host e escolhe a chave. Com um
+KSN que não é o da transação, o bloco abre sob outra chave, e o resultado é
+um bloco ao acaso. Um bloco ao acaso passa como formato 0 cerca de uma vez
+em 2²⁴ (seção 33.1). Na recusa, o `14` diz o mesmo que o `P0` com uma chave
+errada: nada sobre o PIN. O `14` com o PAN alterado é o mesmo oráculo do
+formato 0 da seção 34.3, e o controle é o mesmo: o log.
 
 ---
 
@@ -871,10 +985,10 @@ de vetor de teste**.
 | PIN block formato 0 | **feito** (seção 33.1) | a cifra é o 3DES, que entra no equipamento |
 | Tradução de PIN | **feita** (`P0`, formatos 0 e 4) | o valor está no formato do comando e no oráculo, não na cifra |
 | Verificação de PIN e ataque de decimalização | **feito** (seção 35) | é ataque de **API**, sobre o método real |
-| DUKPT AES (X9.24-3) | **planejado** | é AES |
+| DUKPT AES (X9.24-3) | **planejado** | AES-256 no coprocessador; AES-128 por motor em software, só para o DUKPT |
 | CVV, CVV2 e iCVV | **feito** (seção 36) | inerentemente 3DES; não há variante AES em uso |
 | PVV | **feito** (seção 35.2) | idem |
-| DUKPT TDES (X9.24-1) | **planejado** | idem |
+| DUKPT TDES (X9.24-1) | **feito** (seção 37.2) | 3DES, com vetores de terceiros do anexo A.4 |
 | Criptogramas EMV, emissão de PIN | fora, por enquanto | são funções de emissor, maiores que as demais |
 
 ### 38.1 Um HSM precisa de 3DES?
@@ -1244,7 +1358,7 @@ outro lado tem equipamento antigo, ou a rede ainda não migrou. Um HSM de
 pagamento precisa falar com esse parceiro. Esta seção mostra como.
 
 **O key block versão B.** O formato X9.143 tem uma versão para cada tipo de
-chave de proteção. Este equipamento usa duas:
+chave de proteção (a KBPK, seção 8). Este equipamento usa duas:
 
 | | Versão D | Versão B |
 |---|---|---|

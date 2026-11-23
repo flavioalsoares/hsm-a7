@@ -15,6 +15,8 @@
 [AES-256 ECB/CBC]  NIST CAVP — AESAVS
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/aes/KAT_AES.zip
 sha256 a203b16c9246b2ebae31dee5de21a606be80cf78ceabaca37150236fa098eb60
+extrai ECB*256 e CBC*256; desde a etapa 8.8b (2026-11-22), também ECB*128,
+       do MESMO zip (mesmo hash), para o AES-128 em software do DUKPT AES.
 
 [CMAC-AES-256 e CMAC-TDES]  NIST CAVP — CMACVS
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/mac/cmactestvectors.zip
@@ -115,6 +117,61 @@ uso    fase 8, etapa 8.7 — key block sob KEK 3DES. Baixado em 2026-11-21.
        O que NÃO cobrem: embrulhar (enchimento aleatório, como na D) e a
        KBPK tripla com chave tripla. Esses casos são conferidos entre o C,
        o Python e a biblioteca `cryptography`.
+
+[DUKPT AES — suplemento de vetores da ANSI X9.24-3:2017]  valores de TERCEIROS
+url    https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_aes128_test.c
+sha256 c23f8d711cd7c7bf1fa9397ae7cc7e6ba4f39222c6e6961d685161e417c71d2f
+url    https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_aes256_test.c
+sha256 f8ba32d73aa16e2b5c20a50a27ff3538fb71b23e9e5fa27dd13b1c4af6fcea04
+extrai de cada arquivo: BDK, IKID, chave inicial e 15 transações (KSN,
+       chave de transação; nas 8 primeiras, as chaves de PIN), por
+       scripts/_extrai_dukpt_aes.py. Do arquivo da BDK AES-128, também os 8
+       PIN blocks formato 4 cifrados e os campos em claro.
+uso    fase 8, etapa 8.8b — DUKPT AES. Baixado em 2026-11-22.
+
+       ⚠ Mesma fonte e mesmo commit do DUKPT TDES: o `openemv/dukpt`
+       (LGPL-2.1), que diz transcrever o suplemento de vetores da
+       X9.24-3:2017, que é pago. As linhas comentadas na fonte não entram:
+       o autor tirou o contador 0x1FFFF, que tem mais de 16 bits 1. As
+       chaves de MAC e de dados não entram: são da etapa 8.9.
+
+       O PAN destes valores (`4111111111111111`) é padrão de teste, e não é
+       cartão.
+
+       O que cobrem: a chave inicial e a derivação da chave de transação
+       com BDK AES-128 e AES-256, para os contadores 1 a 8, as bordas
+       1FFFE, 20000 e 20001, e os quatro últimos (até FFFF0000); as chaves
+       de PIN AES-128 (as duas BDKs) e AES-256 (BDK AES-256); e o PIN block
+       formato 4 cifrado sob a chave de PIN AES-128.
+
+       O que NÃO cobrem: PIN block cifrado sob chave de PIN AES-256, e KSN
+       inválido. Esses casos são conferidos entre o C e o Python.
+
+[DUKPT TDES — ANSI X9.24-1:2009, anexo A.4]  valores de TERCEIROS
+url    https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_tdes_test.c
+sha256 469cbcb0bfb2b20023adf063b15af488c47fd21e9b8dc31b738f89800b05b2a3
+extrai BDK, KSN inicial, IPEK, o PIN block em claro e as 34 transações
+       (KSN, chave de transação, PIN block cifrado), literalmente, por
+       scripts/_extrai_dukpt_tdes.py
+uso    fase 8, etapa 8.8a — DUKPT TDES. Baixado em 2026-11-22.
+
+       ⚠ NÃO é a norma: a X9.24-1 é paga. É o arquivo de testes do projeto
+       `openemv/dukpt` (LGPL-2.1), que diz transcrever o anexo A.4 da
+       X9.24-1:2009 (sequência inicial, A.4.2, e a de rolagem do contador,
+       A.4.3). Uma fonte só, por decisão do usuário (2026-11-22). Os MACs e
+       os CMACs do mesmo arquivo não entram: os CMACs estão marcados lá
+       como feitos pelo autor, e o MAC é da etapa 8.9.
+
+       O PAN destes valores (`4012345678909`) é o do anexo da norma, padrão
+       de teste, e não é cartão.
+
+       O que cobrem: a IPEK, a derivação da chave de transação para 34
+       contadores (de 1 bit a 10 bits 1, e a rolagem) e o PIN block
+       formato 0 cifrado sob a variante de PIN.
+
+       O que NÃO cobrem: BDK diferente da do anexo, e KSN inválido. Esses
+       casos são conferidos entre o C e o Python (host/test_dukpt.py), e o
+       DES do Python é o da biblioteca `cryptography`, não o de des.c.
 
 [TDES / 3DES]  NIST CAVP — SP 800-20 (KAT) e MMT
 url    https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/des/KAT_TDES.zip
@@ -287,6 +344,13 @@ b0f695ad165b5855801122e178750bc5acd3e8413a5d82b27fc00b5b20339494  tdes/TECBpermo
 3944fdf7e426214e58f0b53836752647e6e839b54f057b4eaa8b1267cf1e8b10  tdes/TECBsubtab.rsp
 c4be8b474093b9a90c33d8f9dd63c99635b61b769a332b58f14f29a309edeb9c  tdes/TECBvarkey.rsp
 f2f3bf4b729fe132b0f9010f5b61c1dffad20723a659bfe4f82169cc40325909  tdes/TECBvartext.rsp
+e354b7b0b2fdc6f296ba0560cc55ec82de4cf37a2d3e32383657088235da191e  dukpt/x924_1_tdes.rsp
+d2a4a17a97d66dc1dc45b4fc340c710d226227404f3d7eb1356f4cbd47401f95  dukpt/x924_3_aes128.rsp
+35214a649b86e6a653f336f7ee38452afcf4767d25e3ba409f7f74275eec575d  dukpt/x924_3_aes256.rsp
+62f17126e870b9700234cc5b592b5bb50b295320b9844f341ee58a33eae735e6  aes/ECBGFSbox128.rsp
+f23ae1259a894fcabe955c42904e0d09394dceb17b8a3dc150767fa2a6482aa7  aes/ECBKeySbox128.rsp
+81ce3d0f80b57c4cfcacdde88e2ff9bc609050a1d80a0beb92fda30acdd98598  aes/ECBVarKey128.rsp
+447001742e5576da2213888f2187258bdd07c120106792c509786d46da2464f1  aes/ECBVarTxt128.rsp
 
 # Conferir a qualquer momento:
 #   cd vectors && sha256sum -c <(grep -E '^[0-9a-f]{64}  ' MANIFEST.txt)

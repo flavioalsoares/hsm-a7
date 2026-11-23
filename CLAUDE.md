@@ -809,7 +809,7 @@ Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vi
 está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
 DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos (**feita**), 8.5
 verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV (**feita**), 8.7 troca de chaves 3DES (**feita**),
-8.8 DUKPT, 8.9 MAC e dados com 3DES.
+8.8 DUKPT (8.8a TDES: **feita**; 8.8b AES), 8.9 MAC e dados com 3DES.
 
 ⚠ **O 3DES entra, por decisão do usuário (2026-11-14), e o critério é o mercado de
 meios de pagamento**: "o objetivo não é ser o melhor, o objetivo é aprender como o
@@ -990,6 +990,33 @@ tem 112 e o resto vai com `'0'`. A carga lê o tamanho do cabeçalho do bloco.
 ⚠ **O autoteste do 3DES (`kat_tdes()`) inclui o CMAC-TDES e a versão B**, e roda
 também na restauração do boot com chave 3DES e no primeiro componente 3DES.
 Reprovado no boot: zeroiza e `TAMPERED` (`main.c`).
+
+**Etapa 8.8a (DUKPT TDES): ✅ validada em hardware 2026-11-23.** `tb_dukpt` 3 h 53, `tb_pin0` 3 h 15 (2 simulações por vez); `regressao.py` com 20 passos em 368 s, `dukpt-confere` em 14,9 s. Firmware `0.8.8`, 58 892 bytes. Próxima: etapa 8.8b. Comandos ASCII `P2` (traduzir o PIN de um
+terminal DUKPT para uma chave de zona) e `I0` (gerar a IPEK de um terminal, sob KEK).
+As contas sem política estão em `fw/src/dukpt.c`; a BDK e o PIN, em `keystore.c`
+(`keystore_dukpt_pin_abre()`, `keystore_dukpt_ipek()`). A 8.8b é o DUKPT AES, com BDK
+e chave de trabalho AES-128 ou AES-256 (decisão do usuário, 2026-11-22, no
+`PLANO.md`): o AES-128 entra como motor em C, só para o DUKPT.
+
+⚠ **A BDK é uso `B0`, 3DES duplo, modo `X`** ("só deriva", da X9.143). O modo `X`
+existe nos três validadores (`header_valido()`, `tr31.c`, `tr31.py`); mexer nele
+exige mexer nos três. Só `P2` e `I0` usam chave `B0`.
+
+⚠ **O que se deriva da BDK nunca entra em slot.** A IPEK e a chave de PIN da
+transação vivem em variável local, dentro de `keystore.c`, e saem apagadas. Não
+criar função que devolva a chave da transação: `dukpt_tdes_chave_transacao()`
+existe para o KAT e o teste no PC.
+
+⚠ **KSN com contador zero ou com mais de 10 bits 1 é `16`**, antes de qualquer
+conta. O `P2` repete o `P0` (mesmo `14`, mesmo oráculo do formato 0, mesmo
+fechamento): corrigir um exige olhar o outro.
+
+⚠ **A IPEK é derivada duas vezes e comparada antes de sair**, e sai com uso `B1`,
+modo `X` e exportabilidade `N`. Não "simplificar".
+
+⚠ **Os vetores do DUKPT são de terceiros** (`openemv/dukpt`, que transcreve a
+X9.24-1:2009 A.4), fixados por commit e hash. Mexer no DUKPT exige mexer em
+`fw/src/dukpt.c` e `host/dukpt.py`, e rodar `host/test_dukpt.py` (0,5 s).
 
 ⚠ **A extração do CVV repete a do PVV** (`cvv_extrai()` e `pinv_pvv_extrai()`), de
 propósito: generalizar mudaria código validado. Corrigir uma exige olhar a outra.

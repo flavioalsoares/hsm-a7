@@ -192,6 +192,7 @@ python3 host/test_hsmtool.py        # transporte
 python3 host/test_tr31.py           # key block
 python3 host/test_tr31b.py          # key block versão B (KEK 3DES)
 python3 host/test_cmac_tdes.py      # CMAC-TDES, vetores do NIST
+python3 host/test_dukpt.py          # DUKPT TDES, anexo A.4 da X9.24-1
 ```
 
 - **`test_hsmtool.py`** liga o cliente a um **pty** e põe do outro lado um
@@ -353,6 +354,20 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   da `cryptography` contra os 192 vetores do NIST. O segundo confere a versão
   B: os 6 blocos de terceiros, o C contra o Python com o mesmo enchimento, e
   um bit trocado em cada posição (manual, seção 42.7).
+
+- **`host/dukpt.py`** (etapa 8.8a) é o DUKPT TDES em Python: `ipek()`,
+  `chave_transacao()`, `chave_pin()`, `cifra_pin()` e `ksn_valido()`. O DES é
+  o da biblioteca `cryptography`, e não o `des.py`, para a conferência valer
+  contra o `des.c`. Faz o papel do terminal: o HSM só faz o lado do
+  adquirente.
+- **`hsmhost.py dukpt-confere --lmk LMK [-n N]`** leva a BDK do anexo A.4 da
+  X9.24-1 ao equipamento por `K6` e exige o PIN e a IPEK publicados. Depois,
+  a cada volta, gera uma BDK, simula um terminal, pede o `P2` para chaves de
+  zona 3DES e AES e o `I0` sob KEKs AES e 3DES, e cobra as recusas `11`,
+  `13`, `14` e `16`. `--modo X` entrou no `hsmtool.py comp-load`.
+- **`host/test_dukpt.py`** não fala com a placa. Confere o Python e o C do
+  firmware (compilado com `gcc`) contra a IPEK e as 34 transações do anexo,
+  e os dois entre si em 300 casos ao acaso (manual, seção 42.8).
 
 - **`host/regressao.py --lmk LMK [--rapido]`** é a regressão na placa: roda o
   `ping`, o `post`, os sensores, todos os `confere`, os vetores do CAVP e o

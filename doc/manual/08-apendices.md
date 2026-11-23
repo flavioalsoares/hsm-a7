@@ -44,6 +44,10 @@ foi a origem do ataque de Bond e Zieliński (seções 15.2 e 35.3).
 transação usa uma chave distinta derivada de uma BDK, identificada por um
 KSN. Duas normas: X9.24-1 (TDES, legado) e X9.24-3 (AES). Seção 37.
 
+**IPEK** — *Initial PIN Encryption Key*, a chave inicial de um terminal
+DUKPT. Vem da BDK e do KSN do terminal, e é carregada nele uma vez. O
+comando `I0` a entrega sob uma KEK. Seção 37.2.
+
 **eFUSE** — memória de programação única do FPGA. **Proibida neste
 projeto**: erro vira brick permanente.
 
@@ -56,8 +60,13 @@ material de chave em claro existe. Ver seção 5.
 **KAT** — *Known Answer Test*. Vetor de teste com entrada e saída conhecidas,
 usado nos autotestes.
 
-**KBEK / KBAK** — chaves de cifra e de autenticação de key block, derivadas
-da LMK por propósito.
+**KBEK / KBAK** — *Key Block Encryption Key* e *Key Block Authentication
+Key*. Chaves de cifra e de autenticação de um key block, derivadas da KBPK
+por CMAC, uma por propósito (seção 8).
+
+**KBPK** — *Key Block Protection Key*. A chave que protege um key block: a
+LMK, para os blocos guardados pelo equipamento, ou a KEK, numa troca com
+outra instituição. Só deriva a KBEK e a KBAK (seção 8).
 
 **KCV** — *Key Check Value*. Três bytes do resultado de cifrar um bloco de
 zeros com a chave. Permite verificar sem revelar. O KCV de uma chave 3DES é
@@ -387,6 +396,8 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `V2` | `V3` | COMUM ‖ tabela autorizada(32) ‖ dados de validação(16) ‖ tamanho(2) ‖ offset | — (o veredito é o erro) | `OPERATIONAL` |
 | `V4` | `V5` | COMUM ‖ índice da chave(1) | PVV(4) | `OPERATIONAL` |
 | `V6` | `V7` | COMUM ‖ índice da chave(1) ‖ PVV(4) | — (o veredito é o erro) | `OPERATIONAL` |
+| `P2` | `P3` | bloco da BDK ‖ bloco da chave de destino ‖ KSN(20) ‖ formato de origem(1) ‖ formato de destino(1) ‖ tamanho do PAN(2) ‖ PAN ‖ PIN block(16) | PIN block(16 ou 32) | `OPERATIONAL` |
+| `I0` | `I1` | bloco da KEK ‖ bloco da BDK ‖ KSN(20) | bloco da IPEK sob a KEK ‖ KCV(6) | `OPERATIONAL` |
 | `W0` | `W1` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) | código(3) | `OPERATIONAL` |
 | `W2` | `W3` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) ‖ código(3) | — (o veredito é o erro) | `OPERATIONAL` |
 
@@ -441,6 +452,15 @@ A KEK pode ser AES-256 ou, desde a etapa 8.7, 3DES dupla ou tripla
 sob uma KEK 3DES, versão B (seção 39.9). Uma KEK 3DES só leva chave 3DES de
 comprimento igual ou menor: no `K4`, outra chave é `13`; no `K6`, um bloco
 assim é `10`, como qualquer bloco recebido inválido.
+
+`P2` e `I0` são o DUKPT TDES (seção 37.2). A BDK tem uso `B0`, 3DES de
+comprimento duplo e modo `X` (só deriva); outra chave é `11`. O KSN vai em
+20 dígitos hexadecimais. No `P2`, o formato de origem é `0`, e o destino é
+`0` ou `4`, sob uma chave de uso `P0`, como no `P0`. KSN com contador zero
+ou com mais de 10 bits 1 é `16`. O `I0` ignora o contador do KSN e devolve a
+IPEK num bloco de uso `B1`, modo `X` e exportabilidade `N`: versão D sob KEK
+AES, B sob KEK 3DES. A KEK tem uso `K0` (senão `13`) e modo `E` ou `B`
+(senão `11`).
 
 No log de auditoria, um comando da porta host aparece com os dois
 caracteres dele nos campos `comando` e `argumento` (`K0` = `0x4B`, `0x30`) e
@@ -1099,6 +1119,11 @@ Três detalhes que valem reparar:
   bytes) ou `--alg T3` (24). O KCV de cada componente é então o do 3DES, e
   `hsmtool.py kcv --tdes` faz a mesma conta no PC. É assim que nasce a KEK
   3DES de troca com um parceiro que ainda usa 3DES (seção 39.9).
+- **A BDK do DUKPT nasce do mesmo jeito** (etapa 8.8a): `comp-load --alg T2
+  --uso B0 --modo X`. O modo `X` diz "só deriva": a BDK não cifra nem faz
+  MAC, e só os comandos `P2` e `I0` a usam (seção 37.2). Ela fica num slot
+  e na flash como as outras, e sai para a porta host como key block sob a
+  LMK, pelo `EXPORT_KEY`.
 
 E o comando que desfaz tudo:
 
@@ -1170,6 +1195,8 @@ que não foi escrito:
 - **ANSI X9.143** (sucessor do TR-31) — key blocks, versões D (AES) e B
   (3DES)
 - **NIST SP 800-38B** — o CMAC, com AES e com 3DES
+- **ANSI X9.24-1** — DUKPT TDES (a edição de 2009, anexo A.4, traz os
+  valores de teste); **ANSI X9.24-3** — DUKPT AES
 - **NIST SP 800-57 Parte 1** — a força de segurança de cada algoritmo; a
   3DES dupla tem cerca de 80 bits, a tripla 112
 - **RFC 8017** (PKCS #1 v2.2) — RSA, e o enchimento de assinatura v1.5

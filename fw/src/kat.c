@@ -18,6 +18,7 @@
 #include "keystore.h"
 #include "sha.h"
 #include "tr31.h"
+#include "dukpt.h"
 #include "wipe.h"
 
 static unsigned g_ultimo = KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC |
@@ -440,8 +441,9 @@ static unsigned kat_ecdsa(void)
     return falha;
 }
 
-/* DES e 3DES contra o CAVP, e desde a etapa 8.7 o CMAC-TDES e o key block
- * versao B (tr31b_selftest()). Os KATs de substituicao da SP 800-20 exercitam
+/* DES e 3DES contra o CAVP, desde a etapa 8.7 o CMAC-TDES e o key block
+ * versao B (tr31b_selftest()), e desde a 8.8a o DUKPT TDES
+ * (dukpt_selftest()). Os KATs de substituicao da SP 800-20 exercitam
  * cada entrada das caixas S; os tres MMT cobrem a chave dupla, a tripla, o
  * CBC e as duas direcoes. */
 static unsigned kat_tdes(void)
@@ -485,6 +487,11 @@ static unsigned kat_tdes(void)
     /* Etapa 8.7: o CMAC-TDES e o key block versao B, que so a KEK 3DES usa.
      * Ficam no mesmo bit: e o mesmo motor, e o mesmo momento de uso. */
     if (tr31b_selftest() != 0) {
+        d |= 1u;
+    }
+    /* Etapa 8.8a: o DUKPT TDES (IPEK e chave de PIN de uma transacao, com o
+     * PIN block cifrado). Mesmo bit, pela mesma razao. */
+    if (dukpt_selftest() != 0) {
         d |= 1u;
     }
     return (d != 0u) ? KAT_FALHA_TDES : 0u;

@@ -103,6 +103,18 @@ CVV_JM_B_SHA="76934fc3951901d2666848bb06d0540b09d6b1f523489ed1b23974feb765263a"
 TR31B_URL="https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_tr31.py"
 TR31B_SHA="e1f42adaed9e2335dc837ba3278310bec0e9a9b2238ec7b38c87c0516addf491"
 
+# DUKPT TDES (X9.24-1:2009, anexo A.4) -- fase 8, etapa 8.8a. Valores de
+# TERCEIROS: o arquivo de testes do projeto openemv/dukpt (LGPL-2.1), que os
+# transcreve da norma. Decisao do usuario em 2026-11-22: uma fonte basta.
+DUKPT_TDES_URL="https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_tdes_test.c"
+DUKPT_TDES_SHA="469cbcb0bfb2b20023adf063b15af488c47fd21e9b8dc31b738f89800b05b2a3"
+# DUKPT AES (suplemento de vetores da X9.24-3:2017) -- etapa 8.8b. Mesma fonte e
+# mesmo commit: BDK AES-128 e BDK AES-256.
+DUKPT_AES128_URL="https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_aes128_test.c"
+DUKPT_AES128_SHA="c23f8d711cd7c7bf1fa9397ae7cc7e6ba4f39222c6e6961d685161e417c71d2f"
+DUKPT_AES256_URL="https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_aes256_test.c"
+DUKPT_AES256_SHA="f8ba32d73aa16e2b5c20a50a27ff3538fb71b23e9e5fa27dd13b1c4af6fcea04"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -141,7 +153,7 @@ fetch() {
     fi
 }
 
-mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa,pinblock,pinverif,cvv,tdes}
+mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa,pinblock,pinverif,cvv,tdes,dukpt}
 
 echo "=== baixando"
 fetch "$AES_URL"  "$AES_SHA"  "$TMP/KAT_AES.zip"
@@ -158,6 +170,9 @@ fetch "$CVV_PSEC_D_URL" "$CVV_PSEC_D_SHA" "$TMP/psec_cvv.py"
 fetch "$CVV_JPOS_URL" "$CVV_JPOS_SHA" "$TMP/jpos_JCESecurityModuleTest.java"
 fetch "$CVV_JM_T_URL" "$CVV_JM_T_SHA" "$TMP/jm_CalculateCVVFunctionTest.java"
 fetch "$CVV_JM_B_URL" "$CVV_JM_B_SHA" "$TMP/jm_ISO8583TestBase.java"
+fetch "$DUKPT_TDES_URL" "$DUKPT_TDES_SHA" "$TMP/openemv_dukpt_tdes_test.c"
+fetch "$DUKPT_AES128_URL" "$DUKPT_AES128_SHA" "$TMP/openemv_dukpt_aes128_test.c"
+fetch "$DUKPT_AES256_URL" "$DUKPT_AES256_SHA" "$TMP/openemv_dukpt_aes256_test.c"
 fetch "$TDES_KAT_URL" "$TDES_KAT_SHA" "$TMP/KAT_TDES.zip"
 fetch "$TDES_MMT_URL" "$TDES_MMT_SHA" "$TMP/tdesmmt.zip"
 fetch "$RSA_URL" "$RSA_SHA" "$TMP/186-3rsatestvectors.zip"
@@ -165,6 +180,8 @@ fetch "$ECDSA_URL" "$ECDSA_SHA" "$TMP/186-4ecdsatestvectors.zip"
 
 echo "=== extraindo"
 unzip -qo "$TMP/KAT_AES.zip" 'ECB*256.rsp' 'CBC*256.rsp' -d "$VEC/aes/"
+# Etapa 8.8b: o AES-128 em software, so para o DUKPT AES. So ECB, do mesmo zip.
+unzip -qo "$TMP/KAT_AES.zip" 'ECB*128.rsp' -d "$VEC/aes/"
 unzip -qjo "$TMP/shabytetestvectors.zip" \
       'shabytetestvectors/SHA256ShortMsg.rsp' \
       'shabytetestvectors/SHA256LongMsg.rsp' -d "$VEC/sha/"
@@ -227,6 +244,17 @@ python3 "$ROOT/scripts/_extrai_pinverif.py" \
 # CVV: 7 valores de 3 fontes, copiados literalmente. A extracao falha se
 # alguma fonte nao tiver exatamente a quantidade esperada.
 python3 "$ROOT/scripts/_extrai_cvv.py" "$TMP" "$VEC/cvv/cvv.rsp"
+
+# DUKPT TDES: IPEK e 34 transacoes, copiadas literalmente. A extracao falha
+# se algum vetor faltar ou tiver o tamanho errado.
+python3 "$ROOT/scripts/_extrai_dukpt_tdes.py" \
+        "$TMP/openemv_dukpt_tdes_test.c" "$VEC/dukpt/x924_1_tdes.rsp"
+# DUKPT AES: chave inicial e 15 transacoes de cada arquivo. As linhas
+# comentadas no arquivo de origem nao entram.
+python3 "$ROOT/scripts/_extrai_dukpt_aes.py" \
+        "$TMP/openemv_dukpt_aes128_test.c" "$VEC/dukpt/x924_3_aes128.rsp" 128
+python3 "$ROOT/scripts/_extrai_dukpt_aes.py" \
+        "$TMP/openemv_dukpt_aes256_test.c" "$VEC/dukpt/x924_3_aes256.rsp" 256
 
 # CTR_DRBG vem num zip dentro do zip, e o arquivo completo tem 785 KB com
 # 3DES e AES-128/192 que este projeto nao usa. Filtra para [AES-256 ...].

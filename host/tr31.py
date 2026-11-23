@@ -135,6 +135,7 @@ MODO_VERIFICA = "V"
 MODO_MAC = "C"
 MODO_NENHUM = "N"
 MODO_ASSINA = "S"
+MODO_DERIVA = "X"     # so deriva outras chaves: a BDK do DUKPT (etapa 8.8)
 
 # Fase 7: a chave RSA privada de 2048 bits, em layout DESTE projeto -- a
 # codificacao de chave assimetrica dentro do corpo nao estava acessivel (a
@@ -385,7 +386,7 @@ def _valida_campos(cab, chave_n):
         raise Tr31Erro(f"algoritmo {cab['algoritmo']!r}: este projeto so faz "
                        "AES, 3DES, RSA e ECDSA")
     if cab["modo"] not in (MODO_CIFRA, MODO_DECIFRA, MODO_AMBOS, MODO_NENHUM,
-                           MODO_GERA, MODO_VERIFICA, MODO_MAC):
+                           MODO_GERA, MODO_VERIFICA, MODO_MAC, MODO_DERIVA):
         raise Tr31Erro(f"modo de uso {cab['modo']!r} invalido")
 
 

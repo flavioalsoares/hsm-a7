@@ -557,6 +557,80 @@ def kek3():
     escreve("kek3_kcv", ["%02x" % x for x in kcvs], 2)
 
 
+def dukpt_tb():
+    """Vetores do tb_dukpt (etapa 8.8a): DUKPT TDES pelo P2 e pelo I0.
+
+    A BDK, o KSN, o PIN block cifrado e a IPEK sao valores de TERCEIROS, de
+    vectors/dukpt/x924_1_tdes.rsp (X9.24-1:2009 A.4; ver o MANIFEST). A
+    transacao e a de KSN ...EFF800 (contador 0FF800, 9 bits 1). O PAN e o do anexo.
+
+    O que e conta do Python (host/dukpt.py, host/pinblock.py, host/des.py):
+    o PIN block de saida sob a chave de zona (formato 0, deterministico: o
+    tb o compara inteiro), o KCV da IPEK e o cabecalho do bloco do I0, e o
+    bloco adulterado que o Python confirma que nao abre como formato 0.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import des
+    import dukpt
+    import pinblock
+    import tr31
+
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    ench = bytes(range(16))
+
+    def sob_lmk(chave, uso, modo):
+        b = tr31.embrulha(lmk, chave, uso=uso, algoritmo="T", modo=modo,
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != 112:
+            raise SystemExit("DUKPT: bloco de %d caracteres" % len(b))
+        return b
+
+    txt = (VEC / "dukpt" / "x924_1_tdes.rsp").read_text()
+    cab = dict(re.findall(r"^(BDK|IKSN|IPEK|PINBLOCK|PAN) = ([0-9A-F]+)$", txt, re.M))
+    txs = re.findall(r"^KSN = ([0-9A-F]{20})\nKEY = [0-9A-F]{32}\nEPB = ([0-9A-F]{16})$",
+                     txt, re.M)
+    t = [x for x in txs if x[0] == "FFFF9876543210EFF800"]
+    if len(cab) != 5 or len(t) != 1:
+        raise SystemExit("DUKPT: arquivo de vetores inesperado")
+    bdk = bytes.fromhex(cab["BDK"])
+    ksn, epb = bytes.fromhex(t[0][0]), bytes.fromhex(t[0][1])
+    pan = cab["PAN"].rstrip("F")
+    if pinblock.le_claro0(dukpt.decifra_pin(bdk, ksn, epb), pan) != "1234":
+        raise SystemExit("DUKPT: o PIN block do anexo nao abre no Python")
+    if dukpt.ipek(bdk, ksn).hex().upper() != cab["IPEK"]:
+        raise SystemExit("DUKPT: a IPEK do anexo nao confere no Python")
+
+    zona = des.paridade_impar(hashlib.sha256(b"tb_dukpt: zona").digest()[:16])
+    kek = des.paridade_impar(hashlib.sha256(b"tb_dukpt: kek").digest()[:16])
+    esperado = des.tdes_bloco(zona, pinblock.claro0("1234", pan))
+    # Um bit trocado no PIN block que o Python confirma que nao abre.
+    ruim = None
+    for i in range(64):
+        x = bytearray(epb)
+        x[i // 8] ^= 0x80 >> (i % 8)
+        try:
+            pinblock.le_claro0(dukpt.decifra_pin(bdk, ksn, bytes(x)), pan)
+        except pinblock.PinErro:
+            ruim = bytes(x)
+            break
+    if ruim is None:
+        raise SystemExit("DUKPT: nenhum bit trocado da formato invalido")
+    ipek = bytes.fromhex(cab["IPEK"])
+    cab_i0 = tr31.embrulha(kek, ipek, uso="B1", algoritmo="T", modo="X",
+                           exportabilidade="N", versao="B")[:16]
+
+    texto = (sob_lmk(bdk, "B0", "X") + sob_lmk(bdk, "B0", "B")
+             + sob_lmk(zona, "P0", "E") + sob_lmk(kek, "K0", "E"))
+    escreve("dukpt_blocos", ["%02x" % ord(c) for c in texto], 2)
+    if len(pan) != 13:
+        raise SystemExit("DUKPT: o PAN do anexo devia ter 13 digitos")
+    pedido = (ksn.hex().upper() + pan + epb.hex().upper() + ruim.hex().upper()
+              + esperado.hex().upper() + des.kcv(ipek).hex().upper() + cab_i0)
+    # 20 + 13 + 16 + 16 + 16 + 6 + 16 = 103 caracteres
+    escreve("dukpt_dados", ["%02x" % ord(c) for c in pedido], 2)
+
+
 def rsa_r2(prefixo):
     """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
     embrulhada sob a LMK que o tb_rsa monta na cerimonia.
@@ -612,6 +686,7 @@ def main():
     tdes()
     cvv()
     kek3()
+    dukpt_tb()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.

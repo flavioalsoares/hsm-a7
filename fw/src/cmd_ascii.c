@@ -1134,6 +1134,184 @@ static uint8_t h_p0(leitor_t *in, escritor_t *out)
 }
 
 /* ------------------------------------------------------------------ */
+/* DUKPT TDES (fase 8, etapa 8.8a)                                     */
+/* ------------------------------------------------------------------ */
+
+/* P2 -- traduzir PIN de terminal DUKPT para chave de zona:
+ *       bloco da BDK . bloco da chave de destino . KSN(20 hex) .
+ *       formatos(2: origem e destino) . tamanho do PAN(2) . PAN .
+ *       PIN block(16)  ->  PIN block(16 ou 32)
+ *
+ * E o P0 com a chave de origem trocada: em vez de uma chave de PIN, a BDK
+ * e o KSN que chegou com a transacao. O equipamento refaz a chave de PIN
+ * que o terminal usou (dukpt.c), abre o bloco, e fecha o PIN sob a chave
+ * de zona, que e uma chave P0 como a de destino do P0.
+ *
+ * A origem e o formato 0 (o DUKPT TDES cifra em 3DES). Formato de origem 4
+ * com BDK TDES: 11, como no P0 com chave do algoritmo errado. O destino e
+ * '0' ou '4', como no P0.
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao. A BDK entrou por cerimonia (componentes,
+ *                no console).
+ *   vazamento    o mesmo 14 do P0, pela mesma razao, e com o mesmo
+ *                oraculo do formato 0 quando o host altera o PAN (manual,
+ *                secao 34.3): o PAN entra por XOR no PIN, aqui como la. O
+ *                KSN vem do host e escolhe a chave: com um KSN qualquer o
+ *                bloco abre sob outra chave e quase sempre da 14 -- o
+ *                host nao aprende nada que o P0 com uma chave errada nao
+ *                desse. KSN com contador zero ou com mais de 10 bits 1 e
+ *                16, antes de qualquer conta: e o que um terminal nunca
+ *                manda.
+ *
+ *                O comando NAO devolve o PIN nem a chave da transacao, e a
+ *                BDK so deriva: modo 'X', e nenhum outro comando aceita
+ *                uma chave B0.
+ *   exportability nao se aplica: nenhuma chave sai.
+ *   log          sim, antes.
+ *
+ * A BDK precisa de uso B0, 3DES duplo e modo 'X' (senao 11). A de destino,
+ * uso P0, o algoritmo do formato de destino e modo 'E' ou 'B' (senao 11). */
+static uint8_t h_p2(leitor_t *in, escritor_t *out)
+{
+    const uint8_t *kb = 0, *kd = 0;
+    uint16_t       kbn = 0u, kdn = 0u;
+    uint8_t        ksn[DUKPT_KSN_N];
+    uint8_t        pan_o[PIN_BLOCO], pan_d[PIN_BLOCO];
+    uint8_t        bloco[PIN_BLOCO], saida[PIN_BLOCO];
+    ks_info_t      info;
+    int32_t        pn;
+    uint8_t        fo, fd, r;
+    uint32_t       nd;
+    int            v;
+
+    if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK)     { return r; }
+    if ((r = le_bloco(in, &kd, &kdn)) != ASCII_OK)     { return r; }
+    if ((r = le_hex(in, ksn, DUKPT_KSN_N)) != ASCII_OK) { return r; }
+    if ((uint32_t)in->pos + 2u > in->n)                { return ASCII_MALFORMADA; }
+    fo = in->p[in->pos];
+    fd = in->p[in->pos + 1u];
+    if (((fo != (uint8_t)PIN_FORMATO_0) && (fo != (uint8_t)PIN_FORMATO_4)) ||
+        ((fd != (uint8_t)PIN_FORMATO_0) && (fd != (uint8_t)PIN_FORMATO_4))) {
+        return ASCII_PARAM;
+    }
+    nd = (fd == (uint8_t)PIN_FORMATO_0) ? PIN_BLOCO_0 : PIN_BLOCO;
+    in->pos = (uint16_t)(in->pos + 2u);
+    pn = le_dec(in, 2u);
+    if (pn == -1)                                  { return ASCII_MALFORMADA; }
+    if ((pn < 1) || (pn > (int32_t)PIN_PAN_MAX))   { return ASCII_PARAM; }
+    if ((uint32_t)in->pos + (uint32_t)pn > in->n)  { return ASCII_MALFORMADA; }
+    if ((r = pan_dos_dois(&in->p[in->pos], (uint32_t)pn, fo, pan_o)) != ASCII_OK) {
+        return r;
+    }
+    if ((r = pan_dos_dois(&in->p[in->pos], (uint32_t)pn, fd, pan_d)) != ASCII_OK) {
+        return r;
+    }
+    in->pos = (uint16_t)(in->pos + (uint16_t)pn);
+    /* O bloco de origem tem o tamanho do formato 0: o formato 4 de origem
+     * e recusado pelo key store (11), mas o pedido precisa ser lido ate o
+     * fim antes. */
+    if ((r = le_hex(in, bloco, (fo == (uint8_t)PIN_FORMATO_0) ? PIN_BLOCO_0
+                                                              : PIN_BLOCO))
+        != ASCII_OK) {
+        return r;
+    }
+    if ((r = fim(in)) != ASCII_OK)                      { return r; }
+
+    if ((r = abre_bloco(kb, kbn, &info)) != ASCII_OK)   { return r; }
+    v = keystore_dukpt_pin_abre(KS_HANDLE_EFEMERA, ksn, fo, pan_o, bloco);
+    keystore_efemera_apaga();
+    if (v != 0) {
+        if (v == -1) { return ASCII_MODO; }
+        if (v == -2) { return ASCII_ERRO_GRAVE; }
+        if (v == -4) { return ASCII_PIN_INVAL; }
+        return (v == -5) ? ASCII_PARAM : ASCII_INTERNO;
+    }
+    if ((r = abre_bloco(kd, kdn, &info)) != ASCII_OK)   { return r; }
+    v = keystore_pin_fecha(KS_HANDLE_EFEMERA, fd, pan_d, saida);
+    if (v != 0) {
+        if (v == -1) { return ASCII_MODO; }
+        return (v == -2) ? ASCII_ERRO_GRAVE : ASCII_INTERNO;
+    }
+    poe_hex(out, saida, nd);
+    return ASCII_OK;
+}
+
+/* I0 -- gerar a IPEK de um terminal: bloco da KEK . bloco da BDK (os dois
+ *       sob a LMK) . KSN(20 hex)  ->  bloco da IPEK sob a KEK . KCV(6)
+ *
+ * E a carga de chave do terminal: a IPEK sai sob a KEK do dispositivo de
+ * injecao (ou do proprio terminal), e o KSN inicial vai junto, em claro,
+ * pelo caminho de quem pediu. O contador do KSN e ignorado: a IPEK so
+ * depende do resto dele.
+ *
+ * O bloco de saida tem uso B1 (chave inicial de DUKPT), modo 'X' e
+ * exportabilidade 'N'. Versao D sob KEK AES-256, B sob KEK 3DES.
+ *
+ * Checklist:
+ *   estados      OPERATIONAL.
+ *   dual control nao: e operacao, como o K4. A KEK e a BDK entraram por
+ *                cerimonia.
+ *   vazamento    em laco, quem tem os dois blocos tira a IPEK de qualquer
+ *                KSN, sob aquela KEK: e o servico, e e o que a KEK existe
+ *                para limitar. A IPEK de um terminal nao revela a BDK nem
+ *                a IPEK de outro (cada uma e um 3DES da BDK sobre o KSN).
+ *   exportability a IPEK e chave nova, derivada aqui, e sai com 'N'. A
+ *                BDK nao sai por este comando. Pelo K4 ela sai se for 'E'
+ *                ou 'S', como qualquer chave: o operador escolhe a
+ *                exportabilidade no console, e 'N' a prende aqui.
+ *   log          sim, antes.
+ *
+ * A KEK precisa de uso K0 (senao 13) e modo 'E' ou 'B' (senao 11), e de
+ * forca para levar uma chave 3DES dupla (qualquer KEK deste equipamento
+ * leva). A BDK precisa de uso B0, 3DES duplo e modo 'X' (senao 11). */
+static uint8_t h_i0(leitor_t *in, escritor_t *out)
+{
+    const uint8_t *kb = 0, *bb = 0;
+    uint16_t       kbn = 0u, bbn = 0u;
+    uint8_t        kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    uint8_t        ksn[DUKPT_KSN_N], kcv[KS_KCV_LEN];
+    char           bloco[TR31_ASCII_MAX];
+    uint32_t       bn = 0u, i;
+    ks_info_t      info;
+    uint8_t        r, n = 0u;
+    int            v;
+
+    if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK)      { return r; }
+    if ((r = le_bloco(in, &bb, &bbn)) != ASCII_OK)      { return r; }
+    if ((r = le_hex(in, ksn, DUKPT_KSN_N)) != ASCII_OK) { return r; }
+    if ((r = fim(in)) != ASCII_OK)                      { return r; }
+
+    if ((r = kek_subchaves(kb, kbn, KS_MODO_CIFRA, kbek, kbak, &n))
+        != ASCII_OK) {
+        goto sai;
+    }
+    if ((r = abre_bloco(bb, bbn, &info)) != ASCII_OK) {
+        goto sai;
+    }
+    v = keystore_dukpt_ipek(KS_HANDLE_EFEMERA, ksn, kbek, kbak, n, bloco,
+                            &bn, kcv);
+    if (v != 0) {
+        r = (v == -4) ? ASCII_MODO
+          : (v == -3) ? ASCII_NAO_KEK
+          : (v == -2) ? ASCII_ERRO_GRAVE : ASCII_INTERNO;
+        goto sai;
+    }
+    for (i = 0u; i < bn; i++) {
+        poe(out, (uint8_t)bloco[i]);
+    }
+    poe_hex(out, kcv, KS_KCV_LEN);
+    r = ASCII_OK;
+sai:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(bloco, sizeof bloco);
+    wipe(kcv, sizeof kcv);
+    return r;
+}
+
+/* ------------------------------------------------------------------ */
 /* Verificacao de PIN (fase 8, etapa 8.5)                              */
 /* ------------------------------------------------------------------ */
 
@@ -1462,6 +1640,8 @@ static const ascii_entry_t g_ascii[] = {
     { 'M', '0', ST_OPER,   h_m0, L },
     { 'M', '2', ST_OPER,   h_m2, L },
     { 'P', '0', ST_OPER,   h_p0, L },
+    { 'P', '2', ST_OPER,   h_p2, L },
+    { 'I', '0', ST_OPER,   h_i0, L },
     { 'V', '0', ST_OPER,   h_v0, L },
     { 'V', '2', ST_OPER,   h_v2, L },
     { 'V', '4', ST_OPER,   h_v4, L },

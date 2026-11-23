@@ -171,8 +171,9 @@ static int cab_valido(const tr31_cab_t *cab, uint32_t chave_n)
     } else {
         return 0;
     }
-    /* Os sete modos de uso da X9.143 para chave simetrica, em dois grupos:
-     * cifra (E/D/B) e MAC (G/V/C), mais 'N'. Tem de casar com
+    /* Os oito modos de uso da X9.143 que este equipamento conhece para
+     * chave simetrica: cifra (E/D/B), MAC (G/V/C), derivacao (X, etapa 8.8)
+     * e 'N'. Tem de casar com
      * `header_valido()` do keystore -- se um aceitar e o outro nao, um key
      * block legitimo atravessa a importacao e para na instalacao, com o
      * erro apontando para o lugar errado. */
@@ -182,7 +183,8 @@ static int cab_valido(const tr31_cab_t *cab, uint32_t chave_n)
         cab->modo != (uint8_t)KS_MODO_NENHUM &&
         cab->modo != (uint8_t)KS_MODO_GERA &&
         cab->modo != (uint8_t)KS_MODO_VERIFICA &&
-        cab->modo != (uint8_t)KS_MODO_MAC) {
+        cab->modo != (uint8_t)KS_MODO_MAC &&
+        cab->modo != (uint8_t)KS_MODO_DERIVA) {
         return 0;
     }
     return 1;

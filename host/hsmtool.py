@@ -734,11 +734,12 @@ def _cab_args(p):
     p.add_argument("--uso", default="D0", choices=USOS,
                    help="uso X9.143 (padrao D0; cifrar exige D0, MAC "
                         "exige M0)")
-    # Dois grupos que nao se cruzam: cifra (E/D/B) e MAC (G/V/C).
+    # Tres grupos que nao se cruzam: cifra (E/D/B), MAC (G/V/C) e
+    # derivacao (X, a BDK do DUKPT, etapa 8.8).
     p.add_argument("--modo", default="B",
-                   choices=("E", "D", "B", "G", "V", "C", "N"),
-                   help="modo de uso: E/D/B cifram, G/V/C fazem MAC "
-                        "(padrao B)")
+                   choices=("E", "D", "B", "G", "V", "C", "X", "N"),
+                   help="modo de uso: E/D/B cifram, G/V/C fazem MAC, X "
+                        "deriva (BDK) (padrao B)")
     p.add_argument("--exp", default="E", choices=("E", "N", "S"),
                    help="exportabilidade (padrao E)")
 

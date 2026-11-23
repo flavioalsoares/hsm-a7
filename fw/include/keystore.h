@@ -104,6 +104,7 @@ typedef uint8_t ks_handle_t;
 #define KS_MODO_MAC      'C'   /* gerar e verificar MAC     */
 #define KS_MODO_NENHUM   'N'   /* nenhuma operação          */
 #define KS_MODO_ASSINA   'S'   /* só assinar -- chave RSA   */
+#define KS_MODO_DERIVA   'X'   /* só derivar outras chaves (BDK) -- etapa 8.8 */
 
 #define KS_EXP_SIM      'E'    /* exportável, só em key block (TR-31/TR-34) */
 #define KS_EXP_NAO      'N'    /* nunca sai, em hipótese nenhuma */
@@ -254,6 +255,30 @@ int  keystore_pin_abre(ks_handle_t h, uint8_t formato,
 int  keystore_pin_fecha(ks_handle_t h, uint8_t formato,
                         const uint8_t *pan_campo, uint8_t *bloco);
 void keystore_pin_apaga(void);
+
+/* DUKPT TDES (etapa 8.8a). `h` e a BDK: uso B0, 3DES duplo, modo 'X'.
+ *
+ * keystore_dukpt_pin_abre(): refaz a chave de PIN da transacao `ksn` e abre
+ * com ela o PIN block formato 0. O campo do PIN fica no key store, como em
+ * keystore_pin_abre(), para o keystore_pin_fecha() levar a chave de zona.
+ * Devolve 0; -1 (nao e BDK que deriva, ou formato que nao e 0); -2 (as duas
+ * contas discordaram: erro grave); -3 (erro interno); -4 (o bloco aberto
+ * nao e formato 0); -5 (KSN invalido).
+ *
+ * keystore_dukpt_ipek(): a IPEK do terminal do `ksn`, embrulhada sob as
+ * subchaves de uma KEK de `n` bytes (versao D se n = 32, B se 16 ou 24),
+ * com uso B1, modo 'X' e exportabilidade 'N'. Devolve tambem o KCV dela.
+ * Devolve 0; -1 (erro); -2 (as duas contas discordaram); -3 (KEK mais
+ * fraca que a IPEK); -4 (nao e BDK que deriva). */
+#define DUKPT_KSN_N  10u
+int keystore_dukpt_pin_abre(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_N],
+                            uint8_t formato, const uint8_t *pan_campo,
+                            const uint8_t *bloco);
+int keystore_dukpt_ipek(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_N],
+                        const uint8_t kbek[KS_KEY_MAX],
+                        const uint8_t kbak[KS_KEY_MAX], uint8_t n,
+                        char *saida, uint32_t *saida_n,
+                        uint8_t kcv[KS_KCV_LEN]);
 
 /* Verificacao de PIN (fase 8, etapa 8.5) -- sobre o PIN que
  * `keystore_pin_abre()` deixou aberto. As duas apagam o PIN ao sair, em todo

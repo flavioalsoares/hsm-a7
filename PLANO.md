@@ -622,8 +622,19 @@ trabalha". As decisões:*
 | 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | validada na placa em 2026-11-15 |
 | 8.6 | CVV: gerar e verificar | validada na placa em 2026-11-21 |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | validada na placa em 2026-11-22 |
-| 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | a fazer |
+| 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | 8.8a (TDES) validada na placa em 2026-11-23; 8.8b (AES) a fazer |
 | 8.9 | MAC de mensagem e cifra de dados com 3DES | a fazer |
+
+*Decisões do usuário para a 8.8 (2026-11-22): o DUKPT AES aceita BDK AES-128 ou
+AES-256, e chave de trabalho AES-128 ou AES-256, como o mercado usa. O coprocessador
+só faz AES-256; o AES-128 entra como motor em C, rotulado como o do DES, e só para o
+DUKPT (decisão revista no mesmo dia: a primeira versão era só AES-256, e o usuário
+perguntou se isso estava de acordo com o mercado). Entram a BDK (uso `B0`) por
+componentes, a tradução de PIN de terminal DUKPT para chave de zona e a geração da
+chave inicial do terminal (IPEK), que sai sob KEK. MAC e dados com chave DUKPT ficam
+para a 8.9. A etapa vai à placa em duas partes: 8.8a TDES, 8.8b AES. Os vetores vêm
+de uma fonte de terceiros (`openemv/dukpt`, que transcreve a X9.24-1:2009 A.4 e o
+suplemento da X9.24-3:2017), fixada por commit e hash.*
 
 *Candidatos para depois, fora desta lista: criptogramas EMV do chip e emissão de PIN.*
 

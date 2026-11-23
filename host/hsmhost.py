@@ -296,6 +296,22 @@ class Host:
         _, c = self.pede("P0", campos.encode())
         return bytes.fromhex(c[:(16 if formatos[1] == "0" else 32)].decode())
 
+    # -- DUKPT (fase 8, etapa 8.8a) -----------------------------------
+    def dukpt_traduz(self, bdk, destino, ksn, pan, bloco, formatos="00"):
+        """P2: o PIN block do terminal DUKPT (BDK + KSN) sai sob a chave de
+        zona `destino`. `formatos`: origem ('0') e destino ('0' ou '4')."""
+        campos = (bdk + destino + ksn.hex().upper() + formatos
+                  + "%02d" % len(pan) + pan + bloco.hex().upper())
+        _, c = self.pede("P2", campos.encode())
+        return bytes.fromhex(c[:(16 if formatos[1] == "0" else 32)].decode())
+
+    def ipek(self, kek, bdk, ksn):
+        """I0: a IPEK do terminal do `ksn`, sob a KEK. Devolve (bloco, KCV)."""
+        _, c = self.pede("I0", kek.encode() + bdk.encode()
+                         + ksn.hex().upper().encode())
+        n = int(c[1:5])
+        return c[:n].decode(), c[n:n + 6].decode()
+
     # -- verificacao de PIN (fase 8, etapa 8.5) -----------------------
     @staticmethod
     def _pin_comum(kpin, pvk, formato, pan, bloco):
@@ -1109,6 +1125,149 @@ def cvv_confere(h, lmk, n):
     return 0
 
 
+def _dukpt_anexo():
+    """O cabecalho e as transacoes de vectors/dukpt/x924_1_tdes.rsp."""
+    cab, txs, atual = {}, [], {}
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                           "vectors", "dukpt", "x924_1_tdes.rsp")) as f:
+        for ln in f:
+            ln = ln.strip()
+            if " = " not in ln or ln.startswith("#"):
+                continue
+            k, v = ln.split(" = ", 1)
+            if k in ("BDK", "IKSN", "IPEK", "PINBLOCK", "PAN"):
+                cab[k] = v
+            elif k != "COUNT":
+                atual[k] = bytes.fromhex(v)
+                if k == "EPB":
+                    txs.append(atual)
+                    atual = {}
+    return cab, txs
+
+
+def dukpt_confere(h, lmk, n):
+    """DUKPT TDES (P2, I0), conferido com o dukpt.py. O Python faz o papel do
+    terminal (cifra o PIN sob a chave da transacao) e do outro lado da zona
+    (abre o PIN block traduzido com a chave de zona em claro).
+
+    Tambem leva a BDK do anexo A.4 da X9.24-1 para dentro do equipamento,
+    por K6, e exige a IPEK e o PIN publicados.
+
+    ⚠ PRECISA DA LMK, como o `confere`.
+    ⚠ Os PANs sao inventados (prefixo 999999), menos o do anexo da norma,
+    que e padrao de teste. Nenhum PAN real, nunca."""
+    import dukpt
+    import pinblock
+    import tr31
+    from hsmtool import _kcv_local
+
+    d = h.diag()
+    if d["kcv_lmk"] != _kcv_local(lmk).hex().upper():
+        print("KCV da LMK nao confere: dispositivo %s, informada %s"
+              % (d["kcv_lmk"], _kcv_local(lmk).hex().upper()))
+        return 1
+
+    def recusa(codigo, fn, *args):
+        try:
+            fn(*args)
+        except HostErro as e:
+            assert e.codigo == codigo, "%s: %d, esperado %d" % (
+                fn.__name__, e.codigo, codigo)
+        else:
+            raise AssertionError("%s aceito, esperado %d"
+                                 % (fn.__name__, codigo))
+
+    def digitos(k):
+        return "".join(str(b % 10) for b in os.urandom(k))
+
+    def ksn_novo(uns):
+        base = int.from_bytes(os.urandom(10), "big") & ~dukpt.CONTADOR_MASCARA
+        bits = set()
+        while len(bits) < uns:
+            bits.add(os.urandom(1)[0] % 21)
+        return (base | sum(1 << b for b in bits)).to_bytes(10, "big")
+
+    # KEKs: uma AES, uma 3DES dupla, as duas so para embrulhar
+    kek_a, _ = h.gen("K0", "E", "E")
+    kek_t, _ = h.gen("K0", "E", "E", "T2")
+    kek_a_c, _ = tr31.desembrulha(lmk, kek_a)
+    kek_t_c, _ = tr31.desembrulha(lmk, kek_t)
+
+    # 1. a BDK do anexo, por K6 sob uma KEK de importar
+    cab, txs = _dukpt_anexo()
+    kek_i, _ = h.gen("K0", "D", "E")
+    kek_i_c, _ = tr31.desembrulha(lmk, kek_i)
+    bdk_anexo = bytes.fromhex(cab["BDK"])
+    bdk_a, _ = h.importa(kek_i, tr31.embrulha(kek_i_c, bdk_anexo, "B0", "T",
+                                              "X", "E"))
+    zona0, _ = h.gen("P0", "E", "E", "T2")
+    zona0_c, _ = tr31.desembrulha(lmk, zona0)
+    pan_anexo = cab["PAN"].rstrip("F")
+    for t in (txs[0], txs[20], txs[21], txs[-1]):
+        saida = h.dukpt_traduz(bdk_a, zona0, t["KSN"], pan_anexo, t["EPB"])
+        assert pinblock.decifra0(zona0_c, saida, pan_anexo) == "1234", \
+            "P2: PIN do anexo"
+    b, kcv = h.ipek(kek_a, bdk_a, bytes.fromhex(cab["IKSN"]))
+    ipek_c, c = tr31.desembrulha(kek_a_c, b)
+    assert ipek_c.hex().upper() == cab["IPEK"], "I0: IPEK do anexo"
+    assert (c["uso"], c["algoritmo"], c["modo"], c["exportabilidade"]) == \
+        ("B1", "T", "X", "N"), "I0: cabecalho %r" % c
+    print("anexo A.4: 4 transacoes traduzidas para PIN 1234, IPEK %s"
+          % cab["IPEK"])
+
+    for volta in range(n):
+        bdk_b, _ = h.gen("B0", "X", "E", "T2")
+        bdk, _ = tr31.desembrulha(lmk, bdk_b)
+        na = 13 + volta % 7
+        pan = "999999" + digitos(na - 6)
+        pin = digitos(4 + volta % 9)
+        ksn = ksn_novo(1 + volta % 10)
+        epb = dukpt.cifra_pin(bdk, ksn, pinblock.claro0(pin, pan))
+        # destino formato 0 (3DES) e 4 (AES)
+        saida = h.dukpt_traduz(bdk_b, zona0, ksn, pan, epb, "00")
+        assert pinblock.decifra0(zona0_c, saida, pan) == pin, "P2 00"
+        zona4, _ = h.gen("P0", "E", "E")
+        zona4_c, _ = tr31.desembrulha(lmk, zona4)
+        saida = h.dukpt_traduz(bdk_b, zona4, ksn, pan, epb, "04")
+        assert pinblock.decifra(zona4_c, saida, pan) == pin, "P2 04"
+        # I0 sob as duas KEKs: versao D e versao B
+        for kek, kek_c, versao in ((kek_a, kek_a_c, "D"), (kek_t, kek_t_c, "B")):
+            b, kcv = h.ipek(kek, bdk_b, ksn)
+            assert b[0] == versao, "I0: versao %s" % b[0]
+            ipek_c, _ = tr31.desembrulha(kek_c, b)
+            assert ipek_c == dukpt.ipek(bdk, ksn), "I0: IPEK"
+            assert dukpt._tdes(ipek_c, bytes(8))[:3].hex().upper() == kcv, \
+                "I0: KCV"
+        # recusas
+        ksn0 = ksn[:7] + bytes([ksn[7] & 0xE0, 0, 0])
+        recusa(16, h.dukpt_traduz, bdk_b, zona0, ksn0, pan, epb)
+        recusa(16, h.dukpt_traduz, bdk_b, zona0, ksn_novo(11), pan, epb)
+        # Um bit trocado no PIN block: o Python diz se o bloco aberto ainda e
+        # formato 0 valido (raro); se nao for, o equipamento tem de dar 14.
+        outro = bytes([epb[0] ^ 0x01]) + epb[1:]
+        try:
+            pinblock.le_claro0(dukpt.decifra_pin(bdk, ksn, outro), pan)
+        except pinblock.PinErro:
+            recusa(14, h.dukpt_traduz, bdk_b, zona0, ksn, pan, outro)
+        recusa(11, h.dukpt_traduz, bdk_b, zona0, ksn, pan, epb + bytes(8), "40")
+        so_e, _ = h.gen("P0", "D", "E", "T2")          # destino que nao cifra
+        recusa(11, h.dukpt_traduz, bdk_b, so_e, ksn, pan, epb)
+        nao_x, _ = h.gen("B0", "B", "E", "T2")         # BDK sem modo X
+        recusa(11, h.dukpt_traduz, nao_x, zona0, ksn, pan, epb)
+        recusa(11, h.ipek, kek_a, nao_x, ksn)
+        tripla, _ = h.gen("B0", "X", "E", "T3")        # BDK tripla
+        recusa(11, h.dukpt_traduz, tripla, zona0, ksn, pan, epb)
+        aes, _ = h.gen("B0", "X", "E")                 # BDK AES (8.8b)
+        recusa(11, h.dukpt_traduz, aes, zona0, ksn, pan, epb)
+        recusa(11, h.dukpt_traduz, zona0, zona0, ksn, pan, epb)  # P0 como BDK
+        recusa(13, h.ipek, zona0, bdk_b, ksn)          # P0 como KEK
+        recusa(11, h.ipek, kek_i, bdk_b, ksn)          # KEK so de importar
+        print("volta %d: P2 (00, 04) e I0 (D, B) conferidos, KSN com %d bit(s) 1"
+              % (volta + 1, 1 + volta % 10))
+    print("%d de %d voltas conferidas" % (n, n))
+    return 0
+
+
 def pin_confere(h, lmk, n):
     """Traducao de PIN (P0), conferida com o pinblock.py. O Python faz o
     papel do terminal, que cifra o PIN sob a chave de origem, e o do
@@ -1301,6 +1460,9 @@ def main(argv=None):
                         "confere que o MAC e o que o Python calcula")
     p.add_argument("--kcv", default=None,
                    help="com --tabela: o KCV da chave V1 da tabela")
+    p = sub.add_parser("dukpt-confere")
+    p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
+    p.add_argument("-n", type=int, default=10)
     p = sub.add_parser("cvv-confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
@@ -1387,6 +1549,8 @@ def main(argv=None):
                                a.formatos).hex().upper())
         elif a.cmd == "pin-confere":
             return pin_confere(h, bytes.fromhex(a.lmk), a.n)
+        elif a.cmd == "dukpt-confere":
+            return dukpt_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "cvv-confere":
             return cvv_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "pinv-confere":

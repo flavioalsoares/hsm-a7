@@ -507,6 +507,31 @@ def tr31b_e_cmac_tdes():
     return cmac, tr31b
 
 
+def dukpt_tdes():
+    """Etapa 8.8a: um caso do DUKPT TDES de vectors/dukpt/x924_1_tdes.rsp,
+    valores de terceiros (X9.24-1:2009 A.4, transcritos pelo openemv/dukpt;
+    ver o MANIFEST). A transacao escolhida e a de KSN ...EFF800 (contador
+    0FF800, 9 bits 1): nove passos da derivacao. O caminho mais longo (10
+    bits 1) e conferido no PC, pelo host/test_dukpt.py. O autoteste confere a IPEK
+    e o PIN block cifrado sob a variante de PIN dessa transacao.
+    """
+    txt = (VEC / "dukpt" / "x924_1_tdes.rsp").read_text()
+    cab = dict(re.findall(r"^(BDK|IKSN|IPEK|PINBLOCK) = ([0-9A-F]+)$", txt, re.M))
+    if len(cab) != 4:
+        raise SystemExit("DUKPT: cabecalho incompleto")
+    txs = re.findall(r"^KSN = ([0-9A-F]{20})\nKEY = [0-9A-F]{32}\nEPB = ([0-9A-F]{16})$",
+                     txt, re.M)
+    if len(txs) != 34:
+        raise SystemExit("DUKPT: esperava 34 transacoes, achei %d" % len(txs))
+    esc = [t for t in txs if t[0] == "FFFF9876543210EFF800"]
+    if len(esc) != 1:
+        raise SystemExit("DUKPT: a transacao FFFF9876543210EFF800 nao esta la")
+    return {"bdk": bytes.fromhex(cab["BDK"]), "ksn": bytes.fromhex(esc[0][0]),
+            "ipek": bytes.fromhex(cab["IPEK"]),
+            "claro": bytes.fromhex(cab["PINBLOCK"]),
+            "epb": bytes.fromhex(esc[0][1])}
+
+
 def tdes_vetores():
     """Vetores do autoteste de DES/3DES, do CAVP (vectors/tdes/), copiados.
 
@@ -719,6 +744,12 @@ def main():
     L.append(f"#define KAT_TR31B_KEY_LEN {len(tr31b['key'])}u")
     L.append(carr("kat_tr31b_kb", tr31b["kb"]))
     L.append(f"#define KAT_TR31B_KB_LEN {len(tr31b['kb'])}u")
+    dk = dukpt_tdes()
+    L.append(carr("kat_dukpt_bdk", dk["bdk"]))
+    L.append(carr("kat_dukpt_ksn", dk["ksn"]))
+    L.append(carr("kat_dukpt_ipek", dk["ipek"]))
+    L.append(carr("kat_dukpt_claro", dk["claro"]))
+    L.append(carr("kat_dukpt_epb", dk["epb"]))
     L.append("")
     L.append(carr("kat_tr31_kbpk", tr31["kbpk"]))
     L.append(carr("kat_tr31_key", tr31["key"]))
