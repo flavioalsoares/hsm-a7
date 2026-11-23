@@ -192,7 +192,7 @@ python3 host/test_hsmtool.py        # transporte
 python3 host/test_tr31.py           # key block
 python3 host/test_tr31b.py          # key block versão B (KEK 3DES)
 python3 host/test_cmac_tdes.py      # CMAC-TDES, vetores do NIST
-python3 host/test_dukpt.py          # DUKPT TDES, anexo A.4 da X9.24-1
+python3 host/test_dukpt.py          # DUKPT TDES e AES, valores publicados
 ```
 
 - **`test_hsmtool.py`** liga o cliente a um **pty** e põe do outro lado um
@@ -359,15 +359,26 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   `chave_transacao()`, `chave_pin()`, `cifra_pin()` e `ksn_valido()`. O DES é
   o da biblioteca `cryptography`, e não o `des.py`, para a conferência valer
   contra o `des.c`. Faz o papel do terminal: o HSM só faz o lado do
-  adquirente.
+  adquirente. Desde a etapa 8.8b tem também o DUKPT AES (X9.24-3):
+  `aes_ik()`, `aes_chave_transacao()`, `aes_chave_pin()` e
+  `aes_ksn_valido()`, com a função de derivação única da norma.
 - **`hsmhost.py dukpt-confere --lmk LMK [-n N]`** leva a BDK do anexo A.4 da
   X9.24-1 ao equipamento por `K6` e exige o PIN e a IPEK publicados. Depois,
   a cada volta, gera uma BDK, simula um terminal, pede o `P2` para chaves de
   zona 3DES e AES e o `I0` sob KEKs AES e 3DES, e cobra as recusas `11`,
-  `13`, `14` e `16`. `--modo X` entrou no `hsmtool.py comp-load`.
+  `13`, `14` e `16`. `--modo X` entrou no `hsmtool.py comp-load`. A parte AES
+  (etapa 8.8b) leva as BDKs AES-128 e AES-256 publicadas por `K6`, exige a IK
+  e o PIN dos PIN blocks publicados, e a cada volta usa uma das quatro
+  combinações de BDK e chave de trabalho (16 ou 32 bytes). Cobra também a
+  recusa de uma chave AES-128 que não é BDK. `--alg A128` entrou no
+  `comp-load`.
 - **`host/test_dukpt.py`** não fala com a placa. Confere o Python e o C do
   firmware (compilado com `gcc`) contra a IPEK e as 34 transações do anexo,
-  e os dois entre si em 300 casos ao acaso (manual, seção 42.8).
+  e os dois entre si em 300 casos ao acaso (manual, seção 42.8). Na parte
+  AES, confere o `aes128.c` contra os 568 vetores ECB de 128 bits do CAVP, e
+  o Python e o C contra os valores publicados da X9.24-3 e entre si em 400
+  casos (seção 42.9). No PC, o coprocessador é trocado pela OpenSSL; o teste
+  precisa da `libcrypto`.
 
 - **`host/regressao.py --lmk LMK [--rapido]`** é a regressão na placa: roda o
   `ping`, o `post`, os sensores, todos os `confere`, os vetores do CAVP e o

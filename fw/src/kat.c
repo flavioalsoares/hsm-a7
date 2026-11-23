@@ -507,6 +507,10 @@ int kat_primeiro_uso(unsigned qual)
             g_uso_falha |= kat_ecdsa();
         } else if (qual == KAT_FALHA_TDES) {
             g_uso_falha |= kat_tdes();
+        } else if (qual == KAT_FALHA_DUKPT_AES) {
+            /* Etapa 8.8b: o motor AES-128 e o DUKPT AES. So o DUKPT os usa,
+             * entao o teste roda no primeiro comando que toca uma BDK AES. */
+            g_uso_falha |= (dukpt_aes_selftest() == 0) ? 0u : KAT_FALHA_DUKPT_AES;
         } else {
             g_uso_falha |= qual;
         }

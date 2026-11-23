@@ -854,10 +854,10 @@ reescrita para ser uniforme e para suportar chaves de propósitos diferentes
 a partir da mesma raiz — separação de chaves construída no esquema, em vez
 de convencionada por fora.
 
-As duas variantes entram neste equipamento. A TDES está na seção 37.2. A
-AES aceita BDK e chave de trabalho AES-128 ou AES-256, como o mercado usa. O
-coprocessador só faz AES-256; o AES-128 entra como um motor em software,
-como o do DES, e só para o DUKPT.
+As duas variantes entram neste equipamento: a TDES na seção 37.2, a AES na
+37.3. A AES aceita BDK e chave de trabalho AES-128 ou AES-256, como o
+mercado usa. O coprocessador só faz AES-256; o AES-128 entra como um motor
+em software, como o do DES, e só para o DUKPT.
 
 ### 37.2 O DUKPT TDES neste equipamento
 
@@ -971,6 +971,117 @@ em 2²⁴ (seção 33.1). Na recusa, o `14` diz o mesmo que o `P0` com uma chave
 errada: nada sobre o PIN. O `14` com o PAN alterado é o mesmo oráculo do
 formato 0 da seção 34.3, e o controle é o mesmo: o log.
 
+### 37.3 O DUKPT AES neste equipamento
+
+O papel é o mesmo da seção 37.2: o lado do adquirente. Muda a conta, e o
+PIN block do terminal passa a ser o formato 4.
+
+**O KSN.** São 12 bytes: o **IKID** (8 bytes, identifica a BDK e o
+terminal) e o **contador** de transações (4 bytes, 32 bits).
+
+```
+    KSN   1234567890123456 00000001
+          |---- IKID ----| |contador|
+```
+
+**A função de derivação.** Toda chave do DUKPT AES sai da mesma conta: um
+AES de 16 bytes de dados sob a chave mãe. Os dados dizem o que se está
+derivando:
+
+```
+    01 . bloco(1) . uso(2) . algoritmo(2) . bits(2) . 8 bytes
+
+    uso         8001 = chave inicial   8000 = derivação   1000 = PIN
+    algoritmo   0002 = AES-128         0004 = AES-256
+    bits        0080 = 128             0100 = 256
+```
+
+O algoritmo e os bits são os da chave **derivada**. Uma chave AES-256 sai
+de dois AES, com o byte de bloco 01 e 02. A separação de chaves está nos
+dados: a chave de PIN e a de MAC da mesma transação diferem no campo de
+uso, e não por uma máscara combinada depois, como no TDES.
+
+**Passo 1: a chave inicial (IK).** Os 8 bytes de dados são o IKID, e a
+chave mãe é a BDK.
+
+**Passo 2: a chave da transação.** Para cada bit 1 do contador, do mais
+alto para o mais baixo, o bit entra num registrador, e a chave passa por
+uma derivação de uso `8000`. Os 8 bytes de dados são os 4 bytes da direita
+do IKID e o registrador.
+
+**Passo 3: a chave de trabalho.** Uma derivação de uso `1000` (PIN) sob a
+chave da transação, com os 4 bytes da direita do IKID e o contador. O
+tamanho da chave de PIN é escolha do terminal, e independe do da BDK.
+
+**Exemplo com os valores do suplemento da X9.24-3** (valores de terceiros,
+ver `vectors/MANIFEST.txt`). BDK AES-128, contador 1, chave de PIN
+AES-128. Conferido pelo programa, `host/dukpt.py`:
+
+```
+    BDK                 FEDCBA9876543210 F1F1F1F1F1F1F1F1
+    KSN                 1234567890123456 00000001
+
+    1. IK       dados   01 01 8001 0002 0080 1234567890123456
+                IK    = AES(BDK, dados)  = 1273671EA26AC29AFA4D1084127652A1
+
+    2. contador 1: um bit 1, um passo. registrador = 00000001
+                dados   01 01 8000 0002 0080 90123456 00000001
+                chave = AES(IK, dados)   = 4F21B565BAD9835E112B6465635EAE44
+
+    3. PIN      dados   01 01 1000 0002 0080 90123456 00000001
+                chave de PIN             = AF8CB133A78F8DC2D1359F18527593FB
+
+    PIN block formato 4 (PIN 1234, PAN 4111111111111111):
+       campo do PIN        441234AAAAAAAAAA 2F69ADDE2E9E7ACE
+       AES(chave de PIN)   DE84127CF6DCA7DF E47BDE89057CB820
+       ^ campo do PAN      9A95036DE7CDB6CE F47BDE89057CB820
+       AES(chave de PIN)   A912150391AB65A6 7E52883D81CE2D15
+```
+
+A IK, a chave da transação, a chave de PIN e o PIN block cifrado são os
+publicados.
+
+**Os comandos.** São os mesmos `P2` e `I0` da seção 37.2. O algoritmo da
+BDK, no cabeçalho do bloco dela, diz qual DUKPT o comando faz:
+
+| | BDK 3DES | BDK AES |
+|---|---|---|
+| BDK | 3DES duplo | AES-128 ou AES-256 |
+| KSN no pedido | 20 caracteres | 24 caracteres, mais o tipo da chave de trabalho (`2` AES-128, `4` AES-256) |
+| PIN block do terminal | formato 0 | formato 4 |
+| `I0` devolve | a IPEK, 3DES | a IK, do tamanho da BDK |
+| KEK do `I0` | qualquer | só AES (a IK nunca sai sob chave mais fraca) |
+
+O tipo da chave de trabalho usa os códigos de algoritmo da própria norma.
+
+**Uma chave AES-128, só aqui.** O coprocessador faz só AES-256, e uma chave
+de dados AES-128 pareceria instalada e não cifraria certo. Por isso o key
+store só aceita uma chave AES-128 com uso `B0` e modo `X`: a BDK do DUKPT
+AES. Uma chave AES-128 com outro cabeçalho é recusada ao entrar (`10`). A
+BDK AES-128 nasce por componentes no console (`comp-load --alg A128 --uso
+B0 --modo X`) ou chega por `K6` sob uma KEK. O KCV dela é o do AES-128: os
+3 primeiros bytes da cifra de um bloco de zeros.
+
+**Os KSNs que o HSM recusa** (`16`, antes de qualquer conta): o contador
+zero, e o contador com 17 bits 1 ou mais. Os contadores válidos são os de 1
+a 16 bits 1 entre 32 posições:
+
+```
+    C(32,1) + C(32,2) + ... + C(32,16) = (2³² + C(32,16)) / 2 − 1
+                                       = 2 448 023 842
+```
+
+São 57% dos 2³² contadores. Um terminal faz cerca de 2,4 bilhões de
+transações com a mesma IK.
+
+**O que o host pode tentar.** É o mesmo raciocínio da seção 37.2, com o
+formato 4. Um bloco ao acaso passa como campo de PIN válido com chance de
+cerca de 2⁻²⁴: o controle tem de ser `4` (1/16), o tamanho de 4 a 12
+(9/16), os dígitos de 0 a 9 (10/16 cada) e o enchimento `A` (1/16 por
+posição). A soma sobre os tamanhos dá 6,0 × 10⁻⁸. E o PAN não abre o
+oráculo do formato 0: no formato 4 ele entra numa camada de AES, não por XOR
+direto no PIN (seção 34.3).
+
 ---
 
 ## 38. O que este projeto pode e o que não pode ensinar
@@ -985,7 +1096,7 @@ de vetor de teste**.
 | PIN block formato 0 | **feito** (seção 33.1) | a cifra é o 3DES, que entra no equipamento |
 | Tradução de PIN | **feita** (`P0`, formatos 0 e 4) | o valor está no formato do comando e no oráculo, não na cifra |
 | Verificação de PIN e ataque de decimalização | **feito** (seção 35) | é ataque de **API**, sobre o método real |
-| DUKPT AES (X9.24-3) | **planejado** | AES-256 no coprocessador; AES-128 por motor em software, só para o DUKPT |
+| DUKPT AES (X9.24-3) | **feito** (seção 37.3) | AES-256 no coprocessador; AES-128 por motor em software, só para o DUKPT |
 | CVV, CVV2 e iCVV | **feito** (seção 36) | inerentemente 3DES; não há variante AES em uso |
 | PVV | **feito** (seção 35.2) | idem |
 | DUKPT TDES (X9.24-1) | **feito** (seção 37.2) | 3DES, com vetores de terceiros do anexo A.4 |

@@ -33,6 +33,7 @@
 #include "pinverif.h"
 #include "cvv.h"
 #include "des.h"
+#include "dukpt.h"
 #include "kat.h"
 #include "tr31.h"
 #include "wipe.h"
@@ -224,6 +225,13 @@ static uint8_t abre_sob_n(const uint8_t kbek[KS_KEY_MAX],
      * usada, e ja a instalacao a usa, para o KCV. */
     if ((cab.algoritmo == (uint8_t)KS_ALG_TDES) &&
         (primeiro_uso(KAT_FALHA_TDES) != ASCII_OK)) {
+        r = ASCII_ERRO_GRAVE;
+        goto sai;
+    }
+    /* Chave AES-128 (so a BDK do DUKPT AES, etapa 8.8b): o mesmo, com o
+     * autoteste do motor AES-128. */
+    if ((cab.algoritmo == (uint8_t)KS_ALG_AES) && (klen == DUKPT_AES128) &&
+        (primeiro_uso(KAT_FALHA_DUKPT_AES) != ASCII_OK)) {
         r = ASCII_ERRO_GRAVE;
         goto sai;
     }
@@ -1134,22 +1142,40 @@ static uint8_t h_p0(leitor_t *in, escritor_t *out)
 }
 
 /* ------------------------------------------------------------------ */
-/* DUKPT TDES (fase 8, etapa 8.8a)                                     */
+/* DUKPT TDES e AES (fase 8, etapas 8.8a e 8.8b)                      */
 /* ------------------------------------------------------------------ */
 
+/* O tipo da chave de trabalho do DUKPT AES, um caractere: o codigo de
+ * algoritmo da X9.24-3 ('2' = AES-128, '4' = AES-256). Devolve o tamanho em
+ * bytes, ou 0. */
+static uint32_t trabalho_aes(uint8_t c)
+{
+    if (c == (uint8_t)'2') {
+        return DUKPT_AES128;
+    }
+    return (c == (uint8_t)'4') ? DUKPT_AES256 : 0u;
+}
+
 /* P2 -- traduzir PIN de terminal DUKPT para chave de zona:
- *       bloco da BDK . bloco da chave de destino . KSN(20 hex) .
+ *       bloco da BDK . bloco da chave de destino . KSN . [trabalho(1)] .
  *       formatos(2: origem e destino) . tamanho do PAN(2) . PAN .
- *       PIN block(16)  ->  PIN block(16 ou 32)
+ *       PIN block(16 ou 32)  ->  PIN block(16 ou 32)
+ *
+ * BDK 3DES (DUKPT TDES): KSN de 20 caracteres, sem o campo de trabalho, e
+ * PIN block de origem formato 0, 16 caracteres.
+ * BDK AES (DUKPT AES, etapa 8.8b): KSN de 24 caracteres, o tipo da chave
+ * de trabalho ('2' AES-128, '4' AES-256, os codigos da X9.24-3) e PIN block
+ * de origem formato 4, 32 caracteres. O algoritmo da BDK vem do cabecalho
+ * do bloco dela.
  *
  * E o P0 com a chave de origem trocada: em vez de uma chave de PIN, a BDK
  * e o KSN que chegou com a transacao. O equipamento refaz a chave de PIN
  * que o terminal usou (dukpt.c), abre o bloco, e fecha o PIN sob a chave
  * de zona, que e uma chave P0 como a de destino do P0.
  *
- * A origem e o formato 0 (o DUKPT TDES cifra em 3DES). Formato de origem 4
- * com BDK TDES: 11, como no P0 com chave do algoritmo errado. O destino e
- * '0' ou '4', como no P0.
+ * A origem e o formato 0 com BDK 3DES e o formato 4 com BDK AES. O formato
+ * do outro algoritmo da 11, como no P0 com chave do algoritmo errado. O
+ * destino e '0' ou '4', como no P0.
  *
  * Checklist:
  *   estados      OPERATIONAL.
@@ -1163,7 +1189,9 @@ static uint8_t h_p0(leitor_t *in, escritor_t *out)
  *                host nao aprende nada que o P0 com uma chave errada nao
  *                desse. KSN com contador zero ou com mais de 10 bits 1 e
  *                16, antes de qualquer conta: e o que um terminal nunca
- *                manda.
+ *                manda. No DUKPT AES, o contador de 32 bits com zero ou
+ *                mais de 16 bits 1. Com o formato 4 de origem, o 14
+ *                revela pouco (manual, secao 34.3).
  *
  *                O comando NAO devolve o PIN nem a chave da transacao, e a
  *                BDK so deriva: modo 'X', e nenhum outro comando aceita
@@ -1171,24 +1199,36 @@ static uint8_t h_p0(leitor_t *in, escritor_t *out)
  *   exportability nao se aplica: nenhuma chave sai.
  *   log          sim, antes.
  *
- * A BDK precisa de uso B0, 3DES duplo e modo 'X' (senao 11). A de destino,
- * uso P0, o algoritmo do formato de destino e modo 'E' ou 'B' (senao 11). */
+ * A BDK precisa de uso B0, modo 'X' e 3DES duplo, AES-128 ou AES-256
+ * (senao 11). A de destino, uso P0, o algoritmo do formato de destino e modo
+ * 'E' ou 'B' (senao 11). */
 static uint8_t h_p2(leitor_t *in, escritor_t *out)
 {
     const uint8_t *kb = 0, *kd = 0;
     uint16_t       kbn = 0u, kdn = 0u;
-    uint8_t        ksn[DUKPT_KSN_N];
+    uint8_t        ksn[DUKPT_AES_KSN_N];
     uint8_t        pan_o[PIN_BLOCO], pan_d[PIN_BLOCO];
     uint8_t        bloco[PIN_BLOCO], saida[PIN_BLOCO];
     ks_info_t      info;
     int32_t        pn;
-    uint8_t        fo, fd, r;
-    uint32_t       nd;
+    uint8_t        fo, fd, r, aes;
+    uint32_t       nd, ksn_n, n_trab = 0u;
     int            v;
 
     if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK)     { return r; }
     if ((r = le_bloco(in, &kd, &kdn)) != ASCII_OK)     { return r; }
-    if ((r = le_hex(in, ksn, DUKPT_KSN_N)) != ASCII_OK) { return r; }
+    /* O tamanho do KSN sai do algoritmo do cabecalho da BDK, que e publico
+     * (e autenticado depois, ao abrir o bloco): 20 caracteres com BDK 3DES,
+     * 24 com BDK AES, seguidos do tipo da chave de trabalho. */
+    aes   = (kb[7] == (uint8_t)KS_ALG_AES) ? 1u : 0u;
+    ksn_n = aes ? DUKPT_AES_KSN_N : DUKPT_KSN_N;
+    if ((r = le_hex(in, ksn, ksn_n)) != ASCII_OK)      { return r; }
+    if (aes) {
+        if ((uint32_t)in->pos + 1u > in->n)            { return ASCII_MALFORMADA; }
+        n_trab = trabalho_aes(in->p[in->pos]);
+        if (n_trab == 0u)                              { return ASCII_PARAM; }
+        in->pos = (uint16_t)(in->pos + 1u);
+    }
     if ((uint32_t)in->pos + 2u > in->n)                { return ASCII_MALFORMADA; }
     fo = in->p[in->pos];
     fd = in->p[in->pos + 1u];
@@ -1219,8 +1259,14 @@ static uint8_t h_p2(leitor_t *in, escritor_t *out)
     }
     if ((r = fim(in)) != ASCII_OK)                      { return r; }
 
+    /* BDK AES: o autoteste do AES-128 e do DUKPT AES roda antes de abrir
+     * qualquer bloco (ele termina apagando o coprocessador). */
+    if (aes && (primeiro_uso(KAT_FALHA_DUKPT_AES) != ASCII_OK)) {
+        return ASCII_ERRO_GRAVE;
+    }
     if ((r = abre_bloco(kb, kbn, &info)) != ASCII_OK)   { return r; }
-    v = keystore_dukpt_pin_abre(KS_HANDLE_EFEMERA, ksn, fo, pan_o, bloco);
+    v = keystore_dukpt_pin_abre(KS_HANDLE_EFEMERA, ksn, ksn_n, fo, n_trab,
+                                pan_o, bloco);
     keystore_efemera_apaga();
     if (v != 0) {
         if (v == -1) { return ASCII_MODO; }
@@ -1239,15 +1285,18 @@ static uint8_t h_p2(leitor_t *in, escritor_t *out)
 }
 
 /* I0 -- gerar a IPEK de um terminal: bloco da KEK . bloco da BDK (os dois
- *       sob a LMK) . KSN(20 hex)  ->  bloco da IPEK sob a KEK . KCV(6)
+ *       sob a LMK) . KSN  ->  bloco da IPEK sob a KEK . KCV(6)
+ *
+ * KSN de 20 caracteres com BDK 3DES (a IPEK do DUKPT TDES), de 24 com BDK
+ * AES (a chave inicial, IK, do DUKPT AES, etapa 8.8b; do tamanho da BDK).
  *
  * E a carga de chave do terminal: a IPEK sai sob a KEK do dispositivo de
  * injecao (ou do proprio terminal), e o KSN inicial vai junto, em claro,
  * pelo caminho de quem pediu. O contador do KSN e ignorado: a IPEK so
  * depende do resto dele.
  *
- * O bloco de saida tem uso B1 (chave inicial de DUKPT), modo 'X' e
- * exportabilidade 'N'. Versao D sob KEK AES-256, B sob KEK 3DES.
+ * O bloco de saida tem uso B1 (chave inicial de DUKPT), o algoritmo da BDK,
+ * modo 'X' e exportabilidade 'N'. Versao D sob KEK AES-256, B sob KEK 3DES.
  *
  * Checklist:
  *   estados      OPERATIONAL.
@@ -1256,7 +1305,8 @@ static uint8_t h_p2(leitor_t *in, escritor_t *out)
  *   vazamento    em laco, quem tem os dois blocos tira a IPEK de qualquer
  *                KSN, sob aquela KEK: e o servico, e e o que a KEK existe
  *                para limitar. A IPEK de um terminal nao revela a BDK nem
- *                a IPEK de outro (cada uma e um 3DES da BDK sobre o KSN).
+ *                a IPEK de outro (cada uma e um 3DES da BDK sobre o KSN;
+ *                no DUKPT AES, um AES da BDK sobre o IKID).
  *   exportability a IPEK e chave nova, derivada aqui, e sai com 'N'. A
  *                BDK nao sai por este comando. Pelo K4 ela sai se for 'E'
  *                ou 'S', como qualquer chave: o operador escolhe a
@@ -1264,24 +1314,31 @@ static uint8_t h_p2(leitor_t *in, escritor_t *out)
  *   log          sim, antes.
  *
  * A KEK precisa de uso K0 (senao 13) e modo 'E' ou 'B' (senao 11), e de
- * forca para levar uma chave 3DES dupla (qualquer KEK deste equipamento
- * leva). A BDK precisa de uso B0, 3DES duplo e modo 'X' (senao 11). */
+ * forca para levar a chave inicial (senao 13): qualquer KEK leva a IPEK
+ * 3DES dupla, e so a KEK AES leva a IK AES. A BDK precisa de uso B0, modo
+ * 'X' e 3DES duplo, AES-128 ou AES-256 (senao 11). */
 static uint8_t h_i0(leitor_t *in, escritor_t *out)
 {
     const uint8_t *kb = 0, *bb = 0;
     uint16_t       kbn = 0u, bbn = 0u;
     uint8_t        kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
-    uint8_t        ksn[DUKPT_KSN_N], kcv[KS_KCV_LEN];
+    uint8_t        ksn[DUKPT_AES_KSN_N], kcv[KS_KCV_LEN];
     char           bloco[TR31_ASCII_MAX];
-    uint32_t       bn = 0u, i;
+    uint32_t       bn = 0u, i, ksn_n;
     ks_info_t      info;
-    uint8_t        r, n = 0u;
+    uint8_t        r, n = 0u, aes;
     int            v;
 
     if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK)      { return r; }
     if ((r = le_bloco(in, &bb, &bbn)) != ASCII_OK)      { return r; }
-    if ((r = le_hex(in, ksn, DUKPT_KSN_N)) != ASCII_OK) { return r; }
+    /* O tamanho do KSN sai do algoritmo do cabecalho da BDK, como no P2. */
+    aes   = (bb[7] == (uint8_t)KS_ALG_AES) ? 1u : 0u;
+    ksn_n = aes ? DUKPT_AES_KSN_N : DUKPT_KSN_N;
+    if ((r = le_hex(in, ksn, ksn_n)) != ASCII_OK)       { return r; }
     if ((r = fim(in)) != ASCII_OK)                      { return r; }
+    if (aes && (primeiro_uso(KAT_FALHA_DUKPT_AES) != ASCII_OK)) {
+        return ASCII_ERRO_GRAVE;
+    }
 
     if ((r = kek_subchaves(kb, kbn, KS_MODO_CIFRA, kbek, kbak, &n))
         != ASCII_OK) {
@@ -1290,8 +1347,8 @@ static uint8_t h_i0(leitor_t *in, escritor_t *out)
     if ((r = abre_bloco(bb, bbn, &info)) != ASCII_OK) {
         goto sai;
     }
-    v = keystore_dukpt_ipek(KS_HANDLE_EFEMERA, ksn, kbek, kbak, n, bloco,
-                            &bn, kcv);
+    v = keystore_dukpt_ipek(KS_HANDLE_EFEMERA, ksn, ksn_n, kbek, kbak, n,
+                            bloco, &bn, kcv);
     if (v != 0) {
         r = (v == -4) ? ASCII_MODO
           : (v == -3) ? ASCII_NAO_KEK

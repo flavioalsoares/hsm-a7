@@ -296,17 +296,22 @@ class Host:
         _, c = self.pede("P0", campos.encode())
         return bytes.fromhex(c[:(16 if formatos[1] == "0" else 32)].decode())
 
-    # -- DUKPT (fase 8, etapa 8.8a) -----------------------------------
-    def dukpt_traduz(self, bdk, destino, ksn, pan, bloco, formatos="00"):
+    # -- DUKPT (fase 8, etapas 8.8a e 8.8b) ---------------------------
+    def dukpt_traduz(self, bdk, destino, ksn, pan, bloco, formatos="00",
+                     trabalho=""):
         """P2: o PIN block do terminal DUKPT (BDK + KSN) sai sob a chave de
-        zona `destino`. `formatos`: origem ('0') e destino ('0' ou '4')."""
-        campos = (bdk + destino + ksn.hex().upper() + formatos
+        zona `destino`. `formatos`: origem ('0' com BDK 3DES, '4' com BDK
+        AES) e destino ('0' ou '4'). `trabalho`, so com BDK AES: '2' (chave
+        de PIN AES-128) ou '4' (AES-256). O KSN tem 10 bytes no TDES e 12 no
+        AES."""
+        campos = (bdk + destino + ksn.hex().upper() + trabalho + formatos
                   + "%02d" % len(pan) + pan + bloco.hex().upper())
         _, c = self.pede("P2", campos.encode())
         return bytes.fromhex(c[:(16 if formatos[1] == "0" else 32)].decode())
 
     def ipek(self, kek, bdk, ksn):
-        """I0: a IPEK do terminal do `ksn`, sob a KEK. Devolve (bloco, KCV)."""
+        """I0: a chave inicial do terminal do `ksn` (a IPEK, ou a IK do DUKPT
+        AES), sob a KEK. Devolve (bloco, KCV)."""
         _, c = self.pede("I0", kek.encode() + bdk.encode()
                          + ksn.hex().upper().encode())
         n = int(c[1:5])
@@ -1257,14 +1262,132 @@ def dukpt_confere(h, lmk, n):
         recusa(11, h.ipek, kek_a, nao_x, ksn)
         tripla, _ = h.gen("B0", "X", "E", "T3")        # BDK tripla
         recusa(11, h.dukpt_traduz, tripla, zona0, ksn, pan, epb)
-        aes, _ = h.gen("B0", "X", "E")                 # BDK AES (8.8b)
-        recusa(11, h.dukpt_traduz, aes, zona0, ksn, pan, epb)
+        aes, _ = h.gen("B0", "X", "E")                 # BDK AES: origem 0
+        recusa(11, h.dukpt_traduz, aes, zona0, ksn + bytes(2), pan, epb,
+               "00", "2")
         recusa(11, h.dukpt_traduz, zona0, zona0, ksn, pan, epb)  # P0 como BDK
         recusa(13, h.ipek, zona0, bdk_b, ksn)          # P0 como KEK
         recusa(11, h.ipek, kek_i, bdk_b, ksn)          # KEK so de importar
         print("volta %d: P2 (00, 04) e I0 (D, B) conferidos, KSN com %d bit(s) 1"
               % (volta + 1, 1 + volta % 10))
-    print("%d de %d voltas conferidas" % (n, n))
+    print("%d de %d voltas TDES conferidas" % (n, n))
+    return dukpt_aes_confere(h, lmk, n, kek_a, kek_a_c, kek_t, kek_i, kek_i_c,
+                             zona0, zona0_c, recusa, digitos)
+
+
+def _dukpt_aes_vetores(nome):
+    """O cabecalho e as transacoes de vectors/dukpt/x924_3_aes*.rsp."""
+    cab, txs, atual = {}, [], None
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                           "vectors", "dukpt", nome)) as f:
+        for ln in f:
+            ln = ln.strip()
+            if " = " not in ln or ln.startswith("#"):
+                continue
+            k, v = ln.split(" = ", 1)
+            if k == "COUNT":
+                atual = {}
+                txs.append(atual)
+            elif atual is None:
+                cab[k] = bytes.fromhex(v)
+            else:
+                atual[k] = bytes.fromhex(v)
+    return cab, txs
+
+
+def dukpt_aes_confere(h, lmk, n, kek_a, kek_a_c, kek_t, kek_i, kek_i_c,
+                      zona0, zona0_c, recusa, digitos):
+    """DUKPT AES (P2, I0; etapa 8.8b), conferido com o dukpt.py. As BDKs AES
+    entram por K6, sob uma KEK de importar: e como a BDK AES-128 chega aqui
+    sem a cerimonia de componentes (que precisa dos botoes)."""
+    import dukpt
+    import pinblock
+    import tr31
+
+    def ksn_aes(uns):
+        bits = set()
+        while len(bits) < uns:
+            bits.add(os.urandom(1)[0] % 32)
+        return os.urandom(8) + sum(1 << b for b in bits).to_bytes(4, "big")
+
+    def importa_bdk(bdk):
+        b, _ = h.importa(kek_i, tr31.embrulha(kek_i_c, bdk, "B0", "A", "X", "E"))
+        return b
+
+    zona4, _ = h.gen("P0", "E", "E")
+    zona4_c, _ = tr31.desembrulha(lmk, zona4)
+
+    # 1. as BDKs dos valores de terceiros (X9.24-3), AES-128 e AES-256
+    for nome, nb in (("x924_3_aes128.rsp", 16), ("x924_3_aes256.rsp", 32)):
+        cab, txs = _dukpt_aes_vetores(nome)
+        bdk_b = importa_bdk(cab["BDK"])
+        b, kcv = h.ipek(kek_a, bdk_b, cab["IKID"] + bytes(4))
+        ik, c = tr31.desembrulha(kek_a_c, b)
+        assert ik == cab["IK"], "I0: IK de %s" % nome
+        assert (c["uso"], c["algoritmo"], c["modo"], c["exportabilidade"]) == \
+            ("B1", "A", "X", "N"), "I0: cabecalho %r" % c
+        assert dukpt._aes_ecb(ik, bytes(16))[:3].hex().upper() == kcv, "I0: KCV"
+        recusa(13, h.ipek, kek_t, bdk_b, cab["IKID"] + bytes(4))   # KEK 3DES
+        if nb == 16:
+            pan = "4111111111111111"       # o PAN de teste dos valores publicados
+            assert pinblock.campo_pan(pan) == cab["PANFIELD"]
+            pin = pinblock.le_campo_pin(cab["PINFIELD"])
+            ok = 0
+            for t in txs:
+                if "EPB" in t:
+                    saida = h.dukpt_traduz(bdk_b, zona4, t["KSN"], pan, t["EPB"],
+                                           "44", "2")
+                    assert pinblock.decifra(zona4_c, saida, pan) == pin, "P2 44"
+                    ok += 1
+            print("%s: IK %s; %d PIN blocks publicados traduzidos para PIN %s"
+                  % (nome, cab["IK"].hex().upper(), ok, pin))
+        else:
+            print("%s: IK %s" % (nome, cab["IK"].hex().upper()))
+
+    # 2. BDKs ao acaso, as quatro combinacoes de BDK e chave de trabalho
+    for volta in range(n):
+        nb = (16, 32)[volta % 2]
+        nt = (16, 32)[(volta // 2) % 2]
+        bdk = os.urandom(nb)
+        bdk_b = importa_bdk(bdk)
+        na = 13 + volta % 7
+        pan = "999999" + digitos(na - 6)
+        pin = digitos(4 + volta % 9)
+        ksn = ksn_aes(1 + volta % 16)
+        k = dukpt.aes_chave_pin(bdk, ksn, nt)
+        epb = pinblock.cifra(k, pin, pan)
+        tr = "2" if nt == 16 else "4"
+        saida = h.dukpt_traduz(bdk_b, zona4, ksn, pan, epb, "44", tr)
+        assert pinblock.decifra(zona4_c, saida, pan) == pin, "P2 44"
+        saida = h.dukpt_traduz(bdk_b, zona0, ksn, pan, epb, "40", tr)
+        assert pinblock.decifra0(zona0_c, saida, pan) == pin, "P2 40"
+        b, kcv = h.ipek(kek_a, bdk_b, ksn)
+        ik, _ = tr31.desembrulha(kek_a_c, b)
+        assert ik == dukpt.aes_ik(bdk, ksn[:8]), "I0: IK"
+        # recusas
+        recusa(16, h.dukpt_traduz, bdk_b, zona4, ksn[:8] + bytes(4), pan, epb,
+               "44", tr)
+        recusa(16, h.dukpt_traduz, bdk_b, zona4, ksn[:8] + b"\x00\x01\xFF\xFF",
+               pan, epb, "44", tr)                     # 17 bits 1
+        recusa(16, h.dukpt_traduz, bdk_b, zona4, ksn, pan, epb, "44", "3")
+        recusa(11, h.dukpt_traduz, bdk_b, zona0, ksn, pan, epb[:8], "00", tr)
+        # Um bit trocado: se o Python ainda abrir um campo valido (raro), pula.
+        outro = bytes([epb[0] ^ 0x01]) + epb[1:]
+        try:
+            pinblock.decifra(k, outro, pan)
+        except pinblock.PinErro:
+            recusa(14, h.dukpt_traduz, bdk_b, zona4, ksn, pan, outro, "44", tr)
+        recusa(13, h.ipek, kek_t, bdk_b, ksn)
+        print("volta %d: P2 (44, 40) e I0 conferidos, BDK AES-%d, trabalho "
+              "AES-%d, KSN com %d bit(s) 1"
+              % (volta + 1, nb * 8, nt * 8, 1 + volta % 16))
+    # 3. AES-128 so na BDK: uma chave de dados AES-128 e recusada ao entrar.
+    recusa(10, h.importa, kek_i, tr31.embrulha(kek_i_c, os.urandom(16), "D0",
+                                               "A", "B", "E"))
+    recusa(10, h.importa, kek_i, tr31.embrulha(kek_i_c, os.urandom(16), "B0",
+                                               "A", "B", "E"))
+    print("%d de %d voltas AES conferidas; AES-128 fora da BDK recusado"
+          % (n, n))
     return 0
 
 

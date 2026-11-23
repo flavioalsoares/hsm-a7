@@ -597,6 +597,66 @@ faz o mesmo a cada volta.
 no erro. Que o equipamento conversa com um terminal real. E os MACs e a
 cifra de dados com chave DUKPT, que são da etapa 8.9.
 
+### 42.9 O DUKPT AES
+
+O DUKPT AES da seção 37.3 também é uma conta determinística, e os testes
+seguem o molde da seção 42.8.
+
+**Os valores de terceiros.** O suplemento de vetores da X9.24-3 traz, para
+uma BDK AES-128 e uma AES-256, a chave inicial (IK) e 15 transações. Vêm do
+mesmo projeto `openemv/dukpt`, que os transcreve, fixados por commit e por
+hash. As transações cobrem:
+
+- os contadores de 1 a 8, com a chave de PIN AES-128 (e a AES-256, na BDK
+  AES-256) e, na BDK AES-128, o PIN block formato 4 cifrado;
+- as bordas de `1FFFE` a `20001`, onde o contador muda de 16 para 17 bits
+  significativos;
+- os quatro últimos contadores, de `FFFE2000` a `FFFF0000`. O último tem 16
+  bits 1: o caminho mais longo que a norma permite, 16 derivações.
+
+**O motor AES-128.** O motor em C (`fw/src/aes128.c`) é conferido contra os
+568 vetores ECB de 128 bits do CAVP, nas duas direções. As caixas S foram
+calculadas da definição por um script, e não copiadas de memória.
+
+**Duas implementações.** O `host/test_dukpt.py` confere o Python e o C do
+firmware contra os valores de terceiros: a IK, as 30 chaves de transação,
+as 24 chaves de PIN e os 8 PIN blocks. O AES do Python é o da biblioteca
+`cryptography`; o do C é o `aes128.c` com chave de 16 bytes. Com chave de
+32 bytes o C usa o coprocessador, e no PC o teste o troca pela OpenSSL.
+Depois, os dois calculam a chave de PIN de 400 casos ao acaso, nas quatro
+combinações de BDK (16 ou 32 bytes) e chave de trabalho (16 ou 32), com
+contadores de 1 a 16 bits 1.
+
+**Os KSNs inválidos.** O teste exige a recusa dos dois lados com o contador
+zero e com 17 bits 1, a aceitação com 16 bits 1, e a recusa de uma chave de
+trabalho de 24 bytes.
+
+**No firmware real.** O `tb_dukpt_aes` leva as duas BDKs publicadas ao
+equipamento, embrulhadas sob a LMK, e pede:
+
+1. o `P2` com a BDK AES-128 e a transação de contador 7: o PIN block
+   publicado abre pelo motor em C e sai sob uma chave de zona 3DES. A saída é
+   formato 0, sem aleatório, e o testbench a compara inteira com a conta do
+   Python;
+2. o `P2` com a BDK AES-256 e a chave de trabalho AES-256: a derivação e a
+   abertura passam pelo coprocessador. O PIN block de origem é conta do
+   Python sob a chave de PIN AES-256 publicada (o suplemento não traz um), e
+   a saída tem de ser a mesma do passo 1;
+3. o `I0` da IK da BDK AES-128 sob uma KEK AES-256: o cabeçalho do bloco
+   tem de ser `D0112B1AX00N0000`, e o KCV, o da IK publicada;
+4. quatro recusas: a IK sob uma KEK 3DES (`13`), o KSN de contador zero
+   (`16`), o PIN block de origem formato 0 com BDK AES (`11`), e uma chave
+   AES-128 de dados no `K2` (`10`).
+
+O autoteste do AES-128 e do DUKPT AES (um bit próprio, `0x1000`) roda no
+primeiro uso de uma chave AES-128 ou de uma BDK AES. Ele confere o motor nas
+duas direções, a chave de PIN AES-128 da transação 7 com o PIN block
+publicado refeito sob ela, e a chave de PIN AES-256 da mesma transação.
+
+**O que estes testes não provam.** Os mesmos limites da seção 42.8: que a
+conta é a da norma, e não a da transcrição; que o equipamento conversa com
+um terminal real; e as chaves de MAC e de dados DUKPT, que são da etapa 8.9.
+
 ## 43. Testes do gerador aleatório
 
 Não existe KAT para aleatoriedade. Um gerador que devolve sempre a mesma
@@ -814,6 +874,7 @@ ontem não aparece em teste de laboratório nenhum.
 | RSA, assinatura | primeiro uso | resposta conhecida |
 | ECDSA | primeiro uso | resposta conhecida com `k` fixo, e verificação |
 | DES e 3DES | primeiro uso | resposta conhecida, 25 vetores; o CMAC-TDES e um key block versão B (etapa 8.7); a IPEK e uma transação do DUKPT (etapa 8.8a) |
+| AES-128 e DUKPT AES | primeiro uso | resposta conhecida: o motor nas duas direções, e as chaves de PIN AES-128 e AES-256 de uma transação, com o PIN block refeito (etapa 8.8b) |
 | Par assimétrico recém-gerado | a cada geração | assina e verifica antes de entregar |
 | Toda assinatura | a cada assinatura | verificada com a chave pública antes de sair |
 
@@ -853,7 +914,7 @@ implementação independente no PC a refaz ou a desfaz.
 | Verificação de PIN | gera e verifica offset e PVV, a partir de um PIN block | faz o papel do terminal e o do emissor; calcula o MAC da tabela com a LMK |
 | CVV | gera e verifica CVV, CVV2 e iCVV de um cartão | faz o papel do emissor e refaz a conta com a chave aberta |
 | Chaves 3DES | gera e devolve o KCV; com uma KEK 3DES, exporta e importa em bloco versão B | abre o bloco e confere tamanho, paridade e KCV; abre e fecha os blocos B com a KEK, e confere as recusas da regra de força |
-| DUKPT TDES | traduz o PIN de um terminal DUKPT para uma chave de zona; gera a IPEK sob uma KEK | faz o papel do terminal (cifra o PIN sob a chave da transação) e o do destino; abre a IPEK com a KEK e a refaz da BDK; leva a BDK do anexo A.4 e exige o PIN e a IPEK publicados |
+| DUKPT TDES e AES | traduz o PIN de um terminal DUKPT para uma chave de zona; gera a IPEK ou a IK sob uma KEK | faz o papel do terminal (cifra o PIN sob a chave da transação) e o do destino; abre a chave inicial com a KEK e a refaz da BDK; leva as BDKs publicadas (anexo A.4 da X9.24-1, suplemento da X9.24-3) e exige o PIN e a chave inicial publicados |
 | RSA e ECDSA | gera pares e assina | verifica só com a chave pública |
 | PKCS#8 | gera, e assina com chave vinda de fora | usa a chave do equipamento numa biblioteca, e o contrário |
 

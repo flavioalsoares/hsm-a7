@@ -143,6 +143,7 @@ KAT_BITS_USO = [
     (0x200, "assinatura RSA"),
     (0x400, "ECDSA P-256"),
     (0x800, "DES e 3DES"),
+    (0x1000, "AES-128 e DUKPT AES"),
 ]
 
 STATUS_NAMES = {
@@ -881,8 +882,12 @@ def cmd_comp_load(client, args):
     Etapa 8.7: `--alg T2` ou `T3` monta uma chave 3DES dupla (componentes de
     16 bytes) ou tripla (24). E como nasce a chave de troca 3DES com outra
     instituicao. O KCV de cada componente e entao o do 3DES.
+
+    Etapa 8.8b: `--alg A128` monta uma chave AES-128 (componentes de 16
+    bytes). O equipamento so a aceita como BDK do DUKPT AES: `--uso B0
+    --modo X`. O KCV de cada componente e o do AES-128.
     """
-    alg, tam = {"A": ("A", LMK_KEY_LEN), "T2": ("T", 16),
+    alg, tam = {"A": ("A", LMK_KEY_LEN), "A128": ("A", 16), "T2": ("T", 16),
                 "T3": ("T", 24)}[args.alg]
     if not 0 <= args.n < args.total:
         print("componente %d fora de 0..%d" % (args.n, args.total - 1),
@@ -1443,11 +1448,12 @@ def main(argv=None):
     p_cl.add_argument("n", type=int, help="indice do componente (0..total-1)")
     p_cl.add_argument("total", type=int, help="quantos componentes ao todo")
     p_cl.add_argument("key", nargs="?", default=None,
-                      help="componente em hex: 32 bytes (AES), 16 (T2) ou 24 (T3)")
+                      help="componente em hex: 32 bytes (AES), 16 (A128, T2) ou 24 (T3)")
     p_cl.add_argument("--random", action="store_true",
                       help="gera o componente aqui e imprime (brinquedo)")
-    p_cl.add_argument("--alg", choices=["A", "T2", "T3"], default="A",
-                      help="A = AES-256 (padrao); T2/T3 = 3DES duplo/triplo")
+    p_cl.add_argument("--alg", choices=["A", "A128", "T2", "T3"], default="A",
+                      help="A = AES-256 (padrao); A128 = AES-128, so BDK B0 modo X; "
+                           "T2/T3 = 3DES duplo/triplo")
     _cab_args(p_cl)
 
     p_mac = sub.add_parser("mac", help="CMAC-AES-256 com a chave de um slot")

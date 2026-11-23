@@ -809,7 +809,7 @@ Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vi
 está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
 DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos (**feita**), 8.5
 verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV (**feita**), 8.7 troca de chaves 3DES (**feita**),
-8.8 DUKPT (8.8a TDES: **feita**; 8.8b AES), 8.9 MAC e dados com 3DES.
+8.8 DUKPT (8.8a TDES: **feita**; 8.8b AES: **feita**), 8.9 MAC e dados com 3DES.
 
 ⚠ **O 3DES entra, por decisão do usuário (2026-11-14), e o critério é o mercado de
 meios de pagamento**: "o objetivo não é ser o melhor, o objetivo é aprender como o
@@ -1016,7 +1016,25 @@ modo `X` e exportabilidade `N`. Não "simplificar".
 
 ⚠ **Os vetores do DUKPT são de terceiros** (`openemv/dukpt`, que transcreve a
 X9.24-1:2009 A.4), fixados por commit e hash. Mexer no DUKPT exige mexer em
-`fw/src/dukpt.c` e `host/dukpt.py`, e rodar `host/test_dukpt.py` (0,5 s).
+`fw/src/dukpt.c` e `host/dukpt.py` (e o `aes128.c`, no AES), e rodar `host/test_dukpt.py` (0,9 s; precisa da `libcrypto`).
+
+**Etapa 8.8b (DUKPT AES): ✅ validada em hardware 2026-11-23.** `tb_dukpt_aes` 2 h 44, `tb_dukpt` 4 h 06, `tb_kek3` 7 h 16 (2 simulações por vez); `regressao.py` com 20 passos em 376 s, o passo do DUKPT em 22,0 s. Firmware `0.8.9`, 62 784 bytes. Próxima: etapa 8.9.** Os mesmos `P2` e `I0`: o algoritmo no
+cabeçalho da BDK diz qual DUKPT. Com BDK AES, o KSN tem 24 caracteres e o `P2` leva o
+tipo da chave de trabalho (`2` AES-128, `4` AES-256) e o PIN block formato 4. O `I0`
+devolve a IK, só sob KEK AES (`13` sob KEK 3DES). O AES-128 é o motor em C
+`fw/src/aes128.c`.
+
+⚠ **Chave AES-128 só como BDK** (uso `B0`, modo `X`), regra em `instala_em()`. O
+coprocessador só faz AES-256: uma chave de dados AES-128 pareceria instalada e não
+cifraria certo. Não afrouxar. O KCV dela é o do AES-128, por `kcv_aes128()`.
+
+⚠ **O autoteste do AES-128 e do DUKPT AES roda no primeiro uso** (`KAT_FALHA_DUKPT_AES =
+0x1000`): antes de abrir uma BDK AES no `P2`/`I0`, e antes de calcular o KCV de uma
+chave AES-128 (porta host, componentes, restauração do boot). Lugar novo que instale
+chave AES-128: chamar o autoteste antes.
+
+⚠ **A IMEM está em 62 784 de 65 536 bytes (95,8%)**; sobram 2 752. A etapa 8.9 pode não
+caber: a conta vem antes do código.
 
 ⚠ **A extração do CVV repete a do PVV** (`cvv_extrai()` e `pinv_pvv_extrai()`), de
 propósito: generalizar mudaria código validado. Corrigir uma exige olhar a outra.

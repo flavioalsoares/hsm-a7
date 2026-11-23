@@ -532,6 +532,49 @@ def dukpt_tdes():
             "epb": bytes.fromhex(esc[0][1])}
 
 
+def aes128_vetores():
+    """Etapa 8.8b: o motor AES-128 em C (so do DUKPT AES). Um vetor de cifra
+    (ECBKeySbox128, COUNT 0) e um de decifra (ECBVarTxt128, a secao DECRYPT,
+    COUNT 0), do CAVP."""
+    def secao(nome, sec):
+        txt = (VEC / "aes" / nome).read_text()
+        parte = txt.split("[%s]" % sec, 1)[1]
+        m = re.search(r"COUNT = 0\s+KEY = ([0-9a-f]{32})\s+"
+                      r"(PLAINTEXT|CIPHERTEXT) = ([0-9a-f]{32})\s+"
+                      r"(PLAINTEXT|CIPHERTEXT) = ([0-9a-f]{32})", parte)
+        if not m:
+            raise SystemExit("AES-128: COUNT 0 de %s [%s] nao achado" % (nome, sec))
+        d = {m.group(2): bytes.fromhex(m.group(3)), m.group(4): bytes.fromhex(m.group(5))}
+        return bytes.fromhex(m.group(1)), d["PLAINTEXT"], d["CIPHERTEXT"]
+    return secao("ECBKeySbox128.rsp", "ENCRYPT"), secao("ECBVarTxt128.rsp", "DECRYPT")
+
+
+def dukpt_aes():
+    """Etapa 8.8b: DUKPT AES (X9.24-3), valores de terceiros de
+    vectors/dukpt/x924_3_aes128.rsp e x924_3_aes256.rsp (ver o MANIFEST). A
+    transacao e a de contador 7 (3 bits 1, tres passos), nas duas BDKs.
+    Com a BDK AES-128: a chave de PIN AES-128 e o PIN block formato 4
+    cifrado sob ela. Com a AES-256: a chave de PIN AES-256."""
+    ksn = "123456789012345600000007"
+    out = {"ksn": bytes.fromhex(ksn)}
+    for arq, tam in (("x924_3_aes128.rsp", 128), ("x924_3_aes256.rsp", 256)):
+        txt = (VEC / "dukpt" / arq).read_text()
+        bdk = re.search(r"^BDK = ([0-9A-F]+)$", txt, re.M).group(1)
+        m = re.search(r"^KSN = %s\n((?:[A-Z0-9]+ = [0-9A-F]+\n)+)" % ksn, txt, re.M)
+        if not m:
+            raise SystemExit("DUKPT AES: transacao %s nao esta em %s" % (ksn, arq))
+        campos = dict(re.findall(r"^([A-Z0-9]+) = ([0-9A-F]+)$", m.group(1), re.M))
+        out["bdk%d" % tam] = bytes.fromhex(bdk)
+        out["pin%d" % tam] = bytes.fromhex(campos["PIN%d" % tam])
+        if tam == 128:
+            out["epb"] = bytes.fromhex(campos["EPB"])
+            out["campo_pin"] = bytes.fromhex(re.search(r"^PINFIELD = ([0-9A-F]+)$", txt, re.M).group(1))
+            out["campo_pan"] = bytes.fromhex(re.search(r"^PANFIELD = ([0-9A-F]+)$", txt, re.M).group(1))
+    if len(out["bdk128"]) != 16 or len(out["bdk256"]) != 32 or len(out["pin256"]) != 32:
+        raise SystemExit("DUKPT AES: tamanhos inesperados")
+    return out
+
+
 def tdes_vetores():
     """Vetores do autoteste de DES/3DES, do CAVP (vectors/tdes/), copiados.
 
@@ -750,6 +793,22 @@ def main():
     L.append(carr("kat_dukpt_ipek", dk["ipek"]))
     L.append(carr("kat_dukpt_claro", dk["claro"]))
     L.append(carr("kat_dukpt_epb", dk["epb"]))
+    (ce, cc, cx), (de, dc, dx) = aes128_vetores()
+    L.append(carr("kat_aes128_cifra_chave", ce))
+    L.append(carr("kat_aes128_cifra_claro", cc))
+    L.append(carr("kat_aes128_cifra_cifrado", cx))
+    L.append(carr("kat_aes128_decifra_chave", de))
+    L.append(carr("kat_aes128_decifra_claro", dc))
+    L.append(carr("kat_aes128_decifra_cifrado", dx))
+    da = dukpt_aes()
+    L.append(carr("kat_dukpt_aes_ksn", da["ksn"]))
+    L.append(carr("kat_dukpt_aes_bdk128", da["bdk128"]))
+    L.append(carr("kat_dukpt_aes_pin128", da["pin128"]))
+    L.append(carr("kat_dukpt_aes_campo_pin", da["campo_pin"]))
+    L.append(carr("kat_dukpt_aes_campo_pan", da["campo_pan"]))
+    L.append(carr("kat_dukpt_aes_epb", da["epb"]))
+    L.append(carr("kat_dukpt_aes_bdk256", da["bdk256"]))
+    L.append(carr("kat_dukpt_aes_pin256", da["pin256"]))
     L.append("")
     L.append(carr("kat_tr31_kbpk", tr31["kbpk"]))
     L.append(carr("kat_tr31_key", tr31["key"]))

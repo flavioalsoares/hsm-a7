@@ -1199,6 +1199,9 @@ static hsm_status_t h_mac_verify(const uint8_t *in, uint16_t in_len,
  * cada componente e o do algoritmo. Todos os componentes de uma montagem
  * tem o mesmo algoritmo e o mesmo tamanho.
  *
+ * Etapa 8.8b: N tambem pode ser 16 com alg 'A' (AES-128), so para a BDK do
+ * DUKPT AES (uso B0, modo 'X'); outro cabecalho e recusado na instalacao.
+ *
  * Ver o checklist completo em cmd.h. As duas coisas que decidem a forma
  * deste handler:
  *
@@ -1229,7 +1232,11 @@ static hsm_status_t h_key_from_components(const uint8_t *in, uint16_t in_len,
         return STATUS_BAD_PARAM;
     }
     comp_n = (uint8_t)(in_len - 7u);
-    if (!(((in[4] == (uint8_t)KS_ALG_AES) && (comp_n == KS_KEY_MAX)) ||
+    /* AES-256 (32), AES-128 (16, so a BDK do DUKPT AES: a instalacao confere
+     * o cabecalho), 3DES duplo (16) ou triplo (24). O algoritmo separa os dois
+     * de 16 bytes. */
+    if (!(((in[4] == (uint8_t)KS_ALG_AES) &&
+           ((comp_n == KS_KEY_MAX) || (comp_n == TDES_CHAVE_2))) ||
           ((in[4] == (uint8_t)KS_ALG_TDES) && (comp_n != KS_KEY_MAX)))) {
         return STATUS_BAD_PARAM;
     }
@@ -1255,8 +1262,10 @@ static hsm_status_t h_key_from_components(const uint8_t *in, uint16_t in_len,
     /* Componente 3DES: o KCV usa o motor, entao o autoteste de primeiro uso
      * roda antes -- e antes do dual control, para uma reprovacao nao gastar
      * o aperto. Reprovou: o destino de um POST reprovado. */
-    if ((in[4] == (uint8_t)KS_ALG_TDES) &&
-        (kat_primeiro_uso(KAT_FALHA_TDES) != 0)) {
+    if (((in[4] == (uint8_t)KS_ALG_TDES) &&
+         (kat_primeiro_uso(KAT_FALHA_TDES) != 0)) ||
+        ((in[4] == (uint8_t)KS_ALG_AES) && (comp_n != KS_KEY_MAX) &&
+         (kat_primeiro_uso(KAT_FALHA_DUKPT_AES) != 0))) {
         (void)keystore_zeroiza_tudo();
         state_set(HSM_TAMPERED);
         return STATUS_CRYPTO_FAIL;

@@ -18,7 +18,7 @@ pagamento.
 | 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | validada na placa em 2026-11-15 |
 | 8.6 | CVV: gerar e verificar | validada na placa em 2026-11-21 |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | validada na placa em 2026-11-22 |
-| 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | 8.8a validada na placa em 2026-11-23; 8.8b a fazer |
+| 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | validada na placa em 2026-11-23 |
 | 8.9 | MAC de mensagem e cifra de dados com 3DES | a fazer |
 
 Candidatos para depois: criptogramas EMV do chip e emissão de PIN.
@@ -798,6 +798,114 @@ BDK gerada pelo `K0`; um terminal simulado pelo Python (KSN com 1 a 10 bits
 e para uma AES; o `I0` sob uma KEK AES (bloco D) e sob uma 3DES (bloco B),
 com a IPEK aberta pelo Python; e as recusas.
 
+## Etapa 8.8b: DUKPT AES
+
+Estado: validada na placa em 2026-11-23. Simulação dos sete testbenches que cobrem a mudança, todos PASS (583 min, 2 por vez); bitstream com WNS +0,572 ns, 0 critical warnings, 8081 LUTs e BRAM 25,5; `hsmtool build` CONFERE com o firmware `0.8.9` (62 784 bytes); `regressao.py` com 20 passos em 376 s, o passo do DUKPT TDES e AES em 22,0 s.
+
+O equipamento faz o lado do adquirente do DUKPT AES (ANSI X9.24-3), com os
+mesmos comandos da 8.8a: o `P2` traduz o PIN de um terminal DUKPT AES para
+uma chave de zona, e o `I0` entrega a chave inicial (IK) de um terminal sob
+uma KEK AES. O algoritmo da BDK, no cabeçalho do bloco dela, diz qual DUKPT
+o comando faz. A teoria, com o exemplo numérico do suplemento da norma, está
+no manual, seção 37.3; os testes e a matemática deles, na 42.9.
+
+### As peças
+
+| Arquivo | O que faz |
+|---|---|
+| `fw/src/aes128.c` | AES-128 em software (FIPS 197), só para o DUKPT. Caixas S calculadas da definição por um script. Compila no PC |
+| `fw/src/dukpt.c` | `dukpt_aes_ik()`, `dukpt_aes_chave_pin()`, `dukpt_aes_ksn_valido()` e o autoteste `dukpt_aes_selftest()`. A derivação usa o `aes128.c` com chave de 16 bytes e o coprocessador com 32 |
+| `fw/src/keystore.c` | a chave AES-128 só com uso `B0` e modo `X` (`aes128_permitida()`), e o KCV dela (`kcv_aes128()`); `bdk_tipo()` separa a BDK TDES da AES; `keystore_dukpt_pin_abre()` e `keystore_dukpt_ipek()` recebem o tamanho do KSN (e da chave de trabalho). A abertura do formato 4 sob a chave da transação é uma função nova, `pin_abre4_chave()`: `pin_passada4()`, validada com a chave do slot, não mudou |
+| `fw/src/kat.c`, `kat.h` | o bit `KAT_FALHA_DUKPT_AES` (`0x1000`), de primeiro uso |
+| `fw/src/cmd_ascii.c` | `P2` e `I0` leem o algoritmo da BDK e o tamanho do KSN; o `P2` lê o tipo da chave de trabalho. O autoteste roda antes de abrir uma BDK AES ou uma chave AES-128 |
+| `fw/src/cmd.c` | o `KEY_FROM_COMPONENTS` aceita componentes AES-128 |
+| `fw/src/main.c` | a restauração do boot com chave AES-128 roda o autoteste, como com chave 3DES |
+| `host/dukpt.py` | o DUKPT AES em Python |
+| `host/hsmtool.py` | `comp-load --alg A128`; o nome do bit `0x1000` |
+| `host/hsmhost.py` | a parte AES do `dukpt-confere` |
+| `scripts/_extrai_dukpt_aes.py` | copia as duas BDKs, a IK e as 15 transações de cada uma do `openemv/dukpt` para `vectors/dukpt/x924_3_aes128.rsp` e `x924_3_aes256.rsp` |
+
+### Decisões
+
+Do usuário, em 2026-11-22: BDK e chave de trabalho AES-128 ou AES-256, com
+o AES-128 em C, só para o DUKPT (ver a 8.8a).
+
+De implementação:
+
+- **AES-128 só na BDK.** O coprocessador faz só AES-256, e uma chave de
+  dados AES-128 pareceria instalada e não cifraria certo. A regra mora em
+  `instala_em()`, num lugar só: chave AES de 16 bytes só com uso `B0` e modo
+  `X`. Chega por componentes ou por key block; outro cabeçalho é recusado
+  ao entrar.
+- **O KCV da chave AES-128 é o mesmo método do AES-256**: os 3 primeiros
+  bytes da cifra de um bloco de zeros, pelo motor de 128 bits.
+- **O mesmo `P2` e o mesmo `I0`.** O algoritmo no cabeçalho da BDK diz o
+  tamanho do KSN (10 ou 12 bytes) e se vem o tipo da chave de trabalho. O
+  cabeçalho é público, e é autenticado em seguida, ao abrir o bloco: um
+  cabeçalho trocado reprova no MAC.
+- **O tipo da chave de trabalho usa os códigos de algoritmo da norma**: `2`
+  (AES-128) e `4` (AES-256). Outro valor é `16`. A norma permite também
+  chave de trabalho 3DES e AES-192; ficaram fora, como a decisão do usuário
+  diz.
+- **O PIN block do terminal é o formato 4**, que é o par do DUKPT AES. O
+  formato 0 com BDK AES é `11`, como o formato 4 com BDK TDES.
+- **A IK só sai sob KEK AES.** É a regra de força do `K4`
+  (`keystore_kek_transporta()`): uma chave AES nunca sai sob uma KEK 3DES.
+  Recusa `13`.
+- **Um autoteste de primeiro uso para o AES-128 e o DUKPT AES**, com bit
+  próprio. Roda antes do primeiro uso de uma BDK AES (de 16 ou de 32 bytes)
+  ou de uma chave AES-128 (KCV na instalação, na restauração do boot e nos
+  componentes). Reprovado: o destino de um POST reprovado.
+- **KSN inválido é `16`**: contador zero, ou com mais de 16 bits 1.
+
+### O checklist
+
+| Item | `P2` com BDK AES | `I0` com BDK AES |
+|---|---|---|
+| Estados | `OPERATIONAL` | `OPERATIONAL` |
+| Dual control | não: é operação | não: é operação |
+| Exportabilidade | não se aplica: nenhuma chave sai | a IK sai com `N`, só sob KEK AES; a BDK não sai por ele |
+| Log | antes | antes |
+
+**Vazamento.** `P2`: com o formato 4 de origem, o `14` revela pouco (manual,
+seção 34.3). Um bloco aberto sob um KSN errado passa como campo de PIN
+válido com chance de cerca de 2⁻²⁴ (seção 37.3). `I0`: o mesmo da 8.8a; a IK
+de um terminal não revela a BDK nem a IK de outro.
+
+### Vetores
+
+- `vectors/dukpt/x924_3_aes128.rsp` e `x924_3_aes256.rsp`: as BDKs, os IKIDs,
+  as IKs e 15 transações de cada, do suplemento de vetores da X9.24-3:2017,
+  copiados do arquivo de testes do `openemv/dukpt` (o mesmo commit da 8.8a).
+- `vectors/aes/ECB*128.rsp`: os vetores ECB de 128 bits do CAVP, do mesmo
+  `KAT_AES.zip` já fixado.
+
+### Medidas
+
+| Medida | Valor |
+|---|---|
+| Firmware | 62 784 bytes de código, 3 892 a mais (95,8% da IMEM; sobram 2 752) |
+| RTL | sem mudança |
+
+### Testes
+
+| Teste | O que prova | Tempo |
+|---|---|---|
+| `host/test_dukpt.py` | **no PC**: o `aes128.c` nos 568 vetores ECB de 128 bits; o Python e o C na IK, nas 30 chaves de transação, nas 24 chaves de PIN e nos 8 PIN blocks publicados; o autoteste; 400 casos ao acaso, C = Python; as recusas de KSN | 0,9 s |
+| `tb_dukpt_aes` | pela UART, com o firmware real. `P2` com a BDK AES-128 publicada (motor em C) e com a AES-256 (coprocessador), a saída comparada inteira; `I0` da IK publicada sob KEK AES, cabeçalho e KCV; recusas `13` (IK sob KEK 3DES), `16` (KSN de contador zero), `11` (origem formato 0), `10` (chave AES-128 de dados) | PASS, 2 h 44 |
+| `tb_dukpt` | o DUKPT TDES; o `P2` e o `I0` mudaram | PASS, 4 h 06 |
+| `tb_ascii` | a porta host inteira; `abre_sob_n()` mudou | PASS, 2 h 37 |
+| `tb_keystore` | o key store do console; a instalação e os componentes mudaram | PASS, 1 h 35 |
+| `tb_kek3` | os componentes 3DES e a restauração com chave 3DES | PASS, 7 h 16 |
+| `tb_persist` | a restauração do boot; `main.c` mudou | PASS, 52 min |
+| `tb_tr31_block` | o POST e a máscara dele | PASS, 10 min |
+
+`hsmhost.py dukpt-confere` ganhou a parte AES: as duas BDKs publicadas
+entram por `K6`; o equipamento tem de achar a IK publicada e o PIN `1234` nos
+8 PIN blocks publicados; a cada volta, uma BDK ao acaso por `K6`, numa das
+quatro combinações de tamanho de BDK e de chave de trabalho, o `P2` para
+zonas 3DES e AES, o `I0`, e as recusas.
+
 ## PKCS#8 no key block
 
 Decisão do usuário em 2026-11-14: o conteúdo do key block de uma chave RSA ou de
@@ -917,8 +1025,8 @@ Decisões:
 
 Desde 2026-11-14, uma mudança só de firmware não espera a suíte completa. Ela
 passa pelo testbench novo e pelos que cobrem o código alterado, e a regressão
-do resto roda na placa, com `host/regressao.py`: 20 passos em 368 s (medido em 2026-11-23, com o 3DES, o
-PKCS#8, a conferência do firmware, a verificação de PIN, o CVV, a KEK 3DES e o DUKPT TDES). A suíte
+do resto roda na placa, com `host/regressao.py`: 20 passos em 376 s (medido em 2026-11-23, com o 3DES, o
+PKCS#8, a conferência do firmware, a verificação de PIN, o CVV, a KEK 3DES e o DUKPT TDES e AES). A suíte
 completa roda quando o RTL muda e no fim da fase. A tabela está no `CLAUDE.md`.
 
 A suíte completa de 2026-11-15 tem 28 testbenches e levou 11 h 46, com 3 por vez.

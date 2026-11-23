@@ -19,6 +19,7 @@
 #include "pkcs8.h"
 #include "kat.h"
 #include "dukpt.h"
+#include "aes128.h"
 #include "wipe.h"
 
 /* Slot completo -- com a chave. Este tipo NÃO aparece no header: nada fora
@@ -294,6 +295,40 @@ static int kcv_tdes(const uint8_t *chave, uint8_t key_len,
     return r;
 }
 
+/* KCV de uma chave AES-128 (etapa 8.8b): AES-128 sobre um bloco de zeros,
+ * os 3 primeiros bytes, como o da AES-256. Pelo motor em C (aes128.c): o
+ * coprocessador so faz AES-256. FRONTEIRA: dentro. */
+static int kcv_aes128(const uint8_t chave[AES128_CHAVE], uint8_t out[KS_KCV_LEN])
+{
+    aes128_ctx_t *ctx = aes128_ctx_comum();
+    uint8_t  zero[AES128_BLOCO] = { 0u };
+    uint8_t  cifrado[AES128_BLOCO];
+    uint32_t i;
+    int      r = -1;
+
+    if (aes128_prepara(ctx, chave) == 0) {
+        aes128_bloco(ctx, zero, cifrado, 1);
+        for (i = 0u; i < KS_KCV_LEN; i++) {
+            out[i] = cifrado[i];
+        }
+        r = 0;
+    }
+    aes128_apaga(ctx);
+    wipe(cifrado, sizeof cifrado);
+    return r;
+}
+
+/* 1 se o cabecalho permite uma chave AES-128: so a BDK do DUKPT AES (uso B0,
+ * modo 'X'), decisao do usuario de 2026-11-22. Qualquer outra chave AES
+ * deste equipamento e AES-256, porque o coprocessador so faz AES-256 -- uma
+ * chave de dados AES-128 pareceria instalada e nao cifraria certo. */
+static int aes128_permitida(const uint8_t uso[2], uint8_t modo)
+{
+    return (uso[0] == (uint8_t)KS_USO_BDK[0]) &&
+           (uso[1] == (uint8_t)KS_USO_BDK[1]) &&
+           (modo == KS_MODO_DERIVA);
+}
+
 /* Instala no indice `i` (0..15), que o chamador garante livre. E o miolo
  * de keystore_instala() e da restauracao do registro persistente -- a
  * restauracao precisa devolver cada chave ao MESMO slot, porque o host
@@ -319,6 +354,12 @@ static ks_handle_t instala_em(uint32_t i, const uint8_t uso[2],
          * fazer MAC AES sao uso_dados() e uso_mac(), que exigem AES. */
         if (((key_len != TDES_CHAVE_2) && (key_len != TDES_CHAVE_3)) ||
             (kcv_tdes(chave, key_len, kcv) != 0)) {
+            wipe(kcv, sizeof kcv);
+            return KS_HANDLE_INVALIDO;
+        }
+    } else if (key_len == AES128_CHAVE) {
+        /* AES-128: so a BDK do DUKPT AES (etapa 8.8b). */
+        if (!aes128_permitida(uso, modo) || (kcv_aes128(chave, kcv) != 0)) {
             wipe(kcv, sizeof kcv);
             return KS_HANDLE_INVALIDO;
         }
@@ -806,40 +847,113 @@ int keystore_pin_fecha(ks_handle_t h, uint8_t formato,
 }
 
 /* ------------------------------------------------------------------
- * DUKPT TDES -- etapa 8.8a
+ * DUKPT TDES (etapa 8.8a) e DUKPT AES (etapa 8.8b)
  *
- * A BDK e uma chave de slot como as outras (uso B0, 3DES duplo, modo 'X'),
+ * A BDK e uma chave de slot como as outras (uso B0, modo 'X'; 3DES duplo,
+ * AES-128 ou AES-256),
  * e chega ao slot efemero pelo key block do host. O que se deriva dela -- a
  * IPEK de um terminal, a chave de PIN de uma transacao -- nunca entra em
  * slot nenhum: existe em variavel local, durante a conta, e sai apagado.
  * ------------------------------------------------------------------ */
 
-/* 1 se o slot e uma BDK TDES que pode derivar. So o modo 'X': uma BDK nao
- * cifra nem faz MAC, e uma chave de outro uso nao deriva. */
-static int bdk_pode(int i)
+/* A BDK do slot: DUKPT_TDES se for uma BDK TDES que pode derivar (3DES
+ * duplo), DUKPT_AES se for uma BDK AES (AES-128 ou AES-256, etapa 8.8b), 0
+ * se nao for BDK. So o modo 'X': uma BDK nao cifra nem faz MAC, e uma chave
+ * de outro uso nao deriva. */
+#define DUKPT_TDES  1
+#define DUKPT_AES   2
+static int bdk_tipo(int i)
 {
-    return (g_slots[i].uso[0] == (uint8_t)KS_USO_BDK[0]) &&
-           (g_slots[i].uso[1] == (uint8_t)KS_USO_BDK[1]) &&
-           (g_slots[i].algoritmo == KS_ALG_TDES) &&
-           (g_slots[i].key_len == DUKPT_TDES_CHAVE) &&
-           (g_slots[i].modo == KS_MODO_DERIVA);
+    if ((g_slots[i].uso[0] != (uint8_t)KS_USO_BDK[0]) ||
+        (g_slots[i].uso[1] != (uint8_t)KS_USO_BDK[1]) ||
+        (g_slots[i].modo != KS_MODO_DERIVA)) {
+        return 0;
+    }
+    if ((g_slots[i].algoritmo == KS_ALG_TDES) &&
+        (g_slots[i].key_len == DUKPT_TDES_CHAVE)) {
+        return DUKPT_TDES;
+    }
+    if ((g_slots[i].algoritmo == KS_ALG_AES) &&
+        ((g_slots[i].key_len == DUKPT_AES128) ||
+         (g_slots[i].key_len == DUKPT_AES256))) {
+        return DUKPT_AES;
+    }
+    return 0;
+}
+
+/* Abre um PIN block formato 4 sob uma chave AES de `n` bytes que nao mora
+ * em slot (a chave de PIN de uma transacao DUKPT AES):
+ *
+ *     campo do PIN = D( D(bloco) ^ campo do PAN )
+ *
+ * AES-256 pelo coprocessador, AES-128 pelo motor em C. Nao reaproveita
+ * pin_passada4(), que le a chave do slot e foi validada assim.
+ * FRONTEIRA: dentro. `meio` sai apagado. */
+static int pin_abre4_chave(const uint8_t *chave, uint32_t n,
+                           const uint8_t pan[PIN_BLOCO],
+                           const uint8_t bloco[PIN_BLOCO],
+                           uint8_t campo[PIN_BLOCO])
+{
+    aes128_ctx_t *ctx = aes128_ctx_comum();
+    uint8_t       meio[PIN_BLOCO];
+    uint32_t      j;
+    int           r = -1;
+
+    if (n == DUKPT_AES128) {
+        if (aes128_prepara(ctx, chave) == 0) {
+            aes128_bloco(ctx, bloco, meio, 0);
+            for (j = 0u; j < PIN_BLOCO; j++) {
+                meio[j] ^= pan[j];
+            }
+            aes128_bloco(ctx, meio, campo, 0);
+            r = 0;
+        }
+        aes128_apaga(ctx);
+    } else if (n == DUKPT_AES256) {
+        if ((hsm_cfs_aes_key(chave) == 0) &&
+            (hsm_cfs_aes_block(bloco, meio, 0) == 0)) {
+            for (j = 0u; j < PIN_BLOCO; j++) {
+                meio[j] ^= pan[j];
+            }
+            if (hsm_cfs_aes_block(meio, campo, 0) == 0) {
+                r = 0;
+            }
+        }
+        (void)hsm_cfs_wipe();
+    }
+    wipe(meio, sizeof meio);
+    if (r != 0) {
+        wipe(campo, PIN_BLOCO);
+    }
+    return r;
 }
 
 /* Deriva a chave de PIN da transacao e abre o bloco uma vez.
- * FRONTEIRA: dentro. A chave sai apagada. */
-static int dukpt_abre_uma(int i, const uint8_t ksn[DUKPT_KSN_LEN],
-                          const uint8_t *pan_campo, const uint8_t *bloco,
-                          uint8_t campo4[PIN_BLOCO], int *valido)
+ * TDES: formato 0, a chave 3DES dupla. AES: formato 4, a chave de trabalho
+ * de `n_trab` bytes. FRONTEIRA: dentro. A chave sai apagada. */
+static int dukpt_abre_uma(int i, int tipo, const uint8_t *ksn,
+                          uint32_t n_trab, const uint8_t *pan_campo,
+                          const uint8_t *bloco, uint8_t campo4[PIN_BLOCO],
+                          int *valido)
 {
-    uint8_t chave[DUKPT_TDES_CHAVE], campo0[PIN_BLOCO_0];
+    uint8_t chave[DUKPT_AES256], campo0[PIN_BLOCO_0];
     int     r = -3;
 
     *valido = 0;
-    if ((dukpt_tdes_chave_pin(g_slots[i].chave, ksn, chave) == 0) &&
-        (pin_passada0_chave(chave, DUKPT_TDES_CHAVE, pan_campo, bloco,
-                            campo0, 0) == 0)) {
-        *valido = pinblock_f0_para_f4(campo0, campo4);
-        r = 0;
+    if (tipo == DUKPT_TDES) {
+        if ((dukpt_tdes_chave_pin(g_slots[i].chave, ksn, chave) == 0) &&
+            (pin_passada0_chave(chave, DUKPT_TDES_CHAVE, pan_campo, bloco,
+                                campo0, 0) == 0)) {
+            *valido = pinblock_f0_para_f4(campo0, campo4);
+            r = 0;
+        }
+    } else {
+        if ((dukpt_aes_chave_pin(g_slots[i].chave, g_slots[i].key_len, ksn,
+                                 n_trab, chave) == 0) &&
+            (pin_abre4_chave(chave, n_trab, pan_campo, bloco, campo4) == 0)) {
+            *valido = pinblock_campo_valido(campo4);
+            r = 0;
+        }
     }
     wipe(chave, sizeof chave);
     wipe(campo0, sizeof campo0);
@@ -848,30 +962,45 @@ static int dukpt_abre_uma(int i, const uint8_t ksn[DUKPT_KSN_LEN],
 
 /* FRONTEIRA: dentro. Como keystore_pin_abre(): o campo do PIN fica em g_pin,
  * e a conta e feita duas vezes. */
-int keystore_dukpt_pin_abre(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_LEN],
-                            uint8_t formato, const uint8_t *pan_campo,
-                            const uint8_t *bloco)
+int keystore_dukpt_pin_abre(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
+                            uint8_t formato, uint32_t n_trab,
+                            const uint8_t *pan_campo, const uint8_t *bloco)
 {
     int      i = indice(h);
     uint8_t  a[PIN_BLOCO], b[PIN_BLOCO];
     uint32_t j;
     uint8_t  dif = 0u;
     int      va = 0, vb = 0;
-    int      r;
+    int      tipo, r;
 
     keystore_pin_apaga();
     if ((i < 0) || (ksn == 0) || (pan_campo == 0) || (bloco == 0)) {
         return -3;
     }
-    /* O DUKPT TDES leva o PIN block formato 0, cifrado em 3DES. */
-    if (!bdk_pode(i) || (formato != (uint8_t)PIN_FORMATO_0)) {
+    /* O DUKPT TDES leva o PIN block formato 0, cifrado em 3DES; o DUKPT AES,
+     * o formato 4, cifrado em AES-128 ou AES-256. */
+    tipo = bdk_tipo(i);
+    if (tipo == DUKPT_TDES) {
+        if ((formato != (uint8_t)PIN_FORMATO_0) || (ksn_n != DUKPT_KSN_LEN)) {
+            return -1;
+        }
+        if (!dukpt_ksn_valido(ksn)) {
+            return -5;
+        }
+    } else if (tipo == DUKPT_AES) {
+        if ((formato != (uint8_t)PIN_FORMATO_4) ||
+            (ksn_n != DUKPT_AES_KSN_LEN) ||
+            ((n_trab != DUKPT_AES128) && (n_trab != DUKPT_AES256))) {
+            return -1;
+        }
+        if (!dukpt_aes_ksn_valido(ksn)) {
+            return -5;
+        }
+    } else {
         return -1;
     }
-    if (!dukpt_ksn_valido(ksn)) {
-        return -5;
-    }
-    if ((dukpt_abre_uma(i, ksn, pan_campo, bloco, a, &va) != 0) ||
-        (dukpt_abre_uma(i, ksn, pan_campo, bloco, b, &vb) != 0)) {
+    if ((dukpt_abre_uma(i, tipo, ksn, n_trab, pan_campo, bloco, a, &va) != 0) ||
+        (dukpt_abre_uma(i, tipo, ksn, n_trab, pan_campo, bloco, b, &vb) != 0)) {
         r = -3;
     } else {
         for (j = 0u; j < PIN_BLOCO; j++) {
@@ -896,40 +1025,61 @@ int keystore_dukpt_pin_abre(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_LEN],
     return r;
 }
 
+/* A chave inicial do terminal: a IPEK (TDES) ou a IK (AES, do tamanho da
+ * BDK). Devolve o tamanho, ou 0 em erro. FRONTEIRA: dentro. */
+static uint32_t dukpt_inicial(int i, int tipo, const uint8_t *ksn,
+                              uint8_t chave[DUKPT_AES256])
+{
+    if (tipo == DUKPT_TDES) {
+        return (dukpt_tdes_ipek(g_slots[i].chave, ksn, chave) == 0)
+               ? DUKPT_TDES_CHAVE : 0u;
+    }
+    return (dukpt_aes_ik(g_slots[i].chave, g_slots[i].key_len, ksn, chave) == 0)
+           ? g_slots[i].key_len : 0u;
+}
+
 /* FRONTEIRA: dentro ate a ultima linha. O que sai em `saida` e criptograma,
- * e o KCV. A IPEK e derivada duas vezes e comparada antes de ser embrulhada:
- * uma IPEK errada, injetada num terminal, so apareceria na primeira
- * transacao dele, em campo. */
-int keystore_dukpt_ipek(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_LEN],
+ * e o KCV. A chave inicial e derivada duas vezes e comparada antes de ser
+ * embrulhada: uma chave errada, injetada num terminal, so apareceria na
+ * primeira transacao dele, em campo. */
+int keystore_dukpt_ipek(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
                         const uint8_t kbek[KS_KEY_MAX],
                         const uint8_t kbak[KS_KEY_MAX], uint8_t n,
                         char *saida, uint32_t *saida_n,
                         uint8_t kcv[KS_KCV_LEN])
 {
     int        i = indice(h);
-    uint8_t    ipek[DUKPT_TDES_CHAVE], outra[DUKPT_TDES_CHAVE];
+    uint8_t    ipek[DUKPT_AES256], outra[DUKPT_AES256];
     uint8_t    ench[TR31_BLOCO];
     tr31_cab_t cab;
-    uint32_t   j;
-    uint8_t    dif = 0u;
-    int        r = -1;
+    uint32_t   j, len = 0u, len2;
+    uint8_t    dif = 0u, alg;
+    int        tipo, r = -1;
 
     if ((i < 0) || (ksn == 0) || (kbek == 0) || (kbak == 0) ||
         (saida == 0) || (saida_n == 0) || (kcv == 0)) {
         return -1;
     }
-    if (!bdk_pode(i)) {
+    tipo = bdk_tipo(i);
+    if ((tipo == 0) ||
+        (ksn_n != ((tipo == DUKPT_TDES) ? DUKPT_KSN_LEN : DUKPT_AES_KSN_LEN))) {
         return -4;
     }
-    /* A IPEK e 3DES dupla: a regra de forca do K4 vale aqui. */
-    if (!keystore_kek_transporta(n, KS_ALG_TDES, DUKPT_TDES_CHAVE)) {
+    /* A regra de forca do K4 vale aqui: a IPEK e 3DES dupla, e qualquer KEK
+     * deste equipamento a leva; a IK AES so sai sob KEK AES. */
+    alg = (tipo == DUKPT_TDES) ? KS_ALG_TDES : KS_ALG_AES;
+    if (!keystore_kek_transporta(n, alg, (tipo == DUKPT_TDES)
+                                         ? (uint8_t)DUKPT_TDES_CHAVE
+                                         : g_slots[i].key_len)) {
         return -3;
     }
-    if ((dukpt_tdes_ipek(g_slots[i].chave, ksn, ipek) != 0) ||
-        (dukpt_tdes_ipek(g_slots[i].chave, ksn, outra) != 0)) {
+    len  = dukpt_inicial(i, tipo, ksn, ipek);
+    len2 = dukpt_inicial(i, tipo, ksn, outra);
+    if ((len == 0u) || (len2 != len)) {
+        len = 0u;
         goto fim;
     }
-    for (j = 0u; j < DUKPT_TDES_CHAVE; j++) {
+    for (j = 0u; j < len; j++) {
         dif |= (uint8_t)(ipek[j] ^ outra[j]);
     }
     if (dif != 0u) {
@@ -937,25 +1087,32 @@ int keystore_dukpt_ipek(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_LEN],
         r = -2;
         goto fim;
     }
-    /* Cabecalho da IPEK: uso B1 (chave inicial de DUKPT), 3DES, modo 'X'
-     * (ela deriva as chaves do terminal) e exportabilidade 'N': o destino
-     * e o terminal, e de la ela nao sai mais. */
+    /* Cabecalho da chave inicial: uso B1 (chave inicial de DUKPT), o
+     * algoritmo da BDK, modo 'X' (ela deriva as chaves do terminal) e
+     * exportabilidade 'N': o destino e o terminal, e de la ela nao sai mais. */
     cab.uso[0]          = (uint8_t)'B';
     cab.uso[1]          = (uint8_t)'1';
-    cab.algoritmo       = KS_ALG_TDES;
+    cab.algoritmo       = alg;
     cab.modo            = KS_MODO_DERIVA;
     cab.versao_chave[0] = (uint8_t)'0';
     cab.versao_chave[1] = (uint8_t)'0';
     cab.exportabilidade = KS_EXP_NAO;
-    if ((kcv_tdes(ipek, DUKPT_TDES_CHAVE, kcv) != 0) ||
-        (drbg_dispositivo_bytes(ench, sizeof ench) != 0)) {
+    if (tipo == DUKPT_TDES) {
+        r = kcv_tdes(ipek, DUKPT_TDES_CHAVE, kcv);
+    } else if (len == DUKPT_AES128) {
+        r = kcv_aes128(ipek, kcv);
+    } else {
+        r = keystore_kcv(ipek, (uint8_t)len, kcv);
+    }
+    if ((r != 0) || (drbg_dispositivo_bytes(ench, sizeof ench) != 0)) {
+        r = -1;
         goto fim;
     }
     if (n == KS_KEY_MAX) {
-        r = tr31_embrulha(kbek, kbak, &cab, ipek, DUKPT_TDES_CHAVE, ench,
+        r = tr31_embrulha(kbek, kbak, &cab, ipek, (uint8_t)len, ench,
                           (uint8_t)TR31_BLOCO, saida, saida_n);
     } else {
-        r = tr31b_embrulha(kbek, kbak, n, &cab, ipek, DUKPT_TDES_CHAVE, ench,
+        r = tr31b_embrulha(kbek, kbak, n, &cab, ipek, (uint8_t)len, ench,
                            (uint8_t)TR31B_BLOCO, saida, saida_n);
     }
     if (r == 0) {
@@ -1402,7 +1559,10 @@ int comp_componente(uint8_t n, uint8_t total, uint8_t algoritmo,
     if ((total < KS_COMP_MIN) || (total > KS_COMP_MAX)) {
         return -1;
     }
-    if (!(((algoritmo == KS_ALG_AES) && (comp_n == KS_KEY_MAX)) ||
+    /* AES-256, AES-128 (so a BDK do DUKPT AES, conferido na instalacao),
+     * 3DES duplo ou triplo. */
+    if (!(((algoritmo == KS_ALG_AES) &&
+           ((comp_n == KS_KEY_MAX) || (comp_n == AES128_CHAVE))) ||
           ((algoritmo == KS_ALG_TDES) &&
            ((comp_n == TDES_CHAVE_2) || (comp_n == TDES_CHAVE_3))))) {
         return -1;
@@ -1431,6 +1591,7 @@ int comp_componente(uint8_t n, uint8_t total, uint8_t algoritmo,
     /* O KCV do COMPONENTE, calculado antes de acumular -- e o que o
      * custodiante confere. */
     v = (algoritmo == KS_ALG_TDES) ? kcv_tdes(comp, comp_n, kcv)
+      : (comp_n == AES128_CHAVE)   ? kcv_aes128(comp, kcv)
                                    : keystore_kcv(comp, KS_KEY_MAX, kcv);
     if (v != 0) {
         return -1;
@@ -2286,6 +2447,11 @@ int keystore_registro_carrega(const uint8_t *buf, uint32_t n)
          * inteira, como com um bloco ruim. */
         if ((cab.algoritmo == (uint8_t)KS_ALG_TDES) &&
             (kat_primeiro_uso(KAT_FALHA_TDES) != 0)) {
+            goto fim;
+        }
+        /* Chave AES-128 (a BDK do DUKPT AES): o KCV usa o motor AES-128. */
+        if ((cab.algoritmo == (uint8_t)KS_ALG_AES) && (klen == AES128_CHAVE) &&
+            (kat_primeiro_uso(KAT_FALHA_DUKPT_AES) != 0)) {
             goto fim;
         }
         if (instala_em(buf[pos], cab.uso, cab.algoritmo, cab.modo,

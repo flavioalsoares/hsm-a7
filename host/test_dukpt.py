@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Teste de PC do DUKPT TDES (etapa 8.8a).
+"""Teste de PC do DUKPT TDES (etapa 8.8a) e do DUKPT AES (etapa 8.8b).
 
     python3 host/test_dukpt.py
 
@@ -17,11 +17,26 @@ O que ele prova:
      Python, e o contador que transborda os 21 bits nao muda a IPEK.
   5. O autoteste do firmware (dukpt_selftest(), parte do KAT do 3DES) passa.
 
+  6. DUKPT AES: o motor AES-128 do firmware (`fw/src/aes128.c`) acha os 568
+     vetores ECB*128 do CAVP, nas duas direcoes.
+  7. `host/dukpt.py` e o C acham a chave inicial, as 30 chaves de transacao e
+     as chaves de PIN AES-128 e AES-256 de vectors/dukpt/x924_3_aes*.rsp, e
+     os 8 PIN blocks formato 4 publicados abrem sob a chave de PIN AES-128.
+  8. C e Python dao a mesma chave de PIN para 400 casos ao acaso (BDK de 16
+     e de 32 bytes, chave de trabalho de 16 e de 32), e o C recusa o KSN de
+     contador zero e o de 17 bits 1. dukpt_aes_selftest() passa.
+
+No PC, o coprocessador AES-256 e trocado pela OpenSSL (um arquivo C de
+apoio, compilado aqui): o caminho AES-256 do C so e provado com o
+coprocessador real no `tb_dukpt_aes`.
+
 O que ele NAO prova: a politica do key store (uso B0, modo X, chave de
-zona) e os comandos P2 e I0. Isso e do `tb_dukpt`, com o firmware real.
+zona) e os comandos P2 e I0. Isso e do `tb_dukpt` e do `tb_dukpt_aes`, com
+o firmware real.
 """
 
 import ctypes
+import glob
 import os
 import random
 import subprocess
@@ -63,14 +78,163 @@ def le_rsp():
     return cab, txs
 
 
+# O coprocessador, no PC: AES-256 ECB pela OpenSSL. So para este teste.
+CFS_PC = r"""
+#include <stdint.h>
+#include <openssl/evp.h>
+#include "hsm_cfs.h"
+static uint8_t g_k[32];
+int hsm_cfs_aes_key(const uint8_t k[32])
+{ for (int i = 0; i < 32; i++) g_k[i] = k[i]; return 0; }
+int hsm_cfs_aes_block(const uint8_t in[16], uint8_t out[16], int enc)
+{
+    EVP_CIPHER_CTX *c = EVP_CIPHER_CTX_new(); int l;
+    EVP_CipherInit_ex(c, EVP_aes_256_ecb(), 0, g_k, 0, enc);
+    EVP_CIPHER_CTX_set_padding(c, 0);
+    EVP_CipherUpdate(c, out, &l, in, 16);
+    EVP_CIPHER_CTX_free(c);
+    return 0;
+}
+int hsm_cfs_wipe(void) { for (int i = 0; i < 32; i++) g_k[i] = 0; return 0; }
+"""
+
+
 def compila(d):
     so = os.path.join(d, "dukpt.so")
     src = os.path.join(RAIZ, "fw", "src")
+    cfs = os.path.join(d, "cfs_pc.c")
+    with open(cfs, "w") as f:
+        f.write(CFS_PC)
     subprocess.run(["gcc", "-O2", "-Wall", "-Werror", "-Wno-unused-const-variable",
                     "-shared", "-fPIC", "-I", os.path.join(RAIZ, "fw", "include"),
                     os.path.join(src, "dukpt.c"), os.path.join(src, "des.c"),
-                    os.path.join(src, "wipe.c"), "-o", so], check=True)
-    return ctypes.CDLL(so)
+                    os.path.join(src, "aes128.c"), os.path.join(src, "wipe.c"),
+                    cfs, "-lcrypto", "-o", so], check=True)
+    lib = ctypes.CDLL(so)
+    lib.aes128_ctx_comum.restype = ctypes.c_void_p
+    return lib
+
+
+def le_rsp_aes(nome):
+    cab, txs, atual = {}, [], None
+    with open(os.path.join(RAIZ, "vectors", "dukpt", nome)) as f:
+        for ln in f:
+            ln = ln.strip()
+            if " = " not in ln or ln.startswith("#"):
+                continue
+            k, v = ln.split(" = ", 1)
+            if k == "COUNT":
+                atual = {}
+                txs.append(atual)
+            elif atual is None:
+                cab[k] = bytes.fromhex(v)
+            else:
+                atual[k] = bytes.fromhex(v)
+    return cab, txs
+
+
+def le_cavp_aes128():
+    """(chave, claro, cifrado, cifrar) dos quatro ECB*128 do CAVP."""
+    vs = []
+    for arq in sorted(glob.glob(os.path.join(RAIZ, "vectors", "aes", "ECB*128.rsp"))):
+        sec, cur = None, {}
+        for ln in open(arq):
+            ln = ln.strip()
+            if ln in ("[ENCRYPT]", "[DECRYPT]"):
+                sec = ln
+            elif " = " in ln:
+                k, v = ln.split(" = ")
+                cur[k] = v
+                if k == ("CIPHERTEXT" if sec == "[ENCRYPT]" else "PLAINTEXT"):
+                    vs.append((bytes.fromhex(cur["KEY"]), bytes.fromhex(cur["PLAINTEXT"]),
+                               bytes.fromhex(cur["CIPHERTEXT"]), sec == "[ENCRYPT]"))
+    return vs
+
+
+def c_aes(lib, fn, n_saida, *args):
+    saida = ctypes.create_string_buffer(n_saida)
+    r = getattr(lib, fn)(*args, saida)
+    return saida.raw if r == 0 else None
+
+
+def _aes_ecb(chave, bloco, cifrar):
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    c = Cipher(algorithms.AES(chave), modes.ECB())
+    o = c.encryptor() if cifrar else c.decryptor()
+    return o.update(bloco) + o.finalize()
+
+
+def teste_aes(lib, rnd):
+    print("DUKPT AES: o motor AES-128 do firmware")
+    ctx = ctypes.c_void_p(lib.aes128_ctx_comum())
+    vs = le_cavp_aes128()
+    ok = 0
+    for k, p, c, cifrar in vs:
+        o = ctypes.create_string_buffer(16)
+        lib.aes128_prepara(ctx, k)
+        lib.aes128_bloco(ctx, c if not cifrar else p, o, 1 if cifrar else 0)
+        ok += o.raw == (c if cifrar else p)
+    lib.aes128_apaga(ctx)
+    check("568 vetores ECB*128 do CAVP (%d de %d)" % (ok, len(vs)),
+          len(vs) == 568 and ok == 568)
+    check("contexto apagado", ctypes.string_at(ctx.value, 176) == bytes(176))
+
+    print("DUKPT AES: valores de terceiros (vectors/dukpt/x924_3_aes*.rsp)")
+    for nome, nb in (("x924_3_aes128.rsp", 16), ("x924_3_aes256.rsp", 32)):
+        cab, txs = le_rsp_aes(nome)
+        bdk = cab["BDK"]
+        okp = okc = True
+        n_pin = n_epb = 0
+        okp = okp and dukpt.aes_ik(bdk, cab["IKID"]) == cab["IK"]
+        okc = okc and c_aes(lib, "dukpt_aes_ik", nb, bdk, nb,
+                            cab["IKID"] + bytes(4)) == cab["IK"]
+        for t in txs:
+            okp = okp and dukpt.aes_chave_transacao(cab["IK"], t["KSN"]) == t["KEY"]
+            okc = okc and c_aes(lib, "dukpt_aes_chave_transacao", nb, bdk, nb,
+                                t["KSN"]) == t["KEY"]
+            for campo, nt in (("PIN128", 16), ("PIN256", 32)):
+                if campo in t:
+                    n_pin += 1
+                    okp = okp and dukpt.aes_chave_pin(bdk, t["KSN"], nt) == t[campo]
+                    kc = c_aes(lib, "dukpt_aes_chave_pin", nt, bdk, nb, t["KSN"], nt)
+                    okc = okc and kc == t[campo]
+            if "EPB" in t:
+                n_epb += 1
+                k = t["PIN128"]
+                meio = bytes(a ^ b for a, b in zip(_aes_ecb(k, t["EPB"], False),
+                                                    cab["PANFIELD"]))
+                okp = okp and _aes_ecb(k, meio, False) == cab["PINFIELD"]
+        check("%s: Python, IK, %d chaves de transacao, %d chaves de PIN, "
+              "%d PIN blocks" % (nome, len(txs), n_pin, n_epb), okp)
+        check("%s: C, os mesmos valores" % nome, okc)
+    check("dukpt_aes_selftest() passa", lib.dukpt_aes_selftest() == 0)
+
+    print("DUKPT AES: C e Python, ao acaso")
+    ok = True
+    for i in range(400):
+        nb = (16, 32)[i % 2]
+        nt = (16, 32)[(i // 2) % 2]
+        b = bytes(rnd.randrange(256) for _ in range(nb))
+        bits = rnd.sample(range(32), 1 + i % 16)
+        cnt = sum(1 << x for x in bits)
+        ksn = bytes(rnd.randrange(256) for _ in range(8)) + cnt.to_bytes(4, "big")
+        ok = ok and c_aes(lib, "dukpt_aes_chave_pin", nt, b, nb, ksn, nt) == \
+            dukpt.aes_chave_pin(b, ksn, nt)
+        ok = ok and c_aes(lib, "dukpt_aes_ik", nb, b, nb, ksn) == dukpt.aes_ik(b, ksn[:8])
+    check("400 casos (BDK 16/32 x trabalho 16/32, 1 a 16 bits 1): iguais", ok)
+
+    print("DUKPT AES: KSN invalido")
+    base = bytes(rnd.randrange(256) for _ in range(8))
+    for nome, cnt in (("contador zero", 0), ("17 bits 1", (1 << 17) - 1)):
+        ksn = base + cnt.to_bytes(4, "big")
+        check("%s: C recusa, Python recusa" % nome,
+              lib.dukpt_aes_ksn_valido(ksn) == 0 and not dukpt.aes_ksn_valido(ksn) and
+              c_aes(lib, "dukpt_aes_chave_pin", 16, bytes(16), 16, ksn, 16) is None)
+    ksn = base + ((1 << 16) - 1).to_bytes(4, "big")
+    check("16 bits 1: aceito", lib.dukpt_aes_ksn_valido(ksn) == 1 and
+          dukpt.aes_ksn_valido(ksn))
+    check("trabalho de 24 bytes: recusado",
+          c_aes(lib, "dukpt_aes_chave_pin", 32, bytes(16), 16, ksn, 24) is None)
 
 
 def c_chama(lib, fn, bdk, ksn):
@@ -145,6 +309,8 @@ def main():
         a = cab["IKSN"][:7] + bytes([cab["IKSN"][7] | 0x1F, 0xFF, 0xFF])
         check("IPEK ignora o contador",
               c_chama(lib, "dukpt_tdes_ipek", bdk, a) == cab["IPEK"])
+        print()
+        teste_aes(lib, rnd)
     print()
     if falhas:
         print("FALHOU: %d" % falhas)

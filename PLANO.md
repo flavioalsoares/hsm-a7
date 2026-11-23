@@ -622,7 +622,7 @@ trabalha". As decisões:*
 | 8.5 | Verificação de PIN: offset com tabela de decimalização, o ataque, e PVV | validada na placa em 2026-11-15 |
 | 8.6 | CVV: gerar e verificar | validada na placa em 2026-11-21 |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | validada na placa em 2026-11-22 |
-| 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | 8.8a (TDES) validada na placa em 2026-11-23; 8.8b (AES) a fazer |
+| 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | validada na placa em 2026-11-23 |
 | 8.9 | MAC de mensagem e cifra de dados com 3DES | a fazer |
 
 *Decisões do usuário para a 8.8 (2026-11-22): o DUKPT AES aceita BDK AES-128 ou

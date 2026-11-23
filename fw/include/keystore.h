@@ -163,6 +163,10 @@ int keystore_zeroiza_tudo(void);
  * `chave` é material em claro; o chamador zeroiza a origem. O KCV é
  * calculado aqui e guardado.
  *
+ * Chave AES tem 32 bytes, com uma exceção: a BDK do DUKPT AES (uso B0, modo
+ * 'X') pode ter 16, AES-128 (etapa 8.8b). O KCV dela usa o motor AES-128, e
+ * quem instala roda antes o autoteste dele (KAT_FALHA_DUKPT_AES).
+ *
  * Devolve o handle, ou KS_HANDLE_INVALIDO se não houver slot livre, se os
  * campos do header forem inválidos, ou se o hardware falhar. */
 ks_handle_t keystore_instala(const uint8_t uso[2], uint8_t algoritmo,
@@ -256,25 +260,32 @@ int  keystore_pin_fecha(ks_handle_t h, uint8_t formato,
                         const uint8_t *pan_campo, uint8_t *bloco);
 void keystore_pin_apaga(void);
 
-/* DUKPT TDES (etapa 8.8a). `h` e a BDK: uso B0, 3DES duplo, modo 'X'.
+/* DUKPT (etapas 8.8a e 8.8b). `h` e a BDK: uso B0, modo 'X', e 3DES duplo
+ * (DUKPT TDES, KSN de 10 bytes) ou AES-128/AES-256 (DUKPT AES, KSN de 12).
  *
  * keystore_dukpt_pin_abre(): refaz a chave de PIN da transacao `ksn` e abre
- * com ela o PIN block formato 0. O campo do PIN fica no key store, como em
- * keystore_pin_abre(), para o keystore_pin_fecha() levar a chave de zona.
- * Devolve 0; -1 (nao e BDK que deriva, ou formato que nao e 0); -2 (as duas
- * contas discordaram: erro grave); -3 (erro interno); -4 (o bloco aberto
- * nao e formato 0); -5 (KSN invalido).
+ * com ela o PIN block: formato 0 com BDK TDES; formato 4 com BDK AES, sob uma
+ * chave de trabalho de `n_trab` bytes (16 ou 32; ignorado no TDES). O campo
+ * do PIN fica no key store, como em keystore_pin_abre(), para o
+ * keystore_pin_fecha() levar a chave de zona.
+ * Devolve 0; -1 (nao e BDK que deriva, ou formato, KSN ou chave de trabalho
+ * que nao sao os da BDK); -2 (as duas contas discordaram: erro grave); -3
+ * (erro interno); -4 (o bloco aberto nao tem a forma do formato); -5 (KSN
+ * invalido).
  *
- * keystore_dukpt_ipek(): a IPEK do terminal do `ksn`, embrulhada sob as
- * subchaves de uma KEK de `n` bytes (versao D se n = 32, B se 16 ou 24),
- * com uso B1, modo 'X' e exportabilidade 'N'. Devolve tambem o KCV dela.
+ * keystore_dukpt_ipek(): a chave inicial do terminal do `ksn` (a IPEK, ou a
+ * IK do DUKPT AES), embrulhada sob as subchaves de uma KEK de `n` bytes
+ * (versao D se n = 32, B se 16 ou 24), com uso B1, o algoritmo da BDK, modo
+ * 'X' e exportabilidade 'N'. Devolve tambem o KCV dela.
  * Devolve 0; -1 (erro); -2 (as duas contas discordaram); -3 (KEK mais
- * fraca que a IPEK); -4 (nao e BDK que deriva). */
-#define DUKPT_KSN_N  10u
-int keystore_dukpt_pin_abre(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_N],
-                            uint8_t formato, const uint8_t *pan_campo,
-                            const uint8_t *bloco);
-int keystore_dukpt_ipek(ks_handle_t h, const uint8_t ksn[DUKPT_KSN_N],
+ * fraca que a chave inicial); -4 (nao e BDK que deriva, ou KSN do tamanho
+ * errado). */
+#define DUKPT_KSN_N      10u
+#define DUKPT_AES_KSN_N  12u
+int keystore_dukpt_pin_abre(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
+                            uint8_t formato, uint32_t n_trab,
+                            const uint8_t *pan_campo, const uint8_t *bloco);
+int keystore_dukpt_ipek(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
                         const uint8_t kbek[KS_KEY_MAX],
                         const uint8_t kbak[KS_KEY_MAX], uint8_t n,
                         char *saida, uint32_t *saida_n,

@@ -44,6 +44,10 @@ foi a origem do ataque de Bond e Zieliński (seções 15.2 e 35.3).
 transação usa uma chave distinta derivada de uma BDK, identificada por um
 KSN. Duas normas: X9.24-1 (TDES, legado) e X9.24-3 (AES). Seção 37.
 
+**IK** — *Initial Key*, a chave inicial de um terminal DUKPT AES. É o papel
+da IPEK no DUKPT AES: vem da BDK e do IKID (os 8 primeiros bytes do KSN), e
+tem o tamanho da BDK. O comando `I0` a entrega sob uma KEK AES. Seção 37.3.
+
 **IPEK** — *Initial PIN Encryption Key*, a chave inicial de um terminal
 DUKPT. Vem da BDK e do KSN do terminal, e é carregada nele uma vez. O
 comando `I0` a entrega sob uma KEK. Seção 37.2.
@@ -82,7 +86,7 @@ corrompida; a cifra não o usa. Seção 39.3.
 
 **KSN** — *Key Serial Number*. Identificador do dispositivo mais o contador
 de transação, enviado junto com cada transação DUKPT. Com ele e a BDK, o HSM
-rederiva a chave usada. Seção 37.
+rederiva a chave usada. Tem 10 bytes no DUKPT TDES e 12 no AES. Seção 37.
 
 **KEK** — *Key Encryption Key*. Chave cuja função é proteger outras chaves.
 
@@ -396,8 +400,8 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `V2` | `V3` | COMUM ‖ tabela autorizada(32) ‖ dados de validação(16) ‖ tamanho(2) ‖ offset | — (o veredito é o erro) | `OPERATIONAL` |
 | `V4` | `V5` | COMUM ‖ índice da chave(1) | PVV(4) | `OPERATIONAL` |
 | `V6` | `V7` | COMUM ‖ índice da chave(1) ‖ PVV(4) | — (o veredito é o erro) | `OPERATIONAL` |
-| `P2` | `P3` | bloco da BDK ‖ bloco da chave de destino ‖ KSN(20) ‖ formato de origem(1) ‖ formato de destino(1) ‖ tamanho do PAN(2) ‖ PAN ‖ PIN block(16) | PIN block(16 ou 32) | `OPERATIONAL` |
-| `I0` | `I1` | bloco da KEK ‖ bloco da BDK ‖ KSN(20) | bloco da IPEK sob a KEK ‖ KCV(6) | `OPERATIONAL` |
+| `P2` | `P3` | bloco da BDK ‖ bloco da chave de destino ‖ KSN(20 ou 24) ‖ [chave de trabalho(1)] ‖ formato de origem(1) ‖ formato de destino(1) ‖ tamanho do PAN(2) ‖ PAN ‖ PIN block(16 ou 32) | PIN block(16 ou 32) | `OPERATIONAL` |
+| `I0` | `I1` | bloco da KEK ‖ bloco da BDK ‖ KSN(20 ou 24) | bloco da chave inicial sob a KEK ‖ KCV(6) | `OPERATIONAL` |
 | `W0` | `W1` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) | código(3) | `OPERATIONAL` |
 | `W2` | `W3` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) ‖ código(3) | — (o veredito é o erro) | `OPERATIONAL` |
 
@@ -453,14 +457,24 @@ sob uma KEK 3DES, versão B (seção 39.9). Uma KEK 3DES só leva chave 3DES de
 comprimento igual ou menor: no `K4`, outra chave é `13`; no `K6`, um bloco
 assim é `10`, como qualquer bloco recebido inválido.
 
-`P2` e `I0` são o DUKPT TDES (seção 37.2). A BDK tem uso `B0`, 3DES de
-comprimento duplo e modo `X` (só deriva); outra chave é `11`. O KSN vai em
-20 dígitos hexadecimais. No `P2`, o formato de origem é `0`, e o destino é
-`0` ou `4`, sob uma chave de uso `P0`, como no `P0`. KSN com contador zero
-ou com mais de 10 bits 1 é `16`. O `I0` ignora o contador do KSN e devolve a
-IPEK num bloco de uso `B1`, modo `X` e exportabilidade `N`: versão D sob KEK
-AES, B sob KEK 3DES. A KEK tem uso `K0` (senão `13`) e modo `E` ou `B`
-(senão `11`).
+`P2` e `I0` são o DUKPT (seções 37.2 e 37.3). A BDK tem uso `B0` e modo `X`
+(só deriva); outra chave é `11`. O algoritmo da BDK, no cabeçalho do bloco
+dela, decide o resto:
+
+- **BDK 3DES dupla (DUKPT TDES).** O KSN vai em 20 dígitos hexadecimais, sem
+  o campo da chave de trabalho. O formato de origem do `P2` é `0`. KSN com
+  contador zero ou com mais de 10 bits 1 é `16`. O `I0` devolve a IPEK.
+- **BDK AES-128 ou AES-256 (DUKPT AES).** O KSN vai em 24 dígitos, seguido
+  do tipo da chave de trabalho: `2` (AES-128) ou `4` (AES-256); outro valor
+  é `16`. O formato de origem do `P2` é `4`. KSN com contador zero ou com
+  mais de 16 bits 1 é `16`. O `I0` devolve a IK, do tamanho da BDK, e só sob
+  uma KEK AES (sob uma KEK 3DES, `13`).
+
+O destino do `P2` é `0` ou `4`, sob uma chave de uso `P0`, como no `P0`; o
+formato de origem do outro algoritmo é `11`. O `I0` ignora o contador do KSN
+e devolve a chave inicial num bloco de uso `B1`, o algoritmo da BDK, modo `X`
+e exportabilidade `N`: versão D sob KEK AES, B sob KEK 3DES. A KEK tem uso
+`K0` (senão `13`) e modo `E` ou `B` (senão `11`).
 
 No log de auditoria, um comando da porta host aparece com os dois
 caracteres dele nos campos `comando` e `argumento` (`K0` = `0x4B`, `0x30`) e
@@ -1124,6 +1138,10 @@ Três detalhes que valem reparar:
   MAC, e só os comandos `P2` e `I0` a usam (seção 37.2). Ela fica num slot
   e na flash como as outras, e sai para a porta host como key block sob a
   LMK, pelo `EXPORT_KEY`.
+- **A BDK do DUKPT AES também** (etapa 8.8b): `comp-load --alg A128 --uso B0
+  --modo X` para AES-128 (componentes de 16 bytes), ou `--alg A` para
+  AES-256. O equipamento só aceita uma chave AES-128 com esse cabeçalho, e o
+  KCV de cada componente é o do AES-128 (seção 37.3).
 
 E o comando que desfaz tudo:
 

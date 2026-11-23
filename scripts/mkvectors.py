@@ -631,6 +631,97 @@ def dukpt_tb():
     escreve("dukpt_dados", ["%02x" % ord(c) for c in pedido], 2)
 
 
+def dukpt_aes_tb():
+    """Vetores do tb_dukpt_aes (etapa 8.8b): DUKPT AES pelo P2 e pelo I0.
+
+    As BDKs AES-128 e AES-256, o KSN, a chave inicial (IK), o PIN block
+    cifrado sob a chave de PIN AES-128 e o PAN sao valores de TERCEIROS, de
+    vectors/dukpt/x924_3_aes128.rsp e x924_3_aes256.rsp (o suplemento da
+    X9.24-3; ver o MANIFEST). A transacao e a de contador 7 (3 bits 1).
+
+    O que e conta do Python (host/dukpt.py, host/pinblock.py, host/des.py):
+    o PIN block sob a chave de PIN AES-256 (os valores publicados nao trazem
+    um), com 8 bytes aleatorios fixos; o PIN block de saida sob a chave de
+    zona 3DES (formato 0, deterministico: o tb o compara inteiro); o KCV da
+    IK e o cabecalho do bloco do I0.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import des
+    import dukpt
+    import pinblock
+    import tr31
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    ench = bytes(range(16))
+
+    def sob_lmk(chave, uso, alg, modo, n):
+        b = tr31.embrulha(lmk, chave, uso=uso, algoritmo=alg, modo=modo,
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != n:
+            raise SystemExit("DUKPT AES: bloco de %d caracteres" % len(b))
+        return b
+
+    def le(nome):
+        txt = (VEC / "dukpt" / nome).read_text()
+        cab = dict(re.findall(r"^(BDK|IKID|IK|PINFIELD|PANFIELD) = ([0-9A-F]+)$", txt, re.M))
+        m = re.search(r"^KSN = 123456789012345600000007\n((?:[A-Z0-9]+ = [0-9A-F]+\n)+)",
+                      txt, re.M)
+        if not m or len(cab) < 3:
+            raise SystemExit("DUKPT AES: %s inesperado" % nome)
+        t = dict(re.findall(r"^([A-Z0-9]+) = ([0-9A-F]+)$", m.group(1), re.M))
+        return ({k: bytes.fromhex(v) for k, v in cab.items()},
+                {k: bytes.fromhex(v) for k, v in t.items()})
+
+    c128, t128 = le("x924_3_aes128.rsp")
+    c256, t256 = le("x924_3_aes256.rsp")
+    ksn = bytes.fromhex("123456789012345600000007")
+    pan = "4111111111111111"
+    if pinblock.campo_pan(pan) != c128["PANFIELD"]:
+        raise SystemExit("DUKPT AES: o PAN publicado nao e 4111111111111111")
+    pin = pinblock.le_campo_pin(c128["PINFIELD"])
+    if pin != "1234":
+        raise SystemExit("DUKPT AES: o PIN publicado nao e 1234")
+    k128 = dukpt.aes_chave_pin(c128["BDK"], ksn, 16)
+    k256 = dukpt.aes_chave_pin(c256["BDK"], ksn, 32)
+    if k128 != t128["PIN128"] or k256 != t256["PIN256"]:
+        raise SystemExit("DUKPT AES: chaves de PIN nao conferem no Python")
+    epb128 = t128["EPB"]
+    if pinblock.decifra(k128, epb128, pan) != pin:
+        raise SystemExit("DUKPT AES: o PIN block publicado nao abre no Python")
+    epb256 = pinblock.cifra(k256, pin, pan, aleatorio=bytes(range(0xA0, 0xA8)))
+    if dukpt.aes_ik(c128["BDK"], ksn[:8]) != c128["IK"]:
+        raise SystemExit("DUKPT AES: a IK publicada nao confere no Python")
+
+    zona = des.paridade_impar(hashlib.sha256(b"tb_dukpt_aes: zona").digest()[:16])
+    kek3 = des.paridade_impar(hashlib.sha256(b"tb_dukpt_aes: kek3").digest()[:16])
+    keka = hashlib.sha256(b"tb_dukpt_aes: keka").digest()
+    dados128 = hashlib.sha256(b"tb_dukpt_aes: d0").digest()[:16]
+    esperado = des.tdes_bloco(zona, pinblock.claro0(pin, pan))
+    e = Cipher(algorithms.AES(c128["IK"]), modes.ECB()).encryptor()
+    kcv_ik = (e.update(bytes(16)) + e.finalize())[:3]
+    cab_i0 = tr31.embrulha(keka, c128["IK"], uso="B1", algoritmo="A", modo="X",
+                           exportabilidade="N")[:16]
+    if cab_i0 != "D0112B1AX00N0000":
+        raise SystemExit("DUKPT AES: cabecalho do I0 inesperado: %s" % cab_i0)
+
+    t112 = (sob_lmk(c128["BDK"], "B0", "A", "X", 112)     # 0: BDK AES-128
+            + sob_lmk(zona, "P0", "T", "E", 112)          # 1: zona 3DES
+            + sob_lmk(kek3, "K0", "T", "E", 112)          # 2: KEK 3DES
+            + sob_lmk(dados128, "D0", "A", "B", 112))     # 3: AES-128 de dados
+    t144 = (sob_lmk(c256["BDK"], "B0", "A", "X", 144)     # 0: BDK AES-256
+            + sob_lmk(keka, "K0", "A", "E", 144))         # 1: KEK AES-256
+    escreve("dukpt_aes_b112", ["%02x" % ord(c) for c in t112], 2)
+    escreve("dukpt_aes_b144", ["%02x" % ord(c) for c in t144], 2)
+    pedido = (ksn.hex().upper() + pan + epb128.hex().upper() + epb256.hex().upper()
+              + esperado.hex().upper() + kcv_ik.hex().upper() + cab_i0)
+    # 24 + 16 + 32 + 32 + 16 + 6 + 16 = 142 caracteres
+    if len(pedido) != 142:
+        raise SystemExit("DUKPT AES: dados de %d caracteres" % len(pedido))
+    escreve("dukpt_aes_dados", ["%02x" % ord(c) for c in pedido], 2)
+
+
 def rsa_r2(prefixo):
     """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
     embrulhada sob a LMK que o tb_rsa monta na cerimonia.
@@ -687,6 +778,7 @@ def main():
     cvv()
     kek3()
     dukpt_tb()
+    dukpt_aes_tb()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.
