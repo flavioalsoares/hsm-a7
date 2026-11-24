@@ -20,8 +20,9 @@ pagamento.
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | validada na placa em 2026-11-22 |
 | 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | validada na placa em 2026-11-23 |
 | 8.9 | MAC de mensagem e cifra de dados com 3DES | a fazer |
+| 8.10 | ARQC: gerar e verificar o criptograma EMV, e o ARPC | a fazer |
 
-Candidatos para depois: criptogramas EMV do chip e emissão de PIN.
+Candidato para depois: emissão de PIN.
 
 Decisões do usuário:
 
@@ -905,6 +906,82 @@ entram por `K6`; o equipamento tem de achar a IK publicada e o PIN `1234` nos
 8 PIN blocks publicados; a cada volta, uma BDK ao acaso por `K6`, numa das
 quatro combinações de tamanho de BDK e de chave de trabalho, o `P2` para
 zonas 3DES e AES, o `I0`, e as recusas.
+
+## IMEM de 128 KB
+
+Decisão do usuário em 2026-11-23, ao fechar a etapa 8.8. O DUKPT AES deixou o
+firmware em 62 784 de 65 536 bytes (95,8%), e a etapa 8.9 não cabia.
+
+O pedido foi 96 KB, e o NEORV32 não faz 96 KB. Ele arredonda `IMEM_SIZE` para a
+potência de 2 de cima (`imem_size_c := 2**index_size_f(IMEM_SIZE)`, em
+`neorv32_top.vhd`), e o datasheet pede potência de 2. Com `96*1024` o hardware
+teria 128 KB, e o linker e o `GET_BUILD` teriam 96 KB, sem aviso. A outra saída
+era um patch no NEORV32, na decodificação de endereço: código de terceiros num
+caminho crítico. O usuário escolheu 128 KB.
+
+| | Antes | Depois |
+|---|---|---|
+| IMEM (espaço de endereço) | 64 KB | 128 KB |
+| ROM física | 64 KB, 16 BRAM36 | 64 KB, 16 BRAM36 (veja abaixo) |
+| BRAM usada | 25,5 de 50 | 25,5 de 50 |
+| Firmware | 62 784 bytes (95,8%) | 62 788 bytes (47,9% de 131 072) |
+| Timing (WNS) | +0,572 ns | +0,434 ns, 0 critical warnings |
+| LUTs | 8081 | 8085 (7914 FF, DSP 4) |
+| `GET_BUILD` | SHA-256 de 64 KB | SHA-256 de 128 KB |
+
+O tamanho mora em quatro lugares, que têm de casar: `IMEM_SIZE` em
+`rtl/soc/neorv32_wrapper.vhd`, `__neorv32_rom_size` em `fw/Makefile`,
+`HSM_IMEM_BYTES` em `fw/include/versao.h` e `IMEM_BYTES` em
+`scripts/mkfwhash.py`. O `hsmtool build` usa o modelo do `mkfwhash.py` (antes,
+tinha 64 KB fixo). Firmware `0.8.10`.
+
+### A ROM tem o tamanho da imagem, e o resto da IMEM a espelha
+
+A suíte acusou o `GET_BUILD` no `tb_uart_frame`: o hash calculado pelo firmware
+diferia do hash do arquivo em 30 de 32 bytes. O firmware estava certo. O modelo
+da memória no `mkfwhash.py` estava errado.
+
+O NEORV32 v1.13.3 não dimensiona a ROM pela IMEM. `neorv32_imem_rom.vhd` a
+dimensiona pela **imagem** (`image_size_c`), arredondada para a potência de 2 de
+cima, e decodifica só os bits de endereço dela. Com 62 788 bytes de firmware, a
+ROM tem 64 KB. Os endereços de 64 KB a 128 KB leem a imagem de novo:
+
+```
+ 0x00000  imagem (62 788 bytes) + zeros    ROM física, 64 KB
+ 0x10000  a mesma ROM, outra vez           espelho
+ 0x1FFFF
+```
+
+O `GET_BUILD` calcula o SHA-256 dos 128 KB que a CPU lê, com o espelho. O
+`mkfwhash.py` supunha zeros acima da imagem. Agora ele monta a mesma vista:
+imagem, zeros até a potência de 2, e a repetição até 128 KB. A simulação
+devolveu `35f7263a…b989`, o valor que o modelo novo calcula.
+
+Duas consequências:
+
+- **A IMEM de 128 KB não custa BRAM enquanto o firmware couber em 64 KB.** A
+  BRAM ficou em 25,5. Quando o firmware passar de 65 536 bytes, a ROM passa a
+  128 KB, 16 BRAM36 a mais (41,5 de 50), e o espelho some.
+- **O hash continua cobrindo cada byte do firmware.** O espelho só repete o que
+  já foi contado.
+
+Mudança de RTL: a suíte completa rodou, 34 testbenches em 20 h 36, 3 por vez.
+Duas falhas:
+
+- **`tb_uart_frame`**: o `GET_BUILD`, pela ROM espelhada (acima). Com o modelo
+  corrigido, PASS em 26 min, sozinho.
+- **`tb_pinv`**: passou do limite de 4 h no último passo, sem nenhuma conferência
+  falhando. O teste cresceu na revisão da 8.5 (a tabela de outra chave) e o
+  limite não acompanhou: o tempo simulado foi de 957 para 1326 unidades. Limite
+  de 6 h por decisão do usuário (2026-11-24); PASS em 4 h 01, sozinho.
+
+Os outros 32 passaram; os mais lentos: `tb_ecdsa` 9 h 17, `tb_kek3` 7 h 27,
+`tb_dukpt` 4 h 07, `tb_tamper` 3 h 51.
+
+Estado: ✅ **validada na placa em 2026-11-24.** `hsmtool build` respondeu
+v0.8.10 com o hash `35f7263a…b989`, o mesmo da simulação: CONFERE. Isso prova o
+espelho também no hardware. `regressao.py --lmk` com 20 passos em 391 s. Timing
++0,434 ns, 0 critical warnings, 8085 LUTs, 7914 FF, BRAM 25,5, DSP 4.
 
 ## PKCS#8 no key block
 

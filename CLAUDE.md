@@ -733,7 +733,7 @@ e 12 de PKV, e `ecdsa-confere` com 20 pares e 60 assinaturas. `E0` em 0,53 s. Ti
 **+0,369 ns**, 0 critical warnings, 8078 LUTs, 7915 FF, **BRAM 21,5**, DSP 4. Suíte:
 26 testbenches, 11 h 07; o `tb_ecdsa` leva 8 h 46 e é o mais lento.
 
-⚠ **A IMEM tem 64 KB** (decisão do usuário, 2026-11-13); o firmware ocupa 37 668
+⚠ **A IMEM passou a 64 KB** (decisão do usuário, 2026-11-13; a 128 KB na fase 8); o firmware ocupava 37 668
 bytes. A DMEM segue em 16 KB, e sobram cerca de 2,4 KB para a pilha: buffer novo
 grande vai para `static`, com conta.
 
@@ -809,7 +809,7 @@ Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vi
 está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
 DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos (**feita**), 8.5
 verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV (**feita**), 8.7 troca de chaves 3DES (**feita**),
-8.8 DUKPT (8.8a TDES: **feita**; 8.8b AES: **feita**), 8.9 MAC e dados com 3DES.
+8.8 DUKPT (8.8a TDES: **feita**; 8.8b AES: **feita**), 8.9 MAC e dados com 3DES, 8.10 ARQC (decisão do usuário, 2026-11-23).
 
 ⚠ **O 3DES entra, por decisão do usuário (2026-11-14), e o critério é o mercado de
 meios de pagamento**: "o objetivo não é ser o melhor, o objetivo é aprender como o
@@ -855,8 +855,10 @@ buffers depois de cada resposta, e nesse tempo o laço principal não olha os bo
 Byte a byte, isso passava de 1 ms, que é o tempo dos botões nos testbenches. Não
 voltar ao laço de bytes.
 
-⚠ **Ao terminar o DUKPT (etapa 8.8), rever com o usuário o plano e a decisão sobre
-vetores de terceiros.**
+⚠ **Revisão do fim do DUKPT feita em 2026-11-23** (`PLANO.md`, Fase 8): IMEM de 128 KB;
+o ARQC entra como 8.10; da 8.9 em diante, vetor de terceiros exige **pelo menos duas
+fontes independentes** (com uma só, a decisão volta ao usuário); o `program.sh` não
+examina a saída do gravador, e quem confere a gravação é o `hsmtool build`.
 
 Feito: `fw/src/pinblock.c` (a forma do formato 4, sem chave), `keystore_pin_abre()` e
 `keystore_pin_fecha()` em `keystore.c`, e o comando ASCII `P0` (bloco de origem ·
@@ -1033,8 +1035,18 @@ cifraria certo. Não afrouxar. O KCV dela é o do AES-128, por `kcv_aes128()`.
 chave AES-128 (porta host, componentes, restauração do boot). Lugar novo que instale
 chave AES-128: chamar o autoteste antes.
 
-⚠ **A IMEM está em 62 784 de 65 536 bytes (95,8%)**; sobram 2 752. A etapa 8.9 pode não
-caber: a conta vem antes do código.
+⚠ **A IMEM tem 128 KB desde 2026-11-23** (decisão do usuário; antes, 64 KB, com o firmware
+em 62 784 bytes, 95,8%). ✅ Validada na placa em 2026-11-24: firmware `0.8.10`, `hsmtool build` CONFERE, regressão com 20 passos em 391 s, timing +0,434 ns. **O NEORV32 arredonda `IMEM_SIZE` para a
+potência de 2 de cima** (`imem_size_c` em `neorv32_top.vhd`): 96 KB daria 128 KB no
+hardware e 96 KB no linker. O tamanho mora em quatro lugares, que têm de casar: o
+wrapper, `__neorv32_rom_size` no `fw/Makefile`, `HSM_IMEM_BYTES` em `versao.h` e
+`IMEM_BYTES` em `scripts/mkfwhash.py` (que o `hsmtool build` também usa).
+
+⚠ **A ROM física tem o tamanho da IMAGEM, não da IMEM** (`neorv32_imem_rom.vhd`):
+a imagem arredondada para a potência de 2 de cima, e o resto do espaço da IMEM a
+espelha. Com o firmware abaixo de 64 KB, a ROM tem 64 KB, a BRAM fica em 25,5, e o
+`GET_BUILD` lê a imagem duas vezes. `mkfwhash.py` modela o espelho; não trocar por
+"imagem + zeros". Quando o firmware passar de 64 KB, a ROM vai a 128 KB (41,5 BRAM).
 
 ⚠ **A extração do CVV repete a do PVV** (`cvv_extrai()` e `pinv_pvv_extrai()`), de
 propósito: generalizar mudaria código validado. Corrigir uma exige olhar a outra.

@@ -471,7 +471,6 @@ def cmd_build(client, args):
     """Identifica o firmware gravado: a versao e o SHA-256 da memoria de
     codigo, calculado pelo equipamento. Compara com o do arquivo compilado
     aqui (fw/elf.bin), se ele existir."""
-    import hashlib
     p = client.command(CMD_GET_BUILD)
     if len(p) != 35:
         print("payload inesperado: %r" % p)
@@ -483,9 +482,14 @@ def cmd_build(client, args):
     if not os.path.exists(local):
         print("local    : fw/elf.bin nao existe -- compile com 'make -C fw image'")
         return 0
-    with open(local, "rb") as f:
-        dados = f.read()
-    meu = hashlib.sha256(dados.ljust(64 * 1024, b"\0")).digest()
+    # O modelo da memoria (tamanho da IMEM e o espelho da ROM) mora num
+    # lugar so: scripts/mkfwhash.py, o mesmo que o tb_uart_frame usa.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "mkfwhash", os.path.join(raiz, "scripts", "mkfwhash.py"))
+    mkfwhash = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mkfwhash)
+    meu = mkfwhash.fw_hash(local)
     data = time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(local)))
     if meu == p[3:]:
         print("local    : CONFERE com fw/elf.bin (compilado em %s)" % data)

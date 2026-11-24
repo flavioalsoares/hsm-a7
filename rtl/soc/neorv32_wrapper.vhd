@@ -140,7 +140,14 @@ begin
     -- tres buffers de mensagem passaram a custar 9 KB.
     -- Fase 7: 32 -> 64 KB de IMEM. O RSA deixou 2,7 KB livres, e o ECDSA
     -- nao cabia. Decisao do usuario, 2026-11-13.
-    IMEM_SIZE        => 64*1024,
+    -- Fase 8: 64 -> 128 KB de IMEM. O DUKPT AES deixou 2,7 KB livres, e a
+    -- etapa 8.9 nao cabia. O NEORV32 arredonda IMEM_SIZE para a potencia de
+    -- 2 de cima (neorv32_top.vhd, imem_size_c): 96 KB daria 128 KB no
+    -- hardware e 96 KB no linker. A ROM fisica, porem, tem o tamanho da
+    -- IMAGEM arredondado (neorv32_imem_rom.vhd), e o resto espelha: so custa
+    -- 16 BRAM36 a mais quando o firmware passar de 64 KB.
+    -- Decisao do usuario, 2026-11-23.
+    IMEM_SIZE        => 128*1024,
     DMEM_EN          => true,
     DMEM_SIZE        => 32*1024,
 

@@ -108,7 +108,7 @@ static hsm_status_t h_get_version(const uint8_t *in, uint16_t in_len,
 }
 
 /* GET_BUILD -- identifica o firmware gravado: major, minor, patch e o
- * SHA-256 da memoria de codigo inteira (64 KB), calculado AGORA.
+ * SHA-256 da memoria de codigo inteira (128 KB), calculado AGORA.
  *
  * O numero de versao diz a etapa. O hash diz o conteudo, byte a byte: o
  * host o compara com o do arquivo compilado e sabe se e aquele firmware.

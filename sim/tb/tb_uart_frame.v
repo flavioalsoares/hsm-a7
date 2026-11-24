@@ -428,7 +428,7 @@ module tb_uart_frame;
         // ---- 2c. GET_BUILD --------------------------------------------
         //
         // Versao e SHA-256 da memoria de codigo, calculado pelo firmware
-        // sobre os 64 KB da IMEM. O valor esperado e o do arquivo que foi
+        // sobre os 128 KB da IMEM. O valor esperado e o do arquivo que foi
         // compilado (scripts/mkfwhash.py, chamado pelo sim.sh): se a IMEM
         // simulada nao for aquele arquivo, este passo acusa.
         send_cmd(8'h04, 1'b0);
@@ -444,6 +444,11 @@ module tb_uart_frame;
                 if (resp[4 + fw_i] !== fw_hash[fw_i]) fw_dif = fw_dif + 1;
             if (fw_dif != 0 || fw_hash[0] === 8'hxx) begin
                 $display("[tb_uart_frame] FAIL: GET_BUILD -- o hash da IMEM difere do arquivo em %0d byte(s)", fw_dif);
+                $write("[tb_uart_frame]   recebido: ");
+                for (fw_i = 0; fw_i < 32; fw_i = fw_i + 1) $write("%02h", resp[4 + fw_i]);
+                $write("\n[tb_uart_frame]   esperado: ");
+                for (fw_i = 0; fw_i < 32; fw_i = fw_i + 1) $write("%02h", fw_hash[fw_i]);
+                $write("\n");
                 errors = errors + 1;
             end else
                 $display("[tb_uart_frame] GET_BUILD -> v%0d.%0d.%0d, hash da IMEM confere com o arquivo",

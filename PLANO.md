@@ -624,6 +624,7 @@ trabalha". As decisões:*
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | validada na placa em 2026-11-22 |
 | 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | validada na placa em 2026-11-23 |
 | 8.9 | MAC de mensagem e cifra de dados com 3DES | a fazer |
+| 8.10 | ARQC: chave do cartão derivada da chave mestra do emissor, gerar e verificar o ARQC, gerar o ARPC | a fazer |
 
 *Decisões do usuário para a 8.8 (2026-11-22): o DUKPT AES aceita BDK AES-128 ou
 AES-256, e chave de trabalho AES-128 ou AES-256, como o mercado usa. O coprocessador
@@ -636,7 +637,20 @@ para a 8.9. A etapa vai à placa em duas partes: 8.8a TDES, 8.8b AES. Os vetores
 de uma fonte de terceiros (`openemv/dukpt`, que transcreve a X9.24-1:2009 A.4 e o
 suplemento da X9.24-3:2017), fixada por commit e hash.*
 
-*Candidatos para depois, fora desta lista: criptogramas EMV do chip e emissão de PIN.*
+*Decisões do usuário para a 8.9 (2026-11-23):*
+
+- *MAC com chave 3DES: só o retail MAC (ISO/IEC 9797-1, algoritmo 3; a X9.19), com
+  os preenchimentos 1 e 2 e MAC de 4 ou 8 bytes. Vetores do `psec` e do RustCrypto
+  `retail-mac` (que transcreve a ISO/IEC 9797-1:2011, B.4).*
+- *Dados com chave 3DES: os mesmos `C0`/`C2`, em CBC com IV explícito, como o AES.
+  Vetores do NIST, já em `vectors/tdes/`.*
+- *DUKPT: MAC e dados com a chave da transação, TDES e AES. No TDES, o MAC de pedido
+  e de resposta (retail MAC sob a variante) e os dados de pedido e de resposta. No
+  AES, CMAC e dados em AES-CBC. Sem HMAC. Vetores do `openemv/dukpt` e do
+  `moov-io/dukpt`.*
+- *A etapa vai à placa em duas partes: 8.9a 3DES, 8.9b DUKPT.*
+
+*Candidato para depois, fora desta lista: emissão de PIN.*
 
 *Decisão do usuário em 2026-11-14: o conteúdo do key block de uma chave RSA ou de
 ECDSA passa do layout próprio para **PKCS#8** (RFC 5958), em DER, para a chave ser
@@ -644,15 +658,20 @@ legível por outras ferramentas. A norma do key block é paga, e este projeto n�
 confirmou que é essa a codificação que ela manda usar. A mudança leva o limite de
 mensagem a 3072 bytes e a memória de dados a 32 KB.*
 
-⚠ **Rever o plano e a decisão sobre vetores de terceiros ao terminar o DUKPT**
-(etapa 8.8). O usuário pediu, em 2026-11-14, a revisão das decisões ao fim da
-etapa que então se chamava 8.4, o DUKPT AES.
+*Revisão ao terminar o DUKPT (2026-11-23), decisões do usuário:*
 
-Na mesma revisão, decidir se o ARQC entra no plano (pedido do usuário em
-2026-11-15). O ARQC é o criptograma EMV que o chip calcula a cada transação, e o
-emissor o confere no HSM. Numa compra com o cartão presente, ele é hoje o controle
-principal, à frente do CVV da tarja. A pergunta para a revisão: entra como etapa
-da Fase 8, ou continua como candidato para depois.
+- *IMEM de 64 para 128 KB. O pedido foi 96 KB, e o NEORV32 só faz potência de 2
+  (ver `doc/fase8-notas.md`, "IMEM de 128 KB"). Mudança de RTL, com a suíte
+  completa.*
+- *Vetores de terceiros continuam valendo, fixados por commit e hash. A partir da
+  etapa 8.9, onde não há vetor oficial (o MAC de varejo, por exemplo), são
+  **pelo menos duas fontes independentes**, como no CVV. Se só houver uma, a
+  decisão volta ao usuário.*
+- *O ARQC entra como etapa 8.10. O ARQC é o criptograma EMV que o chip calcula a
+  cada transação, e o emissor o confere no HSM. Numa compra com o cartão presente,
+  ele é hoje o controle principal, à frente do CVV da tarja.*
+- *O `program.sh` continua sem examinar a saída do gravador. Depois de gravar,
+  quem confere é o `hsmtool build`.*
 
 ⚠ **Nenhum PAN real, nunca**, pela mesma razão que nenhuma chave de
 produção. Gerar CVV ou PIN para um número de cartão que existe deixa de ser

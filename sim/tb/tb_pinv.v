@@ -3,7 +3,10 @@
 // tb_pinv -- verificacao de PIN: metodo do offset e PVV, e a tabela de
 //            decimalizacao autorizada (fase 8, etapa 8.5)
 //
-// sim-timeout: 14400
+// sim-timeout: 21600
+//
+// 4 h ate 2026-11-24, quando o teste, crescido na revisao da 8.5 (tabela de
+// outra chave), passou do limite sozinho, no ultimo passo, sem falha.
 //
 // Contra o firmware real no NEORV32. As chaves, o PIN block, o offset, o PVV
 // e o MAC da tabela vem do host/pinverif.py, do host/pinblock.py e do
