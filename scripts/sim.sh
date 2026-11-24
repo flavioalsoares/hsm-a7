@@ -147,14 +147,18 @@ compile_neorv32() {
     echo "=== compilando NEORV32 ($(git -C "$NEORV32" describe --tags)) + firmware + CFS na lib 'neorv32'"
 
     # O CFS do upstream e um template feito para ser substituido -- ponto de
-    # extensao projetado, grau 2 da escada do doc/submodulos.md. Filtra-se o
-    # arquivo dele e compila-se o nosso, na mesma biblioteca e com a mesma
+    # extensao projetado, grau 2 da escada do doc/submodulos.md. Troca-se o
+    # arquivo dele pelo nosso, na mesma biblioteca e com a mesma
     # entidade. third_party/ fica intocado.
     local files
-    files="$(sed "s|\$NEORV32_HOME|$NEORV32|" "$NEORV32/rtl/file_list_soc.f" \
-             | grep -v 'neorv32_imem_image\.vhd$' \
-             | grep -v 'neorv32_cfs\.vhd$')"
-    files="$files $fw_image $cfs_ours $ent_ours"
+    files="$(sed -e "s|\$NEORV32_HOME|$NEORV32|" \
+                 -e "s|.*/neorv32_imem_image\.vhd$|$fw_image|" \
+                 -e "s|.*/neorv32_cfs\.vhd$|$ent_ours $cfs_ours|" \
+                 "$NEORV32/rtl/file_list_soc.f")"
+    # Cada arquivo nosso entra no LUGAR do que substitui, e nao no fim: o
+    # neorv32_top instancia o CFS como entidade, e a ROM usa o pacote da
+    # imagem. No fim da lista, so compilava porque a biblioteca ja tinha uma
+    # versao anterior deles; numa build/ nova, falhava (2026-11-24).
 
     # shellcheck disable=SC2086
     if ! xvhdl -work neorv32 $files > neorv32_compile.log 2>&1; then
