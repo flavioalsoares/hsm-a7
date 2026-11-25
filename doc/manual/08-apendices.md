@@ -119,6 +119,10 @@ variações de fabricação, em vez de armazenada.
 **RCT** — *Repetition Count Test*. Teste de saúde que dispara na repetição
 excessiva de uma amostra.
 
+**Retail MAC** — o algoritmo 3 da ISO/IEC 9797-1 (a ANSI X9.19): CBC-MAC com
+DES simples sob `K`, e 3DES de chave dupla `K ‖ K'` só no último bloco. O
+MAC 3DES de mensagem da rede de pagamento. Seção 39.10.
+
 **Split knowledge** — nenhuma pessoa conhece uma chave inteira; ela é
 montada de componentes.
 
@@ -374,6 +378,32 @@ O primeiro byte do corpo separa os protocolos: de `'0'` a `'~'` é ASCII, e
 qualquer outro é opcode binário. O cabeçalho é do host e volta igual; a
 resposta é o comando com o segundo caractere mais um.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 180" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="40" class="tb">pedido</text>
+<rect class="cxc" x="80" y="22" width="60" height="28"/><text x="110" y="41" text-anchor="middle" class="ts">LEN</text>
+<rect class="cxa" x="150" y="22" width="90" height="28"/><text x="195" y="41" text-anchor="middle" class="tm">TB01</text>
+<rect class="cxd" x="250" y="22" width="60" height="28"/><text x="280" y="41" text-anchor="middle" class="tm">K2</text>
+<rect class="cx" x="320" y="22" width="350" height="28"/><text x="495" y="41" text-anchor="middle" class="tm">D0112D0AB00E0000…  (o key block)</text>
+<text x="10" y="100" class="tb">resposta</text>
+<rect class="cxc" x="80" y="82" width="60" height="28"/><text x="110" y="101" text-anchor="middle" class="ts">LEN</text>
+<rect class="cxa" x="150" y="82" width="90" height="28"/><text x="195" y="101" text-anchor="middle" class="tm">TB01</text>
+<rect class="cxd" x="250" y="82" width="60" height="28"/><text x="280" y="101" text-anchor="middle" class="tm">K3</text>
+<rect class="cxv" x="320" y="82" width="60" height="28"/><text x="350" y="101" text-anchor="middle" class="tm">00</text>
+<rect class="cx" x="390" y="82" width="280" height="28"/><text x="530" y="101" text-anchor="middle" class="tm">D0 A B E  KCV(6)</text>
+<g class="ts" text-anchor="middle">
+<text x="110" y="130">2 bytes</text><text x="110" y="142">binário</text>
+<text x="195" y="130">cabeçalho do</text><text x="195" y="142">host: volta igual</text>
+<text x="280" y="130">comando</text><text x="280" y="142">K2 → K3</text>
+<text x="350" y="130">erro</text><text x="350" y="142">00 = ok</text>
+<text x="530" y="130">campos posicionais,</text><text x="530" y="142">sem separador</text>
+</g>
+<text x="340" y="172" text-anchor="middle" class="ts">sem CRC e sem sessão: cada pedido leva tudo de que precisa, inclusive a chave, embrulhada</text>
+</svg>
+<figcaption>Figura B.1 — Uma troca ASCII na porta host: o K2, que confere um key block.</figcaption>
+</figure>
+
 A chave de trabalho vai **no comando**, como key block X9.143 sob a LMK. O
 comprimento do bloco sai do próprio cabeçalho dele. Dados vão como
 comprimento em 4 dígitos decimais seguido de hex.
@@ -385,10 +415,10 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `K2` | `K3` | key block | uso(2) ‖ alg(1) ‖ modo(1) ‖ exp(1) ‖ KCV(6) | `OPERATIONAL` |
 | `K4` | `K5` | bloco da KEK ‖ bloco da chave (os dois sob a LMK) | bloco da chave sob a KEK ‖ KCV(6) | `OPERATIONAL` |
 | `K6` | `K7` | bloco da KEK (sob a LMK) ‖ bloco da chave (sob a KEK) | bloco da chave sob a LMK ‖ KCV(6) | `OPERATIONAL` |
-| `C0` | `C1` | key block ‖ IV(32) ‖ dados | dados | `OPERATIONAL` |
-| `C2` | `C3` | key block ‖ IV(32) ‖ dados | dados | `OPERATIONAL` |
-| `M0` | `M1` | key block ‖ dados | MAC(32) | `OPERATIONAL` |
-| `M2` | `M3` | key block ‖ MAC(32) ‖ dados | — (o veredito é o erro) | `OPERATIONAL` |
+| `C0` | `C1` | key block ‖ IV(32, ou 16 com chave 3DES) ‖ dados | dados | `OPERATIONAL` |
+| `C2` | `C3` | key block ‖ IV(32, ou 16 com chave 3DES) ‖ dados | dados | `OPERATIONAL` |
+| `M0` | `M1` | key block ‖ dados; com chave 3DES, key block ‖ preenchimento(1) ‖ tamanho(1) ‖ dados | MAC(32); com chave 3DES, MAC(8 ou 16) | `OPERATIONAL` |
+| `M2` | `M3` | key block ‖ MAC(32) ‖ dados; com chave 3DES, key block ‖ preenchimento(1) ‖ tamanho(1) ‖ MAC(8 ou 16) ‖ dados | — (o veredito é o erro) | `OPERATIONAL` |
 | `R0` | `R1` | exportabilidade(1) | key block ‖ n(512) ‖ e(8) | `OPERATIONAL` |
 | `R2` | `R3` | key block ‖ digest(64) | assinatura(512) | `OPERATIONAL` |
 | `R4` | `R5` | n(512) ‖ e(8) ‖ digest(64) ‖ assinatura(512) | — (o veredito é o erro) | `OPERATIONAL` |
@@ -817,6 +847,36 @@ num rótulo, aperte e veja o dispositivo concordar. Se acendeu, o comando
 seguinte vai ser autorizado; se não acendeu, seria recusado, e você descobre
 isso **antes** de gastar o comando em vez de depois.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+<g>
+<rect class="cxc" x="20" y="30" width="56" height="40" rx="6"/><text x="48" y="55" text-anchor="middle" class="ts">reset</text><text x="48" y="86" text-anchor="middle" class="ts">SW1</text>
+<rect class="cxd" x="90" y="30" width="56" height="40" rx="6"/><text x="118" y="55" text-anchor="middle" class="tb">✋</text><text x="118" y="86" text-anchor="middle" class="ts tb">SW2</text>
+<rect class="cx" x="160" y="30" width="56" height="40" rx="6"/><text x="188" y="86" text-anchor="middle" class="ts">SW3</text>
+<rect class="cx" x="230" y="30" width="56" height="40" rx="6"/><text x="258" y="86" text-anchor="middle" class="ts">SW4</text>
+<rect class="cxd" x="300" y="30" width="56" height="40" rx="6"/><text x="328" y="55" text-anchor="middle" class="tb">✋</text><text x="328" y="86" text-anchor="middle" class="ts tb">SW5</text>
+</g>
+<text x="188" y="108" text-anchor="middle" class="ts">o par mais afastado: difícil com uma mão só</text>
+<rect x="420" y="20" width="230" height="80" fill="#1a1a1a" rx="6"/>
+<text x="470" y="78" text-anchor="middle" font-size="44" fill="#e03030" font-family="DejaVu Sans Mono, monospace">U</text>
+<text x="535" y="78" text-anchor="middle" font-size="44" fill="#e03030" font-family="DejaVu Sans Mono, monospace">n</text>
+<text x="600" y="78" text-anchor="middle" font-size="44" fill="#e03030" font-family="DejaVu Sans Mono, monospace">i</text>
+<circle cx="625" cy="80" r="5" fill="#ff4040"/>
+<text x="535" y="118" text-anchor="middle" class="ts">o ponto acende: os dois botões vistos</text>
+<g>
+<rect class="cxc" x="20" y="150" width="120" height="50" rx="8"/><text x="80" y="172" text-anchor="middle" class="tm tb">Uni</text><text x="80" y="188" text-anchor="middle" class="ts">0 de 3</text>
+<rect class="cx" x="190" y="150" width="120" height="50" rx="8"/><text x="250" y="172" text-anchor="middle" class="tm tb">Aut</text><text x="250" y="188" text-anchor="middle" class="ts">LMK completa</text>
+<rect class="cxv" x="360" y="150" width="120" height="50" rx="8"/><text x="420" y="172" text-anchor="middle" class="tm tb">OPE</text><text x="420" y="188" text-anchor="middle" class="ts">em operação</text>
+<rect class="cxd" x="530" y="150" width="120" height="50" rx="8"/><text x="590" y="172" text-anchor="middle" class="tm tb td">tPr</text><text x="590" y="188" text-anchor="middle" class="ts">violado</text>
+</g>
+<line class="ln" x1="140" y1="175" x2="188" y2="175" marker-end="url(#seta)"/><text x="164" y="168" text-anchor="middle" class="ts">3 comp.</text>
+<line class="ln" x1="310" y1="175" x2="358" y2="175" marker-end="url(#seta)"/><text x="334" y="168" text-anchor="middle" class="ts">ativar</text>
+<text x="340" y="222" text-anchor="middle" class="ts">cada passo pede os dois botões, com um aperto novo; o display soletra o estado</text>
+</svg>
+<figcaption>Figura E.1 — A cerimônia na bancada: os botões de dual control, o ponto decimal que confirma, e o display a cada estado.</figcaption>
+</figure>
+
 Ele não vaza nada: quem está apertando os botões já está na frente da placa,
 e não há observador remoto para quem a informação seja novidade.
 
@@ -1223,11 +1283,13 @@ que não foi escrito:
 - **PCI DSS** — entre outras coisas, a proibição de guardar o CVV2 depois
   da autorização
 - **ISO/IEC 9797-1** — os MACs de cifra de bloco; o algoritmo 3 é o *retail
-  MAC*, a mesma conta do CVV
+  MAC* (seção 39.10), a mesma conta do CVV
 
 ### Ataques
 
 - Bond, M. — *Attacks on Cryptoprocessor Transaction Sets* (2001)
+- Preneel, B. e van Oorschot, P. C. — *A key recovery attack on the ANSI
+  X9.19 retail MAC*, Electronics Letters 32(17), pp. 1568–1569 (1996)
 - Bond, M. e Zieliński, P. — *Decimalisation Table Attacks for PIN Cracking*,
   relatório técnico UCAM-CL-TR-560, University of Cambridge (2003) — o
   ataque, as três variantes e a seção de prevenção

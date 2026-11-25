@@ -89,6 +89,41 @@ equipamento e um produto também é conteúdo.
 | `hsmtool.py` | O cliente da API — futuro PKCS#11 |
 | Teste de 10.000 pings | Requisito de confiabilidade operacional |
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">
+<rect class="fr" x="120" y="10" width="440" height="280"/>
+<text x="550" y="26" text-anchor="end" class="ts td">hsm_top.v: a fronteira (24.4)</text>
+<rect class="cx" x="10" y="30" width="90" height="34"/><text x="55" y="51" text-anchor="middle" class="ts">oscilador 50 MHz</text>
+<rect class="cx" x="140" y="30" width="130" height="44"/><text x="205" y="48" text-anchor="middle" class="tb">clk_rst_gen</text><text x="205" y="64" text-anchor="middle" class="ts">MMCM, reset (24.1)</text>
+<line class="ln" x1="100" y1="47" x2="138" y2="47" marker-end="url(#seta)"/>
+<rect class="cxa" x="10" y="100" width="90" height="34"/><text x="55" y="121" text-anchor="middle" class="ts">host: UART</text>
+<rect class="cxa" x="10" y="170" width="90" height="34"/><text x="55" y="186" text-anchor="middle" class="ts">botões</text><text x="55" y="198" text-anchor="middle" class="ts">SW2, SW5</text>
+<rect class="cx" x="140" y="168" width="110" height="38"/><text x="195" y="185" text-anchor="middle" class="tb">debounce</text><text x="195" y="199" text-anchor="middle" class="ts">10 ms (24.2)</text>
+<line class="ln" x1="100" y1="187" x2="138" y2="187" marker-end="url(#seta)"/>
+<rect class="cx" x="290" y="90" width="150" height="130"/>
+<text x="365" y="110" text-anchor="middle" class="tb">NEORV32</text>
+<text x="365" y="126" text-anchor="middle" class="ts">wrapper: o que se desliga (24.3)</text>
+<text x="365" y="146" text-anchor="middle" class="ts">cmd.c: API (24.5)</text>
+<text x="365" y="160" text-anchor="middle" class="ts">state.c: estados (24.7)</text>
+<text x="365" y="174" text-anchor="middle" class="ts">wipe.c (24.8)</text>
+<text x="365" y="188" text-anchor="middle" class="ts">IMEM em ROM (24.10)</text>
+<text x="365" y="206" text-anchor="middle" class="ts">UART · GPIO · SPI</text>
+<line class="ln" x1="100" y1="117" x2="288" y2="117" marker-end="url(#seta)"/>
+<line class="ln" x1="288" y1="127" x2="100" y2="127" marker-end="url(#seta)"/>
+<line class="ln" x1="250" y1="187" x2="288" y2="187" marker-end="url(#seta)"/>
+<line class="ln" x1="205" y1="74" x2="300" y2="88" marker-end="url(#seta)"/>
+<rect class="cx" x="460" y="90" width="85" height="60"/><text x="502" y="112" text-anchor="middle" class="tb">CFS</text><text x="502" y="128" text-anchor="middle" class="ts">cripto</text><text x="502" y="140" text-anchor="middle" class="ts">em fabric</text>
+<line class="ln" x1="440" y1="120" x2="458" y2="120" marker-end="url(#seta)"/>
+<rect class="cx" x="140" y="240" width="110" height="38"/><text x="195" y="257" text-anchor="middle" class="tb">D1</text><text x="195" y="271" text-anchor="middle" class="ts">1 Hz em fabric (24.9)</text>
+<rect class="cx" x="290" y="240" width="150" height="38"/><text x="365" y="257" text-anchor="middle" class="tb">D2–D5, display</text><text x="365" y="271" text-anchor="middle" class="ts">pelo GPIO</text>
+<line class="ln" x1="365" y1="220" x2="365" y2="238" marker-end="url(#seta)"/>
+<rect class="cx" x="580" y="190" width="95" height="44"/><text x="627" y="208" text-anchor="middle" class="tb">flash</text><text x="627" y="224" text-anchor="middle" class="ts">SPI</text>
+<line class="ln" x1="440" y1="205" x2="578" y2="210" marker-end="url(#seta)"/>
+</svg>
+<figcaption>Figura 24.1 — A plataforma, peça por peça. O número entre parênteses é a subseção que explica cada peça.</figcaption>
+</figure>
+
 ### 24.1 `clk_rst_gen.v` — o clock é um sensor
 
 MMCM que transforma 50 MHz em 100 MHz (VCO em 1000 MHz, meio da faixa do
@@ -108,6 +143,25 @@ O ponto de projeto está numa linha:
 Perda de `LOCKED` **reafirma o reset**. Não sabemos por que o lock caiu, mas
 sabemos que não dá para confiar no que vier depois.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 160" xmlns="http://www.w3.org/2000/svg">
+<rect class="cx" x="10" y="40" width="90" height="40"/><text x="55" y="64" text-anchor="middle" class="ts">50 MHz</text>
+<line class="ln" x1="100" y1="60" x2="138" y2="60" marker-end="url(#seta)"/>
+<rect class="cx" x="140" y="30" width="140" height="60"/><text x="210" y="52" text-anchor="middle" class="tb">MMCM</text><text x="210" y="68" text-anchor="middle" class="ts">VCO 1000 MHz</text><text x="210" y="82" text-anchor="middle" class="ts">saída 100 MHz</text>
+<line class="ln" x1="280" y1="45" x2="620" y2="45" marker-end="url(#seta)"/><text x="600" y="38" text-anchor="end" class="ts">clock do sistema</text>
+<line class="ln" x1="280" y1="75" x2="358" y2="75" marker-end="url(#seta)"/><text x="319" y="70" text-anchor="middle" class="ts">LOCKED</text>
+<rect class="cx" x="360" y="60" width="40" height="30"/><text x="380" y="80" text-anchor="middle" class="tb">&amp;</text>
+<rect class="cxa" x="250" y="110" width="90" height="30"/><text x="295" y="129" text-anchor="middle" class="ts">SW1, sincron.</text>
+<line class="ln" x1="340" y1="125" x2="380" y2="125"/><line class="ln" x1="380" y1="125" x2="380" y2="92" marker-end="url(#seta)"/>
+<line class="ln" x1="400" y1="75" x2="458" y2="75" marker-end="url(#seta)"/>
+<rect class="cx" x="460" y="60" width="130" height="30"/><text x="525" y="80" text-anchor="middle" class="ts">segura 64 ciclos</text>
+<line class="ln" x1="590" y1="75" x2="640" y2="75" marker-end="url(#seta)"/><text x="645" y="79" class="ts">reset</text>
+<rect class="cxd" x="460" y="110" width="200" height="34"/><text x="560" y="126" text-anchor="middle" class="ts">LOCKED caiu: flip-flop sem reset retém;</text><text x="560" y="139" text-anchor="middle" class="ts">o boot seguinte apaga e vai a TAMPERED</text>
+</svg>
+<figcaption>Figura 24.2 — O clock como sensor. Sem lock não há clock confiável, e o reset volta; a perda fica registrada para o boot seguinte.</figcaption>
+</figure>
+
 O gerador é também a única exceção à convenção de reset síncrono do projeto,
 e por necessidade: com o MMCM em reset, o clock de saída não está correndo e
 não existe borda para registrar nada. Usa o padrão clássico *afirma
@@ -126,6 +180,24 @@ reagir à perda de lock.
 
 Exige 10 ms de estabilidade contínua antes de aceitar mudança; qualquer
 transição no meio zera a contagem.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 150" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="38" class="ts">contato</text>
+<path d="M90,30 H150 V60 H156 V30 H162 V60 H170 V30 H176 V60 H190 V30 H196 V60 H420 V54 H424 V60 H426 V30 H432 V60 H440 V30 H448 V30 H660" fill="none" stroke="#7a1f1f" stroke-width="1.5"/>
+<text x="10" y="98" class="ts">filtrado</text>
+<path d="M90,90 H300 V120 H560 V90 H660" fill="none" stroke="#2f5f2f" stroke-width="2"/>
+<line x1="196" y1="66" x2="300" y2="66" stroke="#555" marker-start="url(#seta)" marker-end="url(#seta)"/>
+<text x="248" y="80" text-anchor="middle" class="ts">10 ms estável</text>
+<line x1="448" y1="66" x2="560" y2="66" stroke="#555" marker-start="url(#seta)" marker-end="url(#seta)"/>
+<text x="504" y="80" text-anchor="middle" class="ts">10 ms estável</text>
+<text x="170" y="22" text-anchor="middle" class="ts td">apertou: ressalta</text>
+<text x="430" y="22" text-anchor="middle" class="ts td">soltou: ressalta</text>
+<text x="340" y="144" text-anchor="middle" class="ts">cada transição no meio zera a contagem; um ressalto nunca vira um segundo aperto</text>
+</svg>
+<figcaption>Figura 24.3 — O filtro de ressalto. A autorização segue a intenção humana, e não o estado elétrico do contato.</figcaption>
+</figure>
 
 **Num HSM real:** integridade da autorização física (seção 7). O mecanismo
 precisa refletir intenção humana, não estado elétrico de contato.
@@ -165,7 +237,7 @@ existir num projeto de estudo. Aqui é o caminho de leitura da **memória do
 processador**, e não precisa. Duas coisas diferentes com o mesmo nome.
 
 Ligados: RV32IMC (`RISCV_ISA_C` + `_M`), contadores base, barrel shifter
-(código criptográfico é pesado em deslocamento), IMEM 32 KB, DMEM 16 KB,
+(código criptográfico é pesado em deslocamento), IMEM de 128 KB, DMEM de 32 KB,
 UART0 com FIFO de 64, temporizador, GPIO de 8 bits e o SPI da flash.
 
 **Um HSM real tem a mais:** PMP (proteção de memória física) para separar
@@ -198,6 +270,22 @@ botões são ativos em nível baixo. Parece cosmético e não é: **um LED de
 
 Máquina de estados de recepção, verificação de CRC, tabela de comandos com
 verificação de estado, montagem da resposta.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 150" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="40"  y="40" width="100" height="36"/><text x="90"  y="56" text-anchor="middle" class="tb">LEN</text><text x="90"  y="70" text-anchor="middle" class="ts">2 bytes</text>
+<rect class="cx"  x="140" y="40" width="90"  height="36"/><text x="185" y="56" text-anchor="middle" class="tb">opcode</text><text x="185" y="70" text-anchor="middle" class="ts">1 byte</text>
+<rect class="cx"  x="230" y="40" width="270" height="36"/><text x="365" y="56" text-anchor="middle" class="tb">payload</text><text x="365" y="70" text-anchor="middle" class="ts">LEN − 1 bytes, até 3072</text>
+<rect class="cxv" x="500" y="40" width="130" height="36"/><text x="565" y="56" text-anchor="middle" class="tb">CRC32</text><text x="565" y="70" text-anchor="middle" class="ts">4 bytes, zlib</text>
+<path class="ln" d="M40,90 V100 H500 V90"/>
+<text x="270" y="116" text-anchor="middle" class="ts">o CRC cobre LEN e corpo: LEN é o campo que induziria leitura fora do buffer</text>
+<path class="ln" d="M140,32 V24 H500 V32"/>
+<text x="320" y="18" text-anchor="middle" class="ts">corpo (LEN bytes); na resposta, o primeiro byte é o status</text>
+<text x="340" y="142" text-anchor="middle" class="ts">entre dois bytes, no máximo 250 ms: um host que morre no meio não trava o parser</text>
+</svg>
+<figcaption>Figura 24.4 — O quadro do console binário. O CRC detecta corrupção; não autentica nada.</figcaption>
+</figure>
 
 **Num HSM real:** esta é a API, e é onde mora a maior parte dos ataques reais
 (seção 15).
@@ -278,6 +366,29 @@ mínimo possível. A única exceção é o `SELFTEST`, e ela é deliberada — s
 ela o operador teria um LED vermelho e nenhuma informação sobre o quê
 reprovou.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 190" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="70" width="90" height="40"/><text x="55" y="94" text-anchor="middle" class="ts">pedido</text>
+<line class="ln" x1="100" y1="90" x2="148" y2="90" marker-end="url(#seta)"/>
+<rect class="cx" x="150" y="60" width="130" height="60"/><text x="215" y="84" text-anchor="middle" class="tb">despachante</text><text x="215" y="100" text-anchor="middle" class="ts">consulta a máscara</text>
+<rect class="cx" x="310" y="20" width="350" height="110"/>
+<g class="ts">
+<text x="320" y="38" class="tb">comando</text><text x="450" y="38" text-anchor="middle">UNINIT</text><text x="510" y="38" text-anchor="middle">AUTH</text><text x="570" y="38" text-anchor="middle">OPER</text><text x="630" y="38" text-anchor="middle">TAMP</text>
+<text x="320" y="60">PING</text><text x="450" y="60" text-anchor="middle">●</text><text x="510" y="60" text-anchor="middle">●</text><text x="570" y="60" text-anchor="middle">●</text><text x="630" y="60" text-anchor="middle">·</text>
+<text x="320" y="78">LMK_LOAD</text><text x="450" y="78" text-anchor="middle">●</text><text x="510" y="78" text-anchor="middle">·</text><text x="570" y="78" text-anchor="middle">·</text><text x="630" y="78" text-anchor="middle">·</text>
+<text x="320" y="96">GEN_KEY</text><text x="450" y="96" text-anchor="middle">·</text><text x="510" y="96" text-anchor="middle">·</text><text x="570" y="96" text-anchor="middle">●</text><text x="630" y="96" text-anchor="middle">·</text>
+<text x="320" y="114">SELFTEST</text><text x="450" y="114" text-anchor="middle">●</text><text x="510" y="114" text-anchor="middle">●</text><text x="570" y="114" text-anchor="middle">●</text><text x="630" y="114" text-anchor="middle" class="td">●</text>
+</g>
+<line class="ln" x1="280" y1="90" x2="308" y2="90" marker-end="url(#seta)"/>
+<line class="ln" x1="215" y1="120" x2="215" y2="150" marker-end="url(#seta)"/>
+<rect class="cxv" x="110" y="152" width="210" height="30"/><text x="215" y="172" text-anchor="middle" class="ts">permitido: chama o handler</text>
+<rect class="cxd" x="380" y="152" width="230" height="30"/><text x="495" y="172" text-anchor="middle" class="ts">fora da máscara: recusa, e o log registra</text>
+<line class="lnd" x1="280" y1="110" x2="400" y2="150" marker-end="url(#seta-d)"/>
+</svg>
+<figcaption>Figura 24.5 — O despachante e a máscara de estados. A tabela decide; nenhum handler confere estado por conta própria.</figcaption>
+</figure>
+
 A cerimônia de carga da chave mestra (seção 26) move o dispositivo pela
 escada `UNINITIALIZED` → `AUTHORIZED` → `OPERATIONAL`. Cada passo muda o
 conjunto de comandos aceitos sem nenhum código que ligue ou desligue
@@ -346,6 +457,29 @@ programação única.
 A versão deste projeto é mais simples e mais rude: **não há caminho de
 atualização**. O firmware está no bitstream; trocá-lo exige regerar o
 bitstream e gravar por JTAG, o que é acesso físico.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<text x="165" y="18" text-anchor="middle" class="tb">com o bootloader pela UART</text>
+<rect class="cxa" x="20" y="34" width="110" height="34"/><text x="75" y="55" text-anchor="middle" class="ts">qualquer host</text>
+<line class="lnd" x1="130" y1="51" x2="188" y2="51" marker-end="url(#seta-d)"/>
+<text x="159" y="44" text-anchor="middle" class="ts">upload</text>
+<rect class="cxd" x="190" y="34" width="130" height="34"/><text x="255" y="55" text-anchor="middle" class="ts">firmware novo</text>
+<line class="lnd" x1="255" y1="68" x2="255" y2="96" marker-end="url(#seta-d)"/>
+<rect class="cxd" x="120" y="98" width="200" height="44"/><text x="220" y="116" text-anchor="middle" class="ts td">quem escreve o código</text><text x="220" y="130" text-anchor="middle" class="ts td">escreve as regras</text>
+<line class="lnt" x1="340" y1="10" x2="340" y2="190"/>
+<text x="510" y="18" text-anchor="middle" class="tb">BOOT_MODE_SELECT = 2 (este projeto)</text>
+<rect class="cx" x="370" y="34" width="120" height="34"/><text x="430" y="55" text-anchor="middle" class="ts">bitstream</text>
+<line class="ln" x1="490" y1="51" x2="528" y2="51" marker-end="url(#seta)"/>
+<rect class="cxv" x="530" y="34" width="130" height="34"/><text x="595" y="49" text-anchor="middle" class="ts">IMEM em ROM</text><text x="595" y="62" text-anchor="middle" class="ts">sem circuito de escrita</text>
+<rect class="cxa" x="370" y="98" width="120" height="34"/><text x="430" y="119" text-anchor="middle" class="ts">host pela UART</text>
+<line class="lnt" x1="490" y1="115" x2="528" y2="115"/>
+<text x="555" y="120" class="ts">só comandos; nenhum troca o código</text>
+<text x="510" y="170" text-anchor="middle" class="ts">trocar o firmware: novo bitstream, gravado com acesso físico</text>
+</svg>
+<figcaption>Figura 24.6 — Os dois caminhos de boot. Sem caminho de atualização pela serial, o firmware é parte do hardware.</figcaption>
+</figure>
 
 **Efeito colateral que veio de graça:** com esse modo, o NEORV32 liga
 `MEM_INIT` e a IMEM vira memória **somente de leitura**. A memória de código

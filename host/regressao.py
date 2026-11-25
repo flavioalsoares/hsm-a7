@@ -81,7 +81,7 @@ def main(argv=None):
         ("chaves simetricas (K0 K2 K4 K6 C0 C2 M0 M2)",
          host + ["confere", "--lmk", a.lmk, "-n", n(50, 5)], 900,
          ["voltas conferidas"]),
-        ("chaves 3DES e KEK 3DES (K0 T2/T3, K2, K4, K6, versao B)",
+        ("chaves 3DES, KEK 3DES e dados e MAC 3DES (K0 K2 K4 K6 C0 C2 M0 M2)",
          host + ["tdes-confere", "--lmk", a.lmk, "-n", n(10, 2)], 600,
          ["voltas conferidas"]),
         ("traducao de PIN (P0), formatos 4 e 0",

@@ -71,6 +71,29 @@ dentro do core, não só o registrador visível. O teste correspondente é o que
 separa zeroização de teatro de zeroização — depois do wipe, cifrar sem
 carregar chave nenhuma tem de produzir o resultado sob a chave zero.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<rect class="cx" x="10" y="60" width="110" height="80"/><text x="65" y="94" text-anchor="middle" class="tb">CPU</text><text x="65" y="110" text-anchor="middle" class="ts">firmware</text>
+<rect class="fr" x="150" y="15" width="400" height="180"/>
+<text x="540" y="32" text-anchor="end" class="ts td">CFS, dentro do FPGA</text>
+<rect class="cxd" x="170" y="45" width="150" height="34"/><text x="245" y="60" text-anchor="middle" class="ts">registrador de chave</text><text x="245" y="73" text-anchor="middle" class="ts td">só escrita: lê zero</text>
+<rect class="cx" x="170" y="90" width="150" height="34"/><text x="245" y="105" text-anchor="middle" class="ts">bloco de entrada</text><text x="245" y="118" text-anchor="middle" class="ts">só escrita</text>
+<rect class="cx" x="170" y="135" width="150" height="34"/><text x="245" y="150" text-anchor="middle" class="ts">bloco de saída, status</text><text x="245" y="163" text-anchor="middle" class="ts">leitura</text>
+<line class="ln" x1="120" y1="62" x2="168" y2="62" marker-end="url(#seta)"/>
+<line class="ln" x1="120" y1="107" x2="168" y2="107" marker-end="url(#seta)"/>
+<line class="ln" x1="168" y1="152" x2="120" y2="152" marker-end="url(#seta)"/>
+<rect class="cxd" x="360" y="45" width="170" height="80"/><text x="445" y="68" text-anchor="middle" class="tb">core AES-256</text><text x="445" y="86" text-anchor="middle" class="ts">chave expandida</text><text x="445" y="100" text-anchor="middle" class="ts">só AES-256: sem modo</text><text x="445" y="114" text-anchor="middle" class="ts">mais fraco por registrador</text>
+<line class="ln" x1="320" y1="62" x2="358" y2="62" marker-end="url(#seta)"/>
+<line class="ln" x1="320" y1="107" x2="358" y2="107" marker-end="url(#seta)"/>
+<line class="ln" x1="445" y1="125" x2="322" y2="152" marker-end="url(#seta)"/>
+<rect class="cx" x="360" y="140" width="170" height="40"/><text x="445" y="158" text-anchor="middle" class="tb">WIPE</text><text x="445" y="172" text-anchor="middle" class="ts">sobrescreve a chave expandida</text>
+<line class="ln" x1="550" y1="105" x2="610" y2="105"/>
+<text x="616" y="98" class="ts">único fio para</text><text x="616" y="111" class="ts">o toplevel:</text><text x="616" y="124" class="ts td">amarrado em 0</text>
+</svg>
+<figcaption>Figura 25.1 — O coprocessador por dentro da fronteira. A chave entra e não volta; o WIPE apaga o que o core derivou dela.</figcaption>
+</figure>
+
 ### Health tests: o hardware vê, o firmware decide
 
 Os testes RCT e APT (seção 10) se dividem entre hardware e firmware. A
@@ -84,6 +107,23 @@ produz uma por ciclo de 100 MHz. A CPU veria uma em mil. Por isso:
 
 Os dois testes acabam implementados **duas vezes, de forma independente**, e
 uma discordância entre eles denuncia erro de interpretação da norma.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<rect class="cx" x="10" y="70" width="110" height="50"/><text x="65" y="92" text-anchor="middle" class="tb">fonte</text><text x="65" y="108" text-anchor="middle" class="ts">1 amostra/ciclo</text>
+<line class="ln" x1="120" y1="95" x2="168" y2="95" marker-end="url(#seta)"/>
+<rect class="cxa" x="170" y="20" width="200" height="70"/><text x="270" y="42" text-anchor="middle" class="tb">hardware</text><text x="270" y="58" text-anchor="middle" class="ts">RCT e APT contínuos,</text><text x="270" y="72" text-anchor="middle" class="ts">sobre toda amostra</text>
+<rect class="cxa" x="170" y="110" width="200" height="60"/><text x="270" y="132" text-anchor="middle" class="tb">retrato</text><text x="270" y="148" text-anchor="middle" class="ts">1024 amostras brutas seguidas</text>
+<line class="ln" x1="140" y1="95" x2="140" y2="140"/><line class="ln" x1="140" y1="140" x2="168" y2="140" marker-end="url(#seta)"/>
+<rect class="cx" x="420" y="110" width="240" height="60"/><text x="540" y="132" text-anchor="middle" class="tb">firmware</text><text x="540" y="148" text-anchor="middle" class="ts">testes de partida sobre o retrato</text><text x="540" y="162" text-anchor="middle" class="ts">e a política: reprovou → TAMPERED</text>
+<line class="ln" x1="370" y1="140" x2="418" y2="140" marker-end="url(#seta)"/>
+<line class="lnd" x1="370" y1="55" x2="520" y2="108" marker-end="url(#seta-d)"/>
+<text x="470" y="68" class="ts td">falha contínua: bit de status</text>
+<text x="340" y="194" text-anchor="middle" class="ts">a CPU veria uma amostra em mil; por isso o teste contínuo é do hardware</text>
+</svg>
+<figcaption>Figura 25.2 — Os testes de saúde divididos. O hardware vê tudo; o firmware decide.</figcaption>
+</figure>
 
 **Cuidado térmico:** meia dúzia de anéis
 osciladores, não centenas. Array grande gera calor e ruído de alimentação
@@ -141,6 +181,24 @@ pressionados**. Entre uma autorização e a seguinte, os dois têm de ser vistos
 **soltos**. Sem essa exigência, fita adesiva sobre os dois botões carregaria
 a LMK inteira sozinha, e o dual control seria teatro — e, pior, um botão
 travado em "pressionado" passaria a autorizar tudo em vez de nada.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="38" class="ts">botão A</text><text x="10" y="78" class="ts">botão B</text><text x="664" y="46" class="ts" text-anchor="end">apertado ↓</text>
+<path d="M80,30 H130 V50 H260 V30 H340 V50 H660" fill="none" stroke="#1a1a1a" stroke-width="1.5"/>
+<path d="M80,70 H140 V90 H250 V70 H350 V90 H660" fill="none" stroke="#1a1a1a" stroke-width="1.5"/>
+<text x="10" y="128" class="ts">comando</text>
+<rect class="cxv" x="170" y="112" width="70" height="26"/><text x="205" y="130" text-anchor="middle" class="ts">1º: ok</text>
+<rect class="cxv" x="380" y="112" width="70" height="26"/><text x="415" y="130" text-anchor="middle" class="ts">2º: ok</text>
+<rect class="cxd" x="560" y="112" width="90" height="26"/><text x="605" y="130" text-anchor="middle" class="ts">3º: recusa</text>
+<text x="300" y="25" text-anchor="middle" class="ts">soltos: rearma</text>
+<text x="560" y="25" text-anchor="middle" class="ts td">continuam apertados (fita adesiva)</text>
+<text x="340" y="170" text-anchor="middle" class="ts">cada autorização consome o aperto; a próxima exige ver os dois soltos de novo</text>
+<text x="340" y="188" text-anchor="middle" class="ts">fita adesiva sobre os dois botões autoriza uma vez, e nunca mais</text>
+</svg>
+<figcaption>Figura 26.1 — O rearme do dual control. Botão travado em "apertado" não autoriza tudo; não autoriza nada depois da primeira vez.</figcaption>
+</figure>
 
 A escada de estados é de **uma via só**. Carregou os três componentes, o
 dispositivo vai a `AUTHORIZED` e o comando de carregar deixa de existir —
@@ -256,6 +314,26 @@ vetor oficial do NIST.
 
 Nenhum firmware passa nesse teste sem que a memória estivesse mesmo zerada.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 190" xmlns="http://www.w3.org/2000/svg">
+<rect class="cx" x="10" y="30" width="140" height="44"/><text x="80" y="50" text-anchor="middle" class="tb">cerimônia</text><text x="80" y="65" text-anchor="middle" class="ts">componentes fixos</text>
+<line class="ln" x1="150" y1="52" x2="188" y2="52" marker-end="url(#seta)"/>
+<rect class="cxv" x="190" y="30" width="120" height="44"/><text x="250" y="50" text-anchor="middle" class="ts">KCV = vetor</text><text x="250" y="65" text-anchor="middle" class="ts">do NIST</text>
+<line class="ln" x1="310" y1="52" x2="348" y2="52" marker-end="url(#seta)"/>
+<rect class="cxd" x="350" y="30" width="110" height="44"/><text x="405" y="57" text-anchor="middle" class="tb">ZEROIZE</text>
+<line class="ln" x1="460" y1="52" x2="498" y2="52" marker-end="url(#seta)"/>
+<rect class="cx" x="500" y="30" width="170" height="44"/><text x="585" y="50" text-anchor="middle" class="tb">a mesma cerimônia</text><text x="585" y="65" text-anchor="middle" class="ts">os mesmos componentes</text>
+<line class="ln" x1="585" y1="74" x2="500" y2="112" marker-end="url(#seta)"/>
+<line class="ln" x1="585" y1="74" x2="620" y2="112" marker-end="url(#seta)"/>
+<rect class="cxv" x="380" y="114" width="170" height="44"/><text x="465" y="133" text-anchor="middle" class="ts">memória zerada:</text><text x="465" y="148" text-anchor="middle" class="ts">KCV = o mesmo vetor</text>
+<rect class="cxd" x="560" y="114" width="115" height="44"/><text x="617" y="133" text-anchor="middle" class="ts">um bit sobrou:</text><text x="617" y="148" text-anchor="middle" class="ts td">KCV diferente</text>
+<text x="200" y="135" text-anchor="middle" class="ts">o XOR acumula sobre o resíduo:</text>
+<text x="200" y="150" text-anchor="middle" class="ts">LMK' = resíduo ⊕ A ⊕ B ⊕ C</text>
+</svg>
+<figcaption>Figura 26.2 — Provar o apagamento com criptografia. O valor esperado é um vetor oficial, e não o que o equipamento disse antes.</figcaption>
+</figure>
+
 Duas notas de projeto, e a segunda é a mais instrutiva:
 
 - **A sobrescrita é em duas passadas**, um padrão e depois zeros. Para
@@ -301,6 +379,26 @@ O que protege esses comandos é estrutural, não humano:
 A última linha é a diferença entre uma regra e uma promessa. Se houvesse
 duas formas de obter os bytes, a verificação viraria convenção — e convenção
 é o que se esquece no caminho raro.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<rect class="fr" x="10" y="10" width="420" height="180"/>
+<text x="420" y="26" text-anchor="end" class="ts td">keystore.c</text>
+<rect class="cxd" x="30" y="70" width="110" height="60"/><text x="85" y="96" text-anchor="middle" class="tb">slots</text><text x="85" y="112" text-anchor="middle" class="ts">bytes da chave</text>
+<rect class="cx" x="200" y="30" width="210" height="36"/><text x="305" y="46" text-anchor="middle" class="ts">usa_aes(): carrega no coprocessador</text><text x="305" y="59" text-anchor="middle" class="ts">e não devolve nada</text>
+<rect class="cx" x="200" y="82" width="210" height="36"/><text x="305" y="98" text-anchor="middle" class="ts">cmac(), pin_abre(), cvv()…</text><text x="305" y="111" text-anchor="middle" class="ts">a conta fica aqui dentro</text>
+<rect class="cxv" x="200" y="134" width="210" height="44"/><text x="305" y="152" text-anchor="middle" class="tb">exporta()</text><text x="305" y="168" text-anchor="middle" class="ts">o único caminho: confere a exportabilidade</text>
+<line class="ln" x1="140" y1="85" x2="198" y2="48" marker-end="url(#seta)"/>
+<line class="ln" x1="140" y1="100" x2="198" y2="100" marker-end="url(#seta)"/>
+<line class="ln" x1="140" y1="115" x2="198" y2="152" marker-end="url(#seta)"/>
+<line class="ln" x1="410" y1="156" x2="478" y2="156" marker-end="url(#seta)"/>
+<rect class="cxa" x="480" y="134" width="190" height="44"/><text x="575" y="152" text-anchor="middle" class="ts">tr31: embrulha</text><text x="575" y="168" text-anchor="middle" class="ts">sai como key block</text>
+<line class="ln" x1="410" y1="100" x2="478" y2="100" marker-end="url(#seta)"/>
+<rect class="cxa" x="480" y="82" width="190" height="36"/><text x="575" y="104" text-anchor="middle" class="ts">sai: criptograma, MAC, veredito</text>
+</svg>
+<figcaption>Figura 26.3 — A API assimétrica do key store. Usar a chave tem muitas portas; ver os bytes dela tem uma, e ela confere a exportabilidade.</figcaption>
+</figure>
 
 A exceção é **formar uma chave de trabalho por componentes**. É a cerimônia
 de LMK um nível abaixo: cada custodiante carrega a sua parte, e por isso ela
@@ -368,6 +466,23 @@ pareceria proteger e não protegeria.
 - **O registro persistente**, com a LMK, o estado e os slots, em **duas
   cópias**. Cada gravação vai para a mais velha, e uma queda de energia no
   meio deixa a outra intacta. No boot vale a mais nova cujo CRC confere.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxc" x="60" y="20" width="200" height="90"/><text x="160" y="58" text-anchor="middle" class="tb">bitstream</text><text x="160" y="76" text-anchor="middle" class="ts">intocável: a escrita é recusada</text>
+<rect class="cxd" x="60" y="110" width="200" height="26"/><text x="160" y="127" text-anchor="middle" class="ts">registro A</text>
+<rect class="cxd" x="60" y="136" width="200" height="26"/><text x="160" y="153" text-anchor="middle" class="ts">registro B</text>
+<rect class="cx" x="60" y="162" width="200" height="40"/><text x="160" y="180" text-anchor="middle" class="ts">log de auditoria</text><text x="160" y="194" text-anchor="middle" class="ts">64 KB, 4096 registros, anel</text>
+<g class="tm" text-anchor="end"><text x="52" y="24">000000</text><text x="52" y="114">400000</text><text x="52" y="140">401000</text><text x="52" y="166">410000</text></g>
+<line class="lnd" x1="40" y1="110" x2="280" y2="110"/><text x="290" y="114" class="ts td">guarda de 4 MB, num lugar só (flash.c)</text>
+<text x="290" y="140" class="ts">LMK em claro, estado, slots embrulhados</text>
+<text x="290" y="154" class="ts">duas cópias: grava na mais velha; vale a mais nova com CRC certo</text>
+<path class="lnt" d="M268,123 C285,130 285,140 268,149" marker-end="url(#seta-t)"/>
+<text x="290" y="186" class="ts">registro gravado antes de executar; resultado depois, por cima do FF</text>
+</svg>
+<figcaption>Figura 27.1 — O mapa da flash. A região a partir de 4 MB faz o papel da memória com bateria de um HSM comercial.</figcaption>
+</figure>
 - **Chave anunciada é chave guardada.** Se a flash falhar, `GEN_KEY` e
   parentes desfazem o slot e devolvem `STORE_FAIL`.
 - **O log de auditoria.** Cada comando é
@@ -420,6 +535,28 @@ diz qual é qual), então a separação é de papéis, não física; a distânci
 relação a um equipamento comercial, que tem portas separadas, continua
 registrada.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="20" width="150" height="50"/><text x="85" y="40" text-anchor="middle" class="tb">aplicação</text><text x="85" y="56" text-anchor="middle" class="ts">hsmhost.py, por TCP</text>
+<rect class="cx" x="190" y="20" width="110" height="50"/><text x="245" y="40" text-anchor="middle" class="tb">ponte</text><text x="245" y="56" text-anchor="middle" class="ts">repassa bytes</text>
+<line class="ln" x1="160" y1="45" x2="188" y2="45" marker-end="url(#seta)"/>
+<rect class="cxd" x="10" y="120" width="150" height="50"/><text x="85" y="140" text-anchor="middle" class="tb">operador</text><text x="85" y="156" text-anchor="middle" class="ts">hsmtool.py (console)</text>
+<line class="ln" x1="300" y1="45" x2="340" y2="90" marker-end="url(#seta)"/>
+<line class="ln" x1="160" y1="145" x2="340" y2="102" marker-end="url(#seta)"/>
+<rect class="cx" x="342" y="78" width="70" height="36"/><text x="377" y="100" text-anchor="middle" class="ts">UART</text>
+<line class="ln" x1="412" y1="96" x2="448" y2="96" marker-end="url(#seta)"/>
+<rect class="fr" x="440" y="10" width="230" height="190"/>
+<rect class="cx" x="455" y="75" width="90" height="44"/><text x="500" y="93" text-anchor="middle" class="ts">1º byte do</text><text x="500" y="107" text-anchor="middle" class="ts">corpo</text>
+<rect class="cxa" x="565" y="25" width="95" height="60"/><text x="612" y="44" text-anchor="middle" class="ts tb">'0' a '~'</text><text x="612" y="60" text-anchor="middle" class="ts">ASCII: host</text><text x="612" y="73" text-anchor="middle" class="ts">sem cerimônia</text>
+<rect class="cxd" x="565" y="115" width="95" height="60"/><text x="612" y="134" text-anchor="middle" class="ts tb">outro valor</text><text x="612" y="150" text-anchor="middle" class="ts">binário: console</text><text x="612" y="163" text-anchor="middle" class="ts">cerimônia, log</text>
+<line class="ln" x1="545" y1="90" x2="563" y2="60" marker-end="url(#seta)"/>
+<line class="ln" x1="545" y1="105" x2="563" y2="140" marker-end="url(#seta)"/>
+<text x="220" y="196" text-anchor="middle" class="ts">a separação é de papéis, e não física: o componente passa pela máquina do host</text>
+</svg>
+<figcaption>Figura 28.1 — Console e host na mesma porta. O primeiro byte decide o protocolo; nenhum opcode binário cai entre 0x30 e 0x7E.</figcaption>
+</figure>
+
 **A chave de trabalho viaja no comando.** Esta é a mudança de modelo mental
 da fase. Até aqui o dispositivo guardava as chaves em 16 slots e o host as
 citava por número. Um HSM de pagamento não funciona assim: ele não guarda as
@@ -432,6 +569,29 @@ esquece **antes de responder**.
 delas, e é por isso que a LMK é a única chave que ele precisa guardar. A
 frase "sem estado" do parágrafo anterior quer dizer exatamente isto: o estado
 existe, mas mora do lado do cliente, embrulhado.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="20" width="150" height="180"/>
+<text x="85" y="40" text-anchor="middle" class="tb">banco de dados</text><text x="85" y="55" text-anchor="middle" class="ts">do cliente</text>
+<rect class="cx" x="25" y="70" width="120" height="20"/><text x="85" y="84" text-anchor="middle" class="ts tm">bloco 1</text>
+<rect class="cx" x="25" y="95" width="120" height="20"/><text x="85" y="109" text-anchor="middle" class="ts tm">bloco 2</text>
+<rect class="cx" x="25" y="120" width="120" height="20"/><text x="85" y="134" text-anchor="middle" class="ts tm">…</text>
+<rect class="cx" x="25" y="145" width="120" height="20"/><text x="85" y="159" text-anchor="middle" class="ts tm">bloco 1 000 000</text>
+<line class="ln" x1="160" y1="80" x2="298" y2="80" marker-end="url(#seta)"/><text x="230" y="72" text-anchor="middle" class="ts">1. C0 · bloco · IV · dados</text>
+<rect class="fr" x="300" y="20" width="370" height="180"/>
+<rect class="cxd" x="320" y="60" width="120" height="44"/><text x="380" y="78" text-anchor="middle" class="ts">2. abre sob a LMK</text><text x="380" y="92" text-anchor="middle" class="ts">no slot efêmero</text>
+<rect class="cx" x="470" y="60" width="90" height="44"/><text x="515" y="86" text-anchor="middle" class="ts">3. cifra</text>
+<rect class="cxv" x="580" y="60" width="80" height="44"/><text x="620" y="78" text-anchor="middle" class="ts">4. apaga</text><text x="620" y="92" text-anchor="middle" class="ts">o slot</text>
+<line class="ln" x1="440" y1="82" x2="468" y2="82" marker-end="url(#seta)"/>
+<line class="ln" x1="560" y1="82" x2="578" y2="82" marker-end="url(#seta)"/>
+<line class="ln" x1="298" y1="160" x2="160" y2="160" marker-end="url(#seta)"/><text x="230" y="152" text-anchor="middle" class="ts">5. C1 · criptograma</text>
+<text x="485" y="150" text-anchor="middle" class="ts">o equipamento guarda só a LMK;</text>
+<text x="485" y="164" text-anchor="middle" class="ts">o estado mora no cliente, embrulhado</text>
+</svg>
+<figcaption>Figura 28.2 — A chave viaja no comando. O HSM abre o bloco, usa a chave e a esquece antes de responder.</figcaption>
+</figure>
 
 ### Os comandos
 
@@ -482,6 +642,34 @@ O cabeçalho atravessa intacto: uso, modo e exportabilidade continuam os que
 a chave tinha na origem. O roteiro com os comandos está em
 `doc/fase5-notas.md`.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
+<text x="140" y="18" text-anchor="middle" class="tb">banco A</text>
+<text x="540" y="18" text-anchor="middle" class="tb">banco B</text>
+<rect class="fr" x="40" y="28" width="200" height="120"/>
+<rect class="fr" x="440" y="28" width="200" height="120"/>
+<rect class="cxd" x="60" y="44" width="70" height="30"/><text x="95" y="64" text-anchor="middle" class="ts">LMK A</text>
+<rect class="cxd" x="550" y="44" width="70" height="30"/><text x="585" y="64" text-anchor="middle" class="ts">LMK B</text>
+<rect class="cx" x="150" y="44" width="75" height="30"/><text x="187" y="64" text-anchor="middle" class="ts">KEK</text>
+<rect class="cx" x="455" y="44" width="75" height="30"/><text x="492" y="64" text-anchor="middle" class="ts">KEK</text>
+<rect class="cxa" x="290" y="40" width="100" height="40"/><text x="340" y="57" text-anchor="middle" class="ts">custodiantes</text><text x="340" y="71" text-anchor="middle" class="ts">componentes</text>
+<line class="ln" x1="290" y1="60" x2="227" y2="60" marker-end="url(#seta)"/>
+<line class="ln" x1="390" y1="60" x2="453" y2="60" marker-end="url(#seta)"/>
+<text x="340" y="98" text-anchor="middle" class="ts">KCV igual dos dois lados:</text>
+<text x="340" y="111" text-anchor="middle" class="ts">conferido por telefone ou papel</text>
+<rect class="cx" x="60" y="100" width="165" height="34"/><text x="142" y="115" text-anchor="middle" class="ts">K4: chave sob LMK A</text><text x="142" y="128" text-anchor="middle" class="ts">→ chave sob KEK</text>
+<rect class="cx" x="455" y="100" width="165" height="34"/><text x="537" y="115" text-anchor="middle" class="ts">K6: chave sob KEK</text><text x="537" y="128" text-anchor="middle" class="ts">→ chave sob LMK B</text>
+<line class="lnd" x1="142" y1="134" x2="142" y2="190"/>
+<line class="lnd" x1="142" y1="190" x2="537" y2="190" marker-end="url(#seta-d)"/>
+<line class="lnd" x1="537" y1="190" x2="537" y2="136" marker-end="url(#seta-d)"/>
+<rect class="cxa" x="250" y="176" width="180" height="28"/><text x="340" y="194" text-anchor="middle" class="ts">rede: key block sob a KEK</text>
+<text x="340" y="228" text-anchor="middle" class="ts">nenhuma LMK sai de casa; a chave nunca existe em claro fora de um HSM</text>
+<text x="340" y="244" text-anchor="middle" class="ts">o cabeçalho (uso, modo, exportabilidade) atravessa intacto</text>
+</svg>
+<figcaption>Figura 28.3 — Trocar uma chave com outra instituição. A KEK nasce por componentes nos dois lados; só o key block sob ela atravessa a rede.</figcaption>
+</figure>
+
 ## 29. Fase 6 — tamper e ataques
 
 Duas metades.
@@ -490,6 +678,23 @@ Duas metades.
 faixa. É o mecanismo de proteção contra falhas ambientais do FIPS nível 4
 (seção 19), em versão mínima. Implementada, junto com a perda de lock do MMCM.
 Ver `doc/fase6-notas.md`, que diz também o que ela não protege.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<rect x="60" y="20" width="580" height="35" fill="#f6e6e4"/><text x="70" y="42" class="ts td">acima do limite do datasheet: alarme</text>
+<rect x="60" y="55" width="580" height="80" fill="#e5f0e3"/><text x="70" y="75" class="ts" fill="#2f5f2f">faixa de operação</text>
+<rect x="60" y="135" width="580" height="35" fill="#f6e6e4"/><text x="70" y="157" class="ts td">abaixo do limite: alarme</text>
+<line class="ln" x1="60" y1="170" x2="650" y2="170" marker-end="url(#seta)"/>
+<text x="355" y="192" text-anchor="middle" class="ts">tempo</text>
+<text x="40" y="95" class="ts" transform="rotate(-90 40 95)" text-anchor="middle">tensão ou temperatura</text>
+<path d="M60,95 C120,90 160,100 220,94 S320,92 380,98 S440,105 470,110 S500,140 520,150" fill="none" stroke="#2d4f73" stroke-width="2"/>
+<circle cx="508" cy="135" r="5" fill="#7a1f1f"/>
+<line class="lnd" x1="508" y1="135" x2="560" y2="110" marker-end="url(#seta-d)"/>
+<text x="565" y="100" class="ts td">o hardware retém;</text><text x="565" y="113" class="ts td">o firmware apaga e</text><text x="565" y="126" class="ts td">vai para TAMPERED</text>
+</svg>
+<figcaption>Figura 29.1 — O monitor ambiental. Tensão ou temperatura fora da faixa vira violação antes de virar falha explorável.</figcaption>
+</figure>
 
 **Ataque:** atacar o próprio HSM. Glitch de clock num bitstream separado,
 observar o resultado sair errado, e então implementar contramedidas — dupla
@@ -530,6 +735,30 @@ faz, só a outra confere. Disso saem dois serviços que a simétrica não presta
   origem sem segredo compartilhado;
 - **troca de chave:** duas partes que nunca se encontraram combinam uma chave
   simétrica por um canal aberto.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<text x="165" y="18" text-anchor="middle" class="tb">simétrica</text>
+<rect class="cxa" x="20" y="40" width="90" height="40"/><text x="65" y="64" text-anchor="middle">A</text>
+<rect class="cxa" x="220" y="40" width="90" height="40"/><text x="265" y="64" text-anchor="middle">B</text>
+<rect class="cxd" x="40" y="95" width="50" height="24"/><text x="65" y="112" text-anchor="middle" class="ts">K</text>
+<rect class="cxd" x="240" y="95" width="50" height="24"/><text x="265" y="112" text-anchor="middle" class="ts">K</text>
+<line class="ln" x1="110" y1="60" x2="218" y2="60" marker-end="url(#seta)"/><text x="165" y="52" text-anchor="middle" class="ts">cifra ou MAC</text>
+<text x="165" y="150" text-anchor="middle" class="ts">os dois têm a mesma chave:</text>
+<text x="165" y="164" text-anchor="middle" class="ts">antes, ela precisou chegar aos dois</text>
+<line class="lnt" x1="340" y1="10" x2="340" y2="190"/>
+<text x="510" y="18" text-anchor="middle" class="tb">assimétrica</text>
+<rect class="cxa" x="370" y="40" width="90" height="40"/><text x="415" y="64" text-anchor="middle">A</text>
+<rect class="cxa" x="570" y="40" width="90" height="40"/><text x="615" y="64" text-anchor="middle">qualquer um</text>
+<rect class="cxd" x="375" y="95" width="80" height="24"/><text x="415" y="112" text-anchor="middle" class="ts">privada</text>
+<rect class="cxv" x="575" y="95" width="80" height="24"/><text x="615" y="112" text-anchor="middle" class="ts">pública</text>
+<line class="ln" x1="460" y1="60" x2="568" y2="60" marker-end="url(#seta)"/><text x="515" y="52" text-anchor="middle" class="ts">assinatura</text>
+<text x="510" y="150" text-anchor="middle" class="ts">só A assina; todos conferem</text>
+<text x="510" y="164" text-anchor="middle" class="ts">a privada nunca sai da fronteira</text>
+</svg>
+<figcaption>Figura 30.1 — Simétrica e assimétrica. A assimétrica dispensa a chave em comum, e com isso dispensa os custodiantes viajando com envelopes.</figcaption>
+</figure>
 
 Num HSM de pagamento, os dois aparecem na carga remota de chaves: o terminal e
 o centro de processamento trocam a chave de transporte por certificados e
@@ -620,6 +849,28 @@ representações são `20·128 mod 97 = 38` e `30·128 mod 97 = 57`;
 `u = (2166 + 74·97) / 128 = 9344 / 128 = 73`. E de fato
 `20·30·128 mod 97 = 73`: a representação de `a·b`, sem nenhuma divisão por 97.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="20" width="110" height="34"/><text x="65" y="41" text-anchor="middle" class="ts">a = 20 → 38</text>
+<rect class="cxa" x="10" y="64" width="110" height="34"/><text x="65" y="85" text-anchor="middle" class="ts">b = 30 → 57</text>
+<text x="65" y="116" text-anchor="middle" class="ts">x · R mod n</text>
+<line class="ln" x1="120" y1="37" x2="158" y2="55" marker-end="url(#seta)"/>
+<line class="ln" x1="120" y1="81" x2="158" y2="63" marker-end="url(#seta)"/>
+<rect class="cx" x="160" y="40" width="110" height="40"/><text x="215" y="57" text-anchor="middle" class="ts">T = 38 · 57</text><text x="215" y="71" text-anchor="middle" class="ts tb">= 2166</text>
+<line class="ln" x1="270" y1="60" x2="298" y2="60" marker-end="url(#seta)"/>
+<rect class="cx" x="300" y="40" width="130" height="40"/><text x="365" y="57" text-anchor="middle" class="ts">m = T·n' mod 128</text><text x="365" y="71" text-anchor="middle" class="ts tb">= 74</text>
+<line class="ln" x1="430" y1="60" x2="458" y2="60" marker-end="url(#seta)"/>
+<rect class="cx" x="460" y="40" width="200" height="40"/><text x="560" y="57" text-anchor="middle" class="ts">T + m·n = 9344 = 73 · 128</text><text x="560" y="71" text-anchor="middle" class="ts">os 7 bits baixos são zero</text>
+<line class="ln" x1="560" y1="80" x2="560" y2="118" marker-end="url(#seta)"/>
+<rect class="cxv" x="470" y="120" width="180" height="40"/><text x="560" y="137" text-anchor="middle" class="ts">÷ 128: descarta 7 bits</text><text x="560" y="151" text-anchor="middle" class="tb">u = 73 = 600 · R mod 97</text>
+<text x="230" y="140" text-anchor="middle" class="ts">a divisão por n = 97 nunca acontece:</text>
+<text x="230" y="154" text-anchor="middle" class="ts">só a por R = 128, que é deslocar bits</text>
+<text x="230" y="180" text-anchor="middle" class="ts">n' = −97⁻¹ mod 128 = 95, calculado uma vez por módulo</text>
+</svg>
+<figcaption>Figura 30.3 — Um produto de Montgomery com números pequenos. Somar um múltiplo certo de n zera os bits baixos, e a divisão vira deslocamento.</figcaption>
+</figure>
+
 Entrar na representação custa um produto por `R² mod n`, e sair, um produto
 por `1`. Numa exponenciação de milhares de produtos, as duas conversões são
 irrelevantes.
@@ -643,6 +894,25 @@ produto de 2048 bits leva cerca de `128²` ciclos: 18 433, ou 184 µs a
 
 O core usa **4** dos 90 DSP48E1. Paralelizar mais encurtaria o produto, mas o gargalo de um HSM didático não é a vazão de
 assinaturas — e cada DSP a mais é área e rota no fabric apertado do XC7A35T.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg">
+<text x="164" y="22" text-anchor="middle" class="ts">limbs de y (16 bits cada)</text>
+<text x="40" y="110" class="ts" transform="rotate(-90 40 110)" text-anchor="middle">limbs de x</text>
+<rect x="60" y="30" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="86" y="30" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="112" y="30" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="138" y="30" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="164" y="30" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="190" y="30" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="216" y="30" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="242" y="30" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="60" y="50" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="86" y="50" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="112" y="50" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="138" y="50" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="164" y="50" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="190" y="50" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="216" y="50" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="242" y="50" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="60" y="70" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="86" y="70" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="112" y="70" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="138" y="70" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="164" y="70" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="190" y="70" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="216" y="70" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="242" y="70" width="24" height="18" fill="#e6edf5" stroke="#bbb"/><rect x="60" y="90" width="24" height="18" fill="#f6e6e4" stroke="#bbb"/><rect x="86" y="90" width="24" height="18" fill="#f6e6e4" stroke="#bbb"/><rect x="112" y="90" width="24" height="18" fill="#f6e6e4" stroke="#bbb"/><rect x="138" y="90" width="24" height="18" fill="#f6e6e4" stroke="#bbb"/><rect x="164" y="90" width="24" height="18" fill="#f6e6e4" stroke="#bbb"/><rect x="190" y="90" width="24" height="18" fill="#f6e6e4" stroke="#bbb"/><rect x="216" y="90" width="24" height="18" fill="#f6e6e4" stroke="#bbb"/><rect x="242" y="90" width="24" height="18" fill="#f6e6e4" stroke="#bbb"/><rect x="60" y="110" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="86" y="110" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="112" y="110" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="138" y="110" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="164" y="110" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="190" y="110" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="216" y="110" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="242" y="110" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="60" y="130" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="86" y="130" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="112" y="130" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="138" y="130" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="164" y="130" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="190" y="130" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="216" y="130" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="242" y="130" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="60" y="150" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="86" y="150" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="112" y="150" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="138" y="150" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="164" y="150" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="190" y="150" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="216" y="150" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="242" y="150" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="60" y="170" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="86" y="170" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="112" y="170" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="138" y="170" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="164" y="170" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="190" y="170" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="216" y="170" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/><rect x="242" y="170" width="24" height="18" fill="#f6f6f4" stroke="#bbb"/>
+<text x="280" y="44" class="ts">linhas já feitas: o limb baixo foi zerado e descartado</text>
+<text x="280" y="104" class="ts td">linha atual: x_i · y, mais m_i · n</text>
+<text x="280" y="118" class="ts td">(dois DSP48E1: um para cada produto)</text>
+<text x="280" y="160" class="ts">linhas por fazer</text>
+<rect class="cxv" x="420" y="140" width="240" height="56"/>
+<text x="540" y="160" text-anchor="middle" class="ts">o acumulador nunca passa de</text>
+<text x="540" y="174" text-anchor="middle" class="ts">2048 bits e um pouco: a redução</text>
+<text x="540" y="188" text-anchor="middle" class="ts">vem junto, sem segunda passada</text>
+<text x="164" y="210" text-anchor="middle" class="ts">128 × 128 limbs: cerca de 18 433 ciclos, 184 µs</text>
+</svg>
+<figcaption>Figura 30.4 — O FIOS, limb por limb. A cada linha da multiplicação de escola, o múltiplo de n entra e o limb mais baixo sai.</figcaption>
+</figure>
 
 ### Hardware faz o produto, firmware faz a política
 
@@ -682,6 +952,22 @@ número pequeno demais perto de `n`. Por isso o que se assina é o hash
 
 O `DigestInfo` diz qual hash foi usado — sem ele, uma assinatura sobre um hash
 fraco poderia passar por assinatura sobre um forte.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 120" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxc" x="20" y="30" width="20" height="36"/><text x="30" y="53" text-anchor="middle" class="tm">00</text>
+<rect class="cxc" x="40" y="30" width="20" height="36"/><text x="50" y="53" text-anchor="middle" class="tm">01</text>
+<rect class="cx" x="60" y="30" width="360" height="36"/><text x="240" y="53" text-anchor="middle" class="tm">FF FF FF … FF</text>
+<rect class="cxc" x="420" y="30" width="20" height="36"/><text x="430" y="53" text-anchor="middle" class="tm">00</text>
+<rect class="cxa" x="440" y="30" width="100" height="36"/><text x="490" y="53" text-anchor="middle" class="ts">DigestInfo</text>
+<rect class="cxd" x="540" y="30" width="120" height="36"/><text x="600" y="53" text-anchor="middle" class="ts">hash SHA-256</text>
+<g class="ts" text-anchor="middle"><text x="40" y="84">2</text><text x="240" y="84">202 bytes</text><text x="430" y="84">1</text><text x="490" y="84">19 bytes</text><text x="600" y="84">32 bytes</text></g>
+<text x="340" y="110" text-anchor="middle" class="ts">256 bytes, o tamanho de n; a verificação monta este bloco e compara byte a byte</text>
+<text x="340" y="18" text-anchor="middle" class="ts">EM, o que de fato é elevado a d</text>
+</svg>
+<figcaption>Figura 30.5 — O bloco PKCS#1 v1.5 de uma assinatura RSA-2048 com SHA-256.</figcaption>
+</figure>
 
 ⚠ **A verificação reconstrói o `EM` inteiro e compara, em vez de interpretá-lo.**
 Bleichenbacher (2006) mostrou que verificadores que *liam* o bloco — achavam o
@@ -740,6 +1026,25 @@ Com os números de brinquedo da seção anterior (`p = 61`, `q = 53`,
 `d = 2753`, `m = 65`): `dp = 53`, `dq = 49`, `qinv = 38`; `sp = 39`,
 `sq = 5`, `h = 11` e `s = 5 + 11·53 = 588` — a mesma assinatura de antes.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="80" width="80" height="40"/><text x="50" y="104" text-anchor="middle">m = 65</text>
+<line class="ln" x1="90" y1="92" x2="148" y2="50" marker-end="url(#seta)"/>
+<line class="ln" x1="90" y1="108" x2="148" y2="150" marker-end="url(#seta)"/>
+<rect class="cxd" x="150" y="30" width="170" height="40"/><text x="235" y="47" text-anchor="middle" class="ts">sp = 65⁵³ mod 61</text><text x="235" y="61" text-anchor="middle" class="tb">= 39</text>
+<rect class="cxd" x="150" y="130" width="170" height="40"/><text x="235" y="147" text-anchor="middle" class="ts">sq = 65⁴⁹ mod 53</text><text x="235" y="161" text-anchor="middle" class="tb">= 5</text>
+<text x="235" y="96" text-anchor="middle" class="ts">duas metades de 1024 bits:</text><text x="235" y="110" text-anchor="middle" class="ts">um quarto do custo</text>
+<line class="ln" x1="320" y1="50" x2="378" y2="92" marker-end="url(#seta)"/>
+<line class="ln" x1="320" y1="150" x2="378" y2="108" marker-end="url(#seta)"/>
+<rect class="cx" x="380" y="75" width="130" height="50"/><text x="445" y="94" text-anchor="middle" class="ts">h = 38·(39 − 5) mod 61</text><text x="445" y="108" text-anchor="middle" class="ts">= 11; s = 5 + 11·53</text><text x="445" y="121" text-anchor="middle" class="tb">= 588</text>
+<line class="ln" x1="510" y1="100" x2="538" y2="100" marker-end="url(#seta)"/>
+<rect class="cxv" x="540" y="70" width="130" height="60"/><text x="605" y="90" text-anchor="middle" class="ts">confere</text><text x="605" y="104" text-anchor="middle" class="ts">588¹⁷ mod 3233</text><text x="605" y="118" text-anchor="middle" class="tb">= 65 ✓</text>
+<text x="605" y="152" text-anchor="middle" class="ts td">não conferiu: nada sai,</text><text x="605" y="166" text-anchor="middle" class="ts td">91, erro grave</text>
+</svg>
+<figcaption>Figura 30.6 — A assinatura pelo Teorema Chinês do Resto, com os números de brinquedo. A conferência no fim fecha o ataque Bellcore.</figcaption>
+</figure>
+
 Por isso a chave privada deste dispositivo **não guarda `d`**: guarda
 `p, q, dp, dq, qinv` e o `e`. E por isso o ataque Bellcore (seção 17.1) é
 assunto desta fase: se uma das metades sair errada, `s` fica certo módulo um
@@ -765,6 +1070,21 @@ O bit decide só **quais registradores** entram em cada operação — e o
 coprocessador leva o mesmo número de ciclos qualquer que seja o registrador.
 No firmware, a escolha é feita por máscara, sem `if`. O expoente é percorrido
 inteiro, zeros à esquerda inclusive, então o tempo depende só do tamanho dele.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="30" class="tb">square-and-multiply</text>
+<text x="10" y="55" class="ts">o tempo varia</text>
+<rect x="90" y="40" width="28" height="22" fill="#2d4f73"/><text x="104" y="55" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="120" y="40" width="28" height="22" fill="#7a1f1f"/><text x="134" y="55" text-anchor="middle" class="ts" fill="#fff">M</text><rect x="156" y="40" width="28" height="22" fill="#2d4f73"/><text x="170" y="55" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="192" y="40" width="28" height="22" fill="#2d4f73"/><text x="206" y="55" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="222" y="40" width="28" height="22" fill="#7a1f1f"/><text x="236" y="55" text-anchor="middle" class="ts" fill="#fff">M</text><rect x="258" y="40" width="28" height="22" fill="#2d4f73"/><text x="272" y="55" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="288" y="40" width="28" height="22" fill="#7a1f1f"/><text x="302" y="55" text-anchor="middle" class="ts" fill="#fff">M</text><rect x="324" y="40" width="28" height="22" fill="#2d4f73"/><text x="338" y="55" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="360" y="40" width="28" height="22" fill="#2d4f73"/><text x="374" y="55" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="396" y="40" width="28" height="22" fill="#2d4f73"/><text x="410" y="55" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="426" y="40" width="28" height="22" fill="#7a1f1f"/><text x="440" y="55" text-anchor="middle" class="ts" fill="#fff">M</text>
+<text x="10" y="110" class="tb">escada de Montgomery</text>
+<text x="10" y="135" class="ts">o mesmo trabalho</text>
+<rect x="90" y="120" width="28" height="22" fill="#2d4f73"/><text x="104" y="135" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="120" y="120" width="28" height="22" fill="#2f5f2f"/><text x="134" y="135" text-anchor="middle" class="ts" fill="#fff">P</text><text x="119" y="160" text-anchor="middle" class="tb">1</text><rect x="156" y="120" width="28" height="22" fill="#2d4f73"/><text x="170" y="135" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="186" y="120" width="28" height="22" fill="#2f5f2f"/><text x="200" y="135" text-anchor="middle" class="ts" fill="#fff">P</text><text x="185" y="160" text-anchor="middle" class="tb">0</text><rect x="222" y="120" width="28" height="22" fill="#2d4f73"/><text x="236" y="135" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="252" y="120" width="28" height="22" fill="#2f5f2f"/><text x="266" y="135" text-anchor="middle" class="ts" fill="#fff">P</text><text x="251" y="160" text-anchor="middle" class="tb">1</text><rect x="288" y="120" width="28" height="22" fill="#2d4f73"/><text x="302" y="135" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="318" y="120" width="28" height="22" fill="#2f5f2f"/><text x="332" y="135" text-anchor="middle" class="ts" fill="#fff">P</text><text x="317" y="160" text-anchor="middle" class="tb">1</text><rect x="354" y="120" width="28" height="22" fill="#2d4f73"/><text x="368" y="135" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="384" y="120" width="28" height="22" fill="#2f5f2f"/><text x="398" y="135" text-anchor="middle" class="ts" fill="#fff">P</text><text x="383" y="160" text-anchor="middle" class="tb">0</text><rect x="420" y="120" width="28" height="22" fill="#2d4f73"/><text x="434" y="135" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="450" y="120" width="28" height="22" fill="#2f5f2f"/><text x="464" y="135" text-anchor="middle" class="ts" fill="#fff">P</text><text x="449" y="160" text-anchor="middle" class="tb">0</text><rect x="486" y="120" width="28" height="22" fill="#2d4f73"/><text x="500" y="135" text-anchor="middle" class="ts" fill="#fff">Q</text><rect x="516" y="120" width="28" height="22" fill="#2f5f2f"/><text x="530" y="135" text-anchor="middle" class="ts" fill="#fff">P</text><text x="515" y="160" text-anchor="middle" class="tb">1</text>
+<text x="10" y="160" class="ts">bits do expoente</text>
+<text x="340" y="190" text-anchor="middle" class="ts">Q = quadrado, M = multiplicação, P = produto: na escada, cada bit custa um quadrado e um produto, sempre</text>
+</svg>
+<figcaption>Figura 30.2 — O mesmo expoente, 1011001, pelos dois métodos. O primeiro desenha os bits no tempo; o segundo, não.</figcaption>
+</figure>
 
 ### Tudo no coprocessador, inclusive o que não é modular
 
@@ -829,6 +1149,27 @@ Antes de sair, o par novo passa por um **teste de consistência**: o
 dispositivo assina com ele e verifica a assinatura. É exigência da FIPS 140-3
 para geração de chave assimétrica, e pega na hora um primo errado ou um
 `qinv` mal calculado.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg">
+<polygon points="40,20 640,20 520,80 160,80" fill="#e6edf5" stroke="#2d4f73"/>
+<text x="340" y="44" text-anchor="middle" class="tb">cerca de 355 candidatos ímpares</text>
+<text x="340" y="62" text-anchor="middle" class="ts">de 1024 bits, do DRBG, para achar um primo</text>
+<polygon points="160,84 520,84 440,140 240,140" fill="#f6f6f4" stroke="#1a1a1a"/>
+<text x="340" y="106" text-anchor="middle" class="tb">divisão pelos ímpares até 1023</text>
+<text x="340" y="124" text-anchor="middle" class="ts">em C; elimina 84%: sobram cerca de 57</text>
+<polygon points="240,144 440,144 400,196 280,196" fill="#f6e6e4" stroke="#7a1f1f"/>
+<text x="340" y="164" text-anchor="middle" class="tb">Miller-Rabin</text>
+<text x="340" y="180" text-anchor="middle" class="ts">5 rodadas, no coprocessador</text>
+<rect class="cxv" x="300" y="200" width="80" height="18"/><text x="340" y="213" text-anchor="middle" class="ts tb">1 primo</text>
+<text x="560" y="110" class="ts">mdc(p − 1, e) = 1</text>
+<text x="560" y="124" class="ts">e, para q, |p − q| > 2⁹²⁴</text>
+<text x="20" y="170" class="ts">um composto quase sempre</text>
+<text x="20" y="184" class="ts">cai na 1ª rodada</text>
+</svg>
+<figcaption>Figura 30.7 — O funil da busca de primos. A conta barata em C descarta a maior parte antes da exponenciação cara.</figcaption>
+</figure>
 
 ### A chave privada no key block
 
@@ -942,6 +1283,28 @@ outro ponto da curva. A regra é geométrica:
 2. A reta corta a curva em um terceiro ponto.
 3. Espelhe esse ponto no eixo `x`. O resultado é `P + Q`.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 260" xmlns="http://www.w3.org/2000/svg">
+<line class="grade" x1="90" y1="130" x2="440" y2="130"/>
+<line class="grade" x1="250" y1="15" x2="250" y2="245"/>
+<path d="M417.4,221.7 L414.9,219.3 L412.4,216.9 L410.0,214.6 L407.5,212.3 L405.0,210.0 L402.5,207.8 L400.0,205.5 L397.5,203.3 L395.1,201.2 L392.6,199.0 L390.1,196.9 L387.6,194.7 L385.1,192.7 L382.7,190.6 L380.2,188.6 L377.7,186.6 L375.2,184.6 L372.7,182.7 L370.2,180.8 L367.8,178.9 L365.3,177.1 L362.8,175.3 L360.3,173.6 L357.8,171.9 L355.4,170.2 L352.9,168.6 L350.4,167.1 L347.9,165.6 L345.4,164.2 L342.9,162.8 L340.5,161.6 L338.0,160.4 L335.5,159.2 L333.0,158.2 L330.5,157.3 L328.0,156.5 L325.6,155.8 L323.1,155.2 L320.6,154.7 L318.1,154.4 L315.6,154.1 L313.2,154.0 L310.7,154.0 L308.2,154.1 L305.7,154.4 L303.2,154.7 L300.7,155.1 L298.3,155.6 L295.8,156.2 L293.3,156.8 L290.8,157.5 L288.3,158.2 L285.9,159.0 L283.4,159.8 L280.9,160.6 L278.4,161.5 L275.9,162.4 L273.4,163.3 L271.0,164.1 L268.5,165.0 L266.0,165.9 L263.5,166.8 L261.0,167.7 L258.6,168.6 L256.1,169.5 L253.6,170.3 L251.1,171.2 L248.6,172.0 L246.1,172.8 L243.7,173.6 L241.2,174.4 L238.7,175.2 L236.2,175.9 L233.7,176.6 L231.3,177.3 L228.8,177.9 L226.3,178.5 L223.8,179.1 L221.3,179.7 L218.8,180.2 L216.4,180.7 L213.9,181.2 L211.4,181.6 L208.9,182.0 L206.4,182.4 L204.0,182.7 L201.5,183.0 L199.0,183.2 L196.5,183.4 L194.0,183.5 L191.5,183.6 L189.1,183.7 L186.6,183.7 L184.1,183.6 L181.6,183.5 L179.1,183.3 L176.6,183.1 L174.2,182.8 L171.7,182.4 L169.2,182.0 L166.7,181.5 L164.2,180.9 L161.8,180.3 L159.3,179.5 L156.8,178.7 L154.3,177.7 L151.8,176.7 L149.3,175.5 L146.9,174.2 L144.4,172.7 L141.9,171.1 L139.4,169.3 L136.9,167.2 L134.5,164.9 L132.0,162.3 L129.5,159.3 L127.0,155.7 L124.5,151.2 L122.0,145.2 L119.6,130.0 L119.6,130.0 L122.0,114.8 L124.5,108.8 L127.0,104.3 L129.5,100.7 L132.0,97.7 L134.5,95.1 L136.9,92.8 L139.4,90.7 L141.9,88.9 L144.4,87.3 L146.9,85.8 L149.3,84.5 L151.8,83.3 L154.3,82.3 L156.8,81.3 L159.3,80.5 L161.8,79.7 L164.2,79.1 L166.7,78.5 L169.2,78.0 L171.7,77.6 L174.2,77.2 L176.6,76.9 L179.1,76.7 L181.6,76.5 L184.1,76.4 L186.6,76.3 L189.1,76.3 L191.5,76.4 L194.0,76.5 L196.5,76.6 L199.0,76.8 L201.5,77.0 L204.0,77.3 L206.4,77.6 L208.9,78.0 L211.4,78.4 L213.9,78.8 L216.4,79.3 L218.8,79.8 L221.3,80.3 L223.8,80.9 L226.3,81.5 L228.8,82.1 L231.3,82.7 L233.7,83.4 L236.2,84.1 L238.7,84.8 L241.2,85.6 L243.7,86.4 L246.1,87.2 L248.6,88.0 L251.1,88.8 L253.6,89.7 L256.1,90.5 L258.6,91.4 L261.0,92.3 L263.5,93.2 L266.0,94.1 L268.5,95.0 L271.0,95.9 L273.4,96.7 L275.9,97.6 L278.4,98.5 L280.9,99.4 L283.4,100.2 L285.9,101.0 L288.3,101.8 L290.8,102.5 L293.3,103.2 L295.8,103.8 L298.3,104.4 L300.7,104.9 L303.2,105.3 L305.7,105.6 L308.2,105.9 L310.7,106.0 L313.2,106.0 L315.6,105.9 L318.1,105.6 L320.6,105.3 L323.1,104.8 L325.6,104.2 L328.0,103.5 L330.5,102.7 L333.0,101.8 L335.5,100.8 L338.0,99.6 L340.5,98.4 L342.9,97.2 L345.4,95.8 L347.9,94.4 L350.4,92.9 L352.9,91.4 L355.4,89.8 L357.8,88.1 L360.3,86.4 L362.8,84.7 L365.3,82.9 L367.8,81.1 L370.2,79.2 L372.7,77.3 L375.2,75.4 L377.7,73.4 L380.2,71.4 L382.7,69.4 L385.1,67.3 L387.6,65.3 L390.1,63.1 L392.6,61.0 L395.1,58.8 L397.5,56.7 L400.0,54.5 L402.5,52.2 L405.0,50.0 L407.5,47.7 L410.0,45.4 L412.4,43.1 L414.9,40.7 L417.4,38.3" fill="none" stroke="#2d4f73" stroke-width="2"/>
+<line x1="101.2" y1="64.7" x2="411.2" y2="106.3" stroke="#555" stroke-width="1.2"/>
+<line x1="226.5" y1="81.5" x2="226.5" y2="178.5" stroke="#7a1f1f" stroke-dasharray="4 3"/>
+<circle cx="188.0" cy="76.3" r="5" fill="#1a1a1a"/><text x="180.0" y="68.3" text-anchor="end" class="tb">P</text>
+<circle cx="343.0" cy="97.1" r="5" fill="#1a1a1a"/><text x="351.0" y="113.1" class="tb">Q</text>
+<circle cx="226.5" cy="81.5" r="5" fill="#555"/><text x="230.5" y="71.5" class="ts">3º ponto</text>
+<circle cx="226.5" cy="178.5" r="6" fill="#7a1f1f"/><text x="236.5" y="182.5" class="tb td">P + Q</text>
+<text x="470" y="60" class="ts">1. a reta por P e Q</text>
+<text x="470" y="76" class="ts">2. corta a curva num 3º ponto</text>
+<text x="470" y="92" class="ts">3. o espelho no eixo x é P + Q</text>
+<text x="470" y="170" class="ts">sobre os reais, para ver a regra;</text>
+<text x="470" y="184" class="ts">no equipamento, as mesmas fórmulas</text>
+<text x="470" y="198" class="ts">rodam módulo p</text>
+</svg>
+<figcaption>Figura 30.9 — A soma de pontos, desenhada sobre os números reais, na curva y² = x³ − 3x + 3.</figcaption>
+</figure>
+
 Para somar um ponto a ele mesmo (**dobrar**), a reta é a tangente à curva
 naquele ponto. Escrita em fórmulas, a regra só usa somas, produtos e **uma
 divisão** módulo `p`:
@@ -1008,6 +1371,20 @@ Três coisas aparecem na tabela:
 - **Não há padrão.** `5G` não fica perto de `4G`. Dado o ponto `(8, 7)`, a
   única forma de achar o `13` é procurar.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 280" xmlns="http://www.w3.org/2000/svg">
+<line class="grade" x1="60" y1="250" x2="60" y2="42"/><line class="grade" x1="60" y1="250" x2="540" y2="250"/><line class="grade" x1="90" y1="250" x2="90" y2="42"/><line class="grade" x1="60" y1="237" x2="540" y2="237"/><line class="grade" x1="120" y1="250" x2="120" y2="42"/><line class="grade" x1="60" y1="224" x2="540" y2="224"/><line class="grade" x1="150" y1="250" x2="150" y2="42"/><line class="grade" x1="60" y1="211" x2="540" y2="211"/><line class="grade" x1="180" y1="250" x2="180" y2="42"/><line class="grade" x1="60" y1="198" x2="540" y2="198"/><line class="grade" x1="210" y1="250" x2="210" y2="42"/><line class="grade" x1="60" y1="185" x2="540" y2="185"/><line class="grade" x1="240" y1="250" x2="240" y2="42"/><line class="grade" x1="60" y1="172" x2="540" y2="172"/><line class="grade" x1="270" y1="250" x2="270" y2="42"/><line class="grade" x1="60" y1="159" x2="540" y2="159"/><line class="grade" x1="300" y1="250" x2="300" y2="42"/><line class="grade" x1="60" y1="146" x2="540" y2="146"/><line class="grade" x1="330" y1="250" x2="330" y2="42"/><line class="grade" x1="60" y1="133" x2="540" y2="133"/><line class="grade" x1="360" y1="250" x2="360" y2="42"/><line class="grade" x1="60" y1="120" x2="540" y2="120"/><line class="grade" x1="390" y1="250" x2="390" y2="42"/><line class="grade" x1="60" y1="107" x2="540" y2="107"/><line class="grade" x1="420" y1="250" x2="420" y2="42"/><line class="grade" x1="60" y1="94" x2="540" y2="94"/><line class="grade" x1="450" y1="250" x2="450" y2="42"/><line class="grade" x1="60" y1="81" x2="540" y2="81"/><line class="grade" x1="480" y1="250" x2="480" y2="42"/><line class="grade" x1="60" y1="68" x2="540" y2="68"/><line class="grade" x1="510" y1="250" x2="510" y2="42"/><line class="grade" x1="60" y1="55" x2="540" y2="55"/><line class="grade" x1="540" y1="250" x2="540" y2="42"/><line class="grade" x1="60" y1="42" x2="540" y2="42"/><text x="60" y="266" text-anchor="middle" class="ts">0</text><text x="52" y="254" text-anchor="end" class="ts">0</text><text x="180" y="266" text-anchor="middle" class="ts">4</text><text x="52" y="202" text-anchor="end" class="ts">4</text><text x="300" y="266" text-anchor="middle" class="ts">8</text><text x="52" y="150" text-anchor="end" class="ts">8</text><text x="420" y="266" text-anchor="middle" class="ts">12</text><text x="52" y="98" text-anchor="end" class="ts">12</text><text x="540" y="266" text-anchor="middle" class="ts">16</text><text x="52" y="46" text-anchor="end" class="ts">16</text><circle cx="90" cy="237" r="4.5" fill="#2d4f73"/><circle cx="90" cy="42" r="4.5" fill="#2d4f73"/><circle cx="150" cy="224" r="4.5" fill="#2d4f73"/><circle cx="150" cy="55" r="4.5" fill="#2d4f73"/><circle cx="180" cy="224" r="4.5" fill="#2d4f73"/><circle cx="180" cy="55" r="4.5" fill="#2d4f73"/><circle cx="270" cy="172" r="4.5" fill="#2d4f73"/><circle cx="270" cy="107" r="4.5" fill="#2d4f73"/><circle cx="300" cy="159" r="4.5" fill="#2d4f73"/><circle cx="300" cy="120" r="4.5" fill="#2d4f73"/><circle cx="330" cy="185" r="4.5" fill="#2d4f73"/><circle cx="330" cy="94" r="4.5" fill="#2d4f73"/><circle cx="360" cy="224" r="4.5" fill="#2d4f73"/><circle cx="360" cy="55" r="4.5" fill="#2d4f73"/><circle cx="390" cy="211" r="4.5" fill="#2d4f73"/><circle cx="390" cy="68" r="4.5" fill="#2d4f73"/><circle cx="450" cy="172" r="4.5" fill="#2d4f73"/><circle cx="450" cy="107" r="4.5" fill="#2d4f73"/><circle cx="480" cy="172" r="4.5" fill="#2d4f73"/><circle cx="480" cy="107" r="4.5" fill="#2d4f73"/><circle cx="510" cy="237" r="4.5" fill="#2d4f73"/><circle cx="510" cy="42" r="4.5" fill="#2d4f73"/><circle cx="90" cy="237" r="6" fill="#7a1f1f"/><text x="99" y="231" class="ts td">G</text><circle cx="510" cy="42" r="6" fill="#7a1f1f"/><text x="519" y="36" class="ts td">2G</text><circle cx="330" cy="185" r="6" fill="#7a1f1f"/><text x="339" y="179" class="ts td">3G</text><circle cx="150" cy="55" r="6" fill="#7a1f1f"/><text x="159" y="49" class="ts td">4G</text><circle cx="90" cy="42" r="6" fill="#7a1f1f"/><text x="99" y="36" class="ts td">22G = −G</text><line x1="90" y1="237" x2="510" y2="42" stroke="#7a1f1f" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#seta-d)"/><line x1="510" y1="42" x2="330" y2="185" stroke="#7a1f1f" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#seta-d)"/><line x1="330" y1="185" x2="150" y2="55" stroke="#7a1f1f" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#seta-d)"/><line x1="60" y1="139.5" x2="540" y2="139.5" stroke="#888" stroke-dasharray="2 4"/>
+<text x="556" y="143.5" class="ts">eixo de simetria:</text>
+<text x="556" y="157.5" class="ts">(x, y) e (x, 17 − y)</text>
+<text x="556" y="60" class="ts">22 pontos e o infinito:</text>
+<text x="556" y="74" class="ts">G tem ordem 23</text>
+<text x="556" y="200" class="ts">G → 2G → 3G → 4G:</text>
+<text x="556" y="214" class="ts">pulos sem padrão</text>
+</svg>
+<figcaption>Figura 30.8 — A curva y² = x³ − 3x + 3 módulo 17. Não é uma linha: é uma nuvem de pontos, e os múltiplos de G saltam por ela sem padrão visível.</figcaption>
+</figure>
+
 ### O problema difícil: o logaritmo discreto
 
 Calcular `k · P` é fácil. Lê-se `k` bit a bit, dobra-se sempre e soma-se
@@ -1057,6 +1434,17 @@ A SP 800-57 do NIST dá a equivalência:
 A P-256 é mais forte que o RSA-2048 deste equipamento, com uma chave oito
 vezes menor. E a distância cresce: dobrar a força da curva custa dobrar a
 chave, e dobrar a força do RSA custa multiplicar o módulo por cinco.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
+<text x="70" y="18" text-anchor="end" class="ts">força (bits)</text>
+<text x="380" y="18" text-anchor="middle" class="ts">tamanho da chave, em bits (SP 800-57)</text>
+<text x="70" y="50" text-anchor="end" class="tb">112</text><rect x="80" y="30" width="66.6" height="18" fill="#7a1f1f"/><text x="152.6" y="44" class="ts">RSA 2048</text><rect x="80" y="51" width="7.3" height="18" fill="#2d4f73"/><text x="93.3" y="65" class="ts">curva 224</text><text x="70" y="102" text-anchor="end" class="tb">128</text><rect x="80" y="82" width="99.8" height="18" fill="#7a1f1f"/><text x="185.8" y="96" class="ts">RSA 3072</text><rect x="80" y="103" width="8.3" height="18" fill="#2d4f73"/><text x="94.3" y="117" class="ts">curva 256</text><text x="70" y="154" text-anchor="end" class="tb">192</text><rect x="80" y="134" width="249.6" height="18" fill="#7a1f1f"/><text x="335.6" y="148" class="ts">RSA 7680</text><rect x="80" y="155" width="12.5" height="18" fill="#2d4f73"/><text x="98.5" y="169" class="ts">curva 384</text><text x="70" y="206" text-anchor="end" class="tb">256</text><rect x="80" y="186" width="499.2" height="18" fill="#7a1f1f"/><text x="585.2" y="200" class="ts">RSA 15360</text><rect x="80" y="207" width="16.6" height="18" fill="#2d4f73"/><text x="102.6" y="221" class="ts">curva 512</text>
+<line class="ln" x1="80" y1="25" x2="80" y2="240"/>
+</svg>
+<figcaption>Figura 30.10 — O tamanho de chave para a mesma força. A curva cresce em linha reta; o RSA, muito mais depressa.</figcaption>
+</figure>
 
 ⚠ **Nenhum dos dois resiste a um computador quântico grande.** O algoritmo
 de Shor resolve a fatoração e o logaritmo discreto. A chave menor da curva
@@ -1141,6 +1529,30 @@ Para verificar, com a chave pública `Q`:
 Funciona porque `Q = d · G`, e então
 `u1 · G + u2 · Q = (e + r · d) · s⁻¹ · G = k · G`. Quem verifica refaz o
 ponto `R` sem conhecer `k` nem `d`.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<text x="165" y="18" text-anchor="middle" class="tb">assinar (tem d)</text>
+<rect class="cxd" x="20" y="30" width="80" height="30"/><text x="60" y="50" text-anchor="middle" class="ts">k do DRBG</text>
+<line class="ln" x1="100" y1="45" x2="138" y2="45" marker-end="url(#seta)"/>
+<rect class="cx" x="140" y="30" width="90" height="30"/><text x="185" y="50" text-anchor="middle" class="ts">R = k · G</text>
+<line class="ln" x1="230" y1="45" x2="258" y2="45" marker-end="url(#seta)"/>
+<rect class="cx" x="260" y="30" width="70" height="30"/><text x="295" y="50" text-anchor="middle" class="ts">r = x(R)</text>
+<rect class="cxd" x="60" y="80" width="240" height="30"/><text x="180" y="100" text-anchor="middle" class="ts">s = k⁻¹ · (e + r · d) mod n</text>
+<rect class="cxv" x="100" y="130" width="160" height="30"/><text x="180" y="150" text-anchor="middle" class="tb">(r, s)</text>
+<line class="ln" x1="180" y1="110" x2="180" y2="128" marker-end="url(#seta)"/>
+<line class="lnt" x1="340" y1="10" x2="340" y2="200"/>
+<text x="510" y="18" text-anchor="middle" class="tb">verificar (tem Q)</text>
+<rect class="cx" x="370" y="30" width="290" height="30"/><text x="515" y="50" text-anchor="middle" class="ts">u1 = e · s⁻¹,  u2 = r · s⁻¹  (mod n)</text>
+<rect class="cx" x="370" y="80" width="290" height="30"/><text x="515" y="100" text-anchor="middle" class="ts">R' = u1 · G + u2 · Q   (= k · G)</text>
+<rect class="cxv" x="420" y="130" width="190" height="30"/><text x="515" y="150" text-anchor="middle" class="ts">x(R') mod n = r ?</text>
+<line class="ln" x1="515" y1="60" x2="515" y2="78" marker-end="url(#seta)"/>
+<line class="ln" x1="515" y1="110" x2="515" y2="128" marker-end="url(#seta)"/>
+<text x="340" y="190" text-anchor="middle" class="ts">curva de brinquedo: d = 7, e = 5, k = 10 → (r, s) = (8, 13); u1 = 11, u2 = 13; 11G + 13Q = (8, 10): confere</text>
+</svg>
+<figcaption>Figura 30.11 — O ECDSA dos dois lados. Quem verifica refaz o ponto R sem conhecer k nem d.</figcaption>
+</figure>
 
 O papel de cada peça:
 
@@ -1318,8 +1730,8 @@ fase é a última porque depende de
 tudo o que vem antes: sem hierarquia de chaves (Fase 3) e sem API de serviço
 (Fase 5), não há onde encaixar um comando de tradução de PIN.
 
-O equipamento tem a primeira peça: a **tradução de PIN block** no formato 4
-da ISO 9564, comando `P0` (seção 34.1).
+O equipamento tem as funções da Parte VII: tradução e verificação de PIN, CVV,
+DUKPT, troca de chaves 3DES, e cifra e MAC de dados com 3DES.
 
 O conteúdo dela é a **Parte VII** deste manual. O critério da fase é um só:
 **aproximar o equipamento do mercado de meios de pagamento**. O objetivo não

@@ -223,13 +223,19 @@ class Host:
                          bloco.encode() + iv.hex().upper().encode() + dados(d))
         return le_dados(c)[0]
 
-    def mac(self, bloco, d):
-        _, c = self.pede("M0", bloco.encode() + dados(d))
-        return bytes.fromhex(c[:32].decode())
+    def mac(self, bloco, d, rmac=None):
+        """M0. Bloco AES: CMAC, 16 bytes. Bloco 3DES: retail MAC, com
+        `rmac` = (preenchimento, tamanho), por exemplo (1, 8)."""
+        extra = b"" if rmac is None else ("%d%d" % rmac).encode()
+        _, c = self.pede("M0", bloco.encode() + extra + dados(d))
+        n = 16 if rmac is None else rmac[1]
+        return bytes.fromhex(c[:2 * n].decode())
 
-    def mac_verifica(self, bloco, tag, d):
-        erro, _ = self.pede("M2", bloco.encode() + tag.hex().upper().encode()
-                            + dados(d), aceita=(0, 1))
+    def mac_verifica(self, bloco, tag, d, rmac=None):
+        extra = b"" if rmac is None else ("%d%d" % rmac).encode()
+        erro, _ = self.pede("M2", bloco.encode() + extra
+                            + tag.hex().upper().encode() + dados(d),
+                            aceita=(0, 1))
         return erro == 0
 
     def rsa_verifica(self, n, e, digest, s):
@@ -817,6 +823,8 @@ def tdes_confere(h, lmk, n):
 
     ⚠ PRECISA DA LMK, como o `confere`."""
     import des
+    import mac_tdes
+    import random
     import tr31
     from hsmtool import _kcv_local
 
@@ -865,12 +873,39 @@ def tdes_confere(h, lmk, n):
             volta_b, kcv_v = h.importa(kek_b, fora)
             assert tr31.desembrulha(lmk, volta_b)[0] == chave, "K6"
 
-            # O que a chave 3DES NAO faz, por enquanto ou nunca.
-            iv, texto = bytes(16), bytes(16)
+            # Etapa 8.9a: C0/C2 com chave 3DES (CBC, IV de 8 bytes) e o
+            # retail MAC no M0/M2, conferidos com o mac_tdes.py.
             d0, _ = h.gen("D0", "B", "E", alg)
-            recusa(11, h.cripto, d0, iv, texto, True)      # C0 e AES
+            c0, _ = tr31.desembrulha(lmk, d0)
+            iv = os.urandom(8)
+            texto = os.urandom(8 * random.randint(1, 20))
+            cif = h.cripto(d0, iv, texto, True)
+            assert cif == mac_tdes.cbc(c0, iv, texto, True), "C0 3DES"
+            assert h.cripto(d0, iv, cif, False) == texto, "C2 3DES"
+            recusa(15, h.cripto, d0, iv, texto + b"x", True)   # nao multiplo de 8
+            de, _ = h.gen("D0", "E", "E", alg)
+            recusa(11, h.cripto, de, iv, cif, False)       # 'E' nao decifra
             m0, _ = h.gen("M0", "C", "E", alg)
-            recusa(11, h.mac, m0, texto)                   # M0 e CMAC-AES
+            if tam == 24:
+                recusa(11, h.mac, m0, texto, (1, 8))       # retail MAC: dupla
+            else:
+                km, _ = tr31.desembrulha(lmk, m0)
+                msg = os.urandom(random.randint(1, 160))
+                for rm in ((1, 8), (2, 8), (1, 4), (2, 4)):
+                    t = h.mac(m0, msg, rm)
+                    assert t == mac_tdes.retail_mac(km, msg, *rm), "M0 3DES"
+                    assert h.mac_verifica(m0, t, msg, rm), "M2 3DES"
+                    errado = bytes([t[0] ^ 1]) + t[1:]
+                    assert not h.mac_verifica(m0, errado, msg, rm), \
+                        "M2 3DES aceitou MAC errado"
+                recusa(15, h.mac, m0, b"", (1, 8))         # mensagem vazia
+                recusa(16, h.mac, m0, msg, (3, 8))         # preenchimento 3
+                recusa(16, h.mac, m0, msg, (1, 5))         # tamanho 5
+                mg, _ = h.gen("M0", "G", "E", alg)
+                tg = h.mac(mg, msg, (1, 8))
+                recusa(11, h.mac_verifica, mg, tg, msg, (1, 8))  # 'G' nao verifica
+                recusa(11, h.mac, d0, msg, (1, 8))         # D0 nao faz MAC
+                recusa(11, h.cripto, m0, iv, texto, True)  # M0 nao cifra
 
             # Etapa 8.7: KEK 3DES deste comprimento. Ela leva chave 3DES de
             # comprimento igual ou menor, em bloco versao B, e nada mais.
@@ -920,7 +955,8 @@ def tdes_confere(h, lmk, n):
         b_a4, kcv_a4 = h.gen("D0", "B", "E", "A4")
         assert _kcv_local(tr31.desembrulha(lmk, b_a4)[0]).hex().upper() \
             == kcv_a4, "A4"
-        print("volta %d: chaves 3DES duplas e triplas conferidas" % (volta + 1))
+        print("volta %d: chaves 3DES duplas e triplas, dados e retail MAC conferidos"
+              % (volta + 1))
     print("%d de %d voltas conferidas" % (n, n))
     return 0
 

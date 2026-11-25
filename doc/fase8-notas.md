@@ -983,6 +983,100 @@ v0.8.10 com o hash `35f7263a…b989`, o mesmo da simulação: CONFERE. Isso prov
 espelho também no hardware. `regressao.py --lmk` com 20 passos em 391 s. Timing
 +0,434 ns, 0 critical warnings, 8085 LUTs, 7914 FF, BRAM 25,5, DSP 4.
 
+## Etapa 8.9a: dados e MAC com chave 3DES
+
+Estado: validada na placa em 2026-11-25. Simulação dos seis testbenches que cobrem a mudança, todos PASS; bitstream com WNS +0,434 ns, 0 critical warnings, 8085 LUTs e BRAM 25,5; `hsmtool build` CONFERE com o firmware `0.8.11` (64 544 bytes); `regressao.py` com 20 passos em 388 s, o passo das chaves 3DES, com dados e MAC 3DES, em 51,4 s.
+
+O equipamento cifra dados e calcula MAC de mensagem com chave 3DES, pelos
+mesmos comandos do AES. O algoritmo da chave, no cabeçalho do key block,
+escolhe a conta: `C0`/`C2` fazem 3DES-CBC com IV de 8 bytes, e `M0`/`M2`
+fazem o retail MAC (ISO/IEC 9797-1, algoritmo 3; ANSI X9.19), com dois campos
+novos, o preenchimento e o tamanho do MAC. A teoria, com o exemplo numérico
+da ISO/IEC 9797-1 B.4 e o ataque de Preneel e van Oorschot, está no manual,
+seção 39.10; os testes, na 42.10.
+
+### As peças
+
+| Arquivo | O que faz |
+|---|---|
+| `fw/src/mac_tdes.c`, `mac_tdes.h` | `retail_mac()`: a cadeia em DES de `K`, o último bloco em 3DES de `K ‖ K'`, preenchimentos 1 e 2. Sem política; compila no PC |
+| `fw/src/keystore.c` | `keystore_tdes_cbc_confere()` (uso `D0`, algoritmo `T`, o mesmo controle de modo do AES, dupla execução com a chave preparada de novo) e `keystore_retail_mac()` (chave dupla da família `M`, modo `G`/`V`/`C`, MAC e veredito calculados duas vezes, comparação em tempo constante) |
+| `fw/src/kat.c` | o KAT do 3DES (primeiro uso) inclui dois retail MACs publicados, um de cada preenchimento |
+| `fw/src/cmd_ascii.c` | `C0`/`C2` leem o tamanho do IV pelo algoritmo do cabeçalho; `M0`/`M2` leem o preenchimento e o tamanho com bloco 3DES (`le_rmac()`) |
+| `scripts/mkkat.py` | os dois retail MACs do KAT |
+| `host/mac_tdes.py` | o retail MAC e o 3DES-CBC em Python, com o DES da `cryptography` |
+| `host/hsmhost.py` | `mac()`/`mac_verifica()` com `rmac=(preenchimento, tamanho)`; o `tdes-confere` confere `C0`/`C2`/`M0`/`M2` com chave 3DES |
+| `scripts/_extrai_retail_mac.py` | copia os 6 valores do `psec` e do RustCrypto para `vectors/mac/retail_mac.rsp` |
+
+### Decisões
+
+Do usuário, em 2026-11-23 (`PLANO.md`): só o retail MAC, com os
+preenchimentos 1 e 2 e MAC de 4 ou 8 bytes; dados em CBC pelos mesmos
+`C0`/`C2`; e, da 8.9 em diante, vetor de terceiros de pelo menos duas fontes
+independentes.
+
+De implementação, seguindo decisões anteriores:
+
+- **O uso da chave de MAC é a família `M`**, sem conferir o código exato,
+  como no CMAC (decisão de 2026-11-04). O exemplo do manual usa `M3`, que é o
+  código da X9.143 para o algoritmo 3 da ISO 9797-1.
+- **Chave tripla de MAC responde `11`**: o algoritmo usa o par `K`, `K'`,
+  como o CVV.
+- **Mensagem vazia responde `15`.** O preenchimento 1 da norma trata a
+  mensagem vazia como caso à parte, e nenhuma fonte de valores o cobre.
+- **O algoritmo é lido do cabeçalho antes de abrir o bloco**, só para saber
+  o formato do pedido (tamanho do IV, campos do MAC). O cabeçalho é
+  autenticado ao abrir, e a conta é escolhida pelo `info.algoritmo` do bloco
+  aberto. É o mesmo desenho do `P2` com o tamanho do KSN.
+- **A paridade da chave não é conferida**, como em toda chave 3DES importada
+  (só a geração a acerta). As chaves do `psec` têm paridade par.
+
+### O checklist
+
+`C0`, `C2`, `M0` e `M2` com chave 3DES; nenhum opcode novo.
+
+- **Estados:** só `OPERATIONAL`, como os demais comandos da porta host.
+- **Dual control:** não. É operação.
+- **Vazamento em laço:** `C0`/`C2` são o oráculo de cifra do serviço, como
+  com AES; o limite é o modo da chave (`E`/`D`/`B`). `M0` é o oráculo de MAC.
+  Com o retail MAC há um custo a mais, que o manual (39.10) descreve: cerca
+  de 2^32,5 pares conhecidos de mensagem e MAC levam às duas chaves com
+  esforço de DES simples. O controle é o log e a troca da chave. O `M2`
+  devolve um bit, compara em tempo constante e não devolve o MAC calculado.
+- **Exportabilidade:** não se aplica: nenhuma chave sai.
+- **Log:** entra antes da execução, pelo despachante ASCII.
+
+### Vetores
+
+`vectors/mac/retail_mac.rsp`: 6 valores de duas fontes, o teste da função do
+`psec` (mesmo commit do CVV) e o exemplo do crate `retail-mac` do RustCrypto,
+que transcreve a ISO/IEC 9797-1:2011 B.4. O 3DES-CBC é o dos MMT do NIST, já
+em `vectors/tdes/`. Procedência, leituras e o que não cobrem: no
+`MANIFEST.txt`.
+
+### Testes
+
+| Teste | O que cobre | Resultado |
+|---|---|---|
+| `host/test_retail_mac.py` | Python e C contra os 6 valores; o 3DES-CBC contra os MMT do NIST; o C contra o Python em 2 000 casos ao acaso e em todo tamanho de 1 a 40 bytes; as recusas | PASS, 0,8 s |
+| `tb_mac3` | pela UART, com o firmware real: o MAC da B.4 no `M0` e no `M2`; o MAC de 4 bytes do `psec` no `M2` (confere, e não confere com um caractere trocado); o `C0`/`C2` do NIST com chave tripla; sete recusas | PASS, 3 h 40 |
+| `tb_ascii` | a porta host inteira; `cripto()`, `h_m0()` e `h_m2()` mudaram | PASS, 2 h 59 |
+| `tb_kek3` | o KAT do 3DES no primeiro componente 3DES e na restauração | PASS, 8 h 00 |
+| `tb_cvv` | o KAT do 3DES no primeiro uso, e `modo_mac_ok()`, que o retail MAC também usa | PASS, 3 h 34 |
+| `tb_tdes` | a chave 3DES no key store; o passo 6 mudou (abaixo) | PASS, 2 h 40 |
+| `tb_tr31_block` | o POST e a máscara dele | PASS, 13 min |
+
+As simulações rodaram 3 por vez. O `tb_cvv` passou do limite de 4 h quando
+rodou com outras três simulações ao mesmo tempo, e passou na repetição, sem
+mudança, com menos carga na máquina.
+
+⚠ **O `tb_tdes` conferia que o `C0` recusava chave 3DES (`11`).** Era a regra
+da 8.3, quando o `C0` só fazia AES, e a 8.9a a mudou. A simulação acusou
+`22`: o teste mandava IV de 16 bytes, e com chave 3DES o IV tem 8, então o
+pedido sobrava. Por decisão do usuário (2026-11-24), o passo virou três
+conferências: `C0` com IV de 8 bytes cifra, o `C2` devolve o texto, e IV de 16
+bytes com chave 3DES é `22`.
+
 ## PKCS#8 no key block
 
 Decisão do usuário em 2026-11-14: o conteúdo do key block de uma chave RSA ou de

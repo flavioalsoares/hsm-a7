@@ -19,6 +19,7 @@
 #include "sha.h"
 #include "tr31.h"
 #include "dukpt.h"
+#include "mac_tdes.h"
 #include "wipe.h"
 
 static unsigned g_ultimo = KAT_FALHA_AES  | KAT_FALHA_SHA  | KAT_FALHA_HMAC |
@@ -443,7 +444,7 @@ static unsigned kat_ecdsa(void)
 
 /* DES e 3DES contra o CAVP, desde a etapa 8.7 o CMAC-TDES e o key block
  * versao B (tr31b_selftest()), e desde a 8.8a o DUKPT TDES
- * (dukpt_selftest()). Os KATs de substituicao da SP 800-20 exercitam
+ * (dukpt_selftest()), e desde a 8.9a o retail MAC. Os KATs de substituicao da SP 800-20 exercitam
  * cada entrada das caixas S; os tres MMT cobrem a chave dupla, a tripla, o
  * CBC e as duas direcoes. */
 static unsigned kat_tdes(void)
@@ -494,6 +495,22 @@ static unsigned kat_tdes(void)
     if (dukpt_selftest() != 0) {
         d |= 1u;
     }
+    /* Etapa 8.9a: o retail MAC, um valor de cada preenchimento. Mesmo bit. */
+    if ((retail_mac(kat_rmac1_chave, (uint8_t)KAT_RMAC1_PAD, kat_rmac1_msg,
+                    KAT_RMAC1_MSG_LEN, saida) != 0)) {
+        d |= 1u;
+    }
+    for (j = 0u; j < RETAIL_MAC_LEN; j++) {
+        d |= (uint8_t)(saida[j] ^ kat_rmac1_mac[j]);
+    }
+    if ((retail_mac(kat_rmac2_chave, (uint8_t)KAT_RMAC2_PAD, kat_rmac2_msg,
+                    KAT_RMAC2_MSG_LEN, saida) != 0)) {
+        d |= 1u;
+    }
+    for (j = 0u; j < RETAIL_MAC_LEN; j++) {
+        d |= (uint8_t)(saida[j] ^ kat_rmac2_mac[j]);
+    }
+    wipe(saida, sizeof saida);
     return (d != 0u) ? KAT_FALHA_TDES : 0u;
 }
 

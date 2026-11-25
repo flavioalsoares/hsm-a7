@@ -483,7 +483,13 @@ static uint8_t h_k2(leitor_t *in, escritor_t *out)
     return ASCII_OK;
 }
 
-/* C0 / C2 -- AES-256-CBC: bloco . IV(32) . dados -> dados
+/* C0 / C2 -- CBC: bloco . IV . dados -> dados
+ *
+ * O algoritmo do cabecalho do bloco escolhe a cifra: AES-256 (IV de 32
+ * caracteres, dados multiplos de 16) ou, desde a etapa 8.9a, 3DES (IV de 16
+ * caracteres, dados multiplos de 8). O cabecalho e lido antes de abrir o
+ * bloco so para saber o tamanho do IV; ele e autenticado ao abrir, e a
+ * escolha final sai de `info.algoritmo`.
  *
  * Checklist: OPERATIONAL; sem dual control; e um oraculo de cifragem sob a
  * chave do bloco, como o ENCRYPT do console -- e o servico. O que limita e
@@ -495,25 +501,34 @@ static uint8_t cripto(leitor_t *in, escritor_t *out, int cifrar)
     const uint8_t *b = 0;
     uint16_t       bn = 0u;
     uint8_t        iv[AES_BLOCO];
-    uint32_t       n = 0u;
+    uint32_t       n = 0u, bloco_n;
     ks_info_t      info;
-    uint8_t        r;
+    uint8_t        r, tdes;
 
     if ((r = le_bloco(in, &b, &bn)) != ASCII_OK)               { return r; }
-    if ((r = le_hex(in, iv, AES_BLOCO)) != ASCII_OK)           { return r; }
+    tdes    = (b[7] == (uint8_t)KS_ALG_TDES) ? 1u : 0u;
+    bloco_n = tdes ? DES_BLOCO : AES_BLOCO;
+    if ((r = le_hex(in, iv, bloco_n)) != ASCII_OK)             { return r; }
     if ((r = le_dados(in, g_dados, ASCII_DADOS_MAX, &n)) != ASCII_OK) {
         return r;
     }
     if ((r = fim(in)) != ASCII_OK)                             { return r; }
-    if ((n == 0u) || ((n % AES_BLOCO) != 0u)) {
+    if ((n == 0u) || ((n % bloco_n) != 0u)) {
         return ASCII_DADOS;
     }
     if ((r = abre_bloco(b, bn, &info)) != ASCII_OK)            { return r; }
 
-    v = keystore_cbc_confere(KS_HANDLE_EFEMERA,
-                             cifrar ? (uint8_t)KS_MODO_CIFRA
-                                    : (uint8_t)KS_MODO_DECIFRA,
-                             iv, g_dados, g_res, n, cifrar);
+    if (info.algoritmo == (uint8_t)KS_ALG_TDES) {
+        v = keystore_tdes_cbc_confere(KS_HANDLE_EFEMERA,
+                                      cifrar ? (uint8_t)KS_MODO_CIFRA
+                                             : (uint8_t)KS_MODO_DECIFRA,
+                                      iv, g_dados, g_res, n, cifrar);
+    } else {
+        v = keystore_cbc_confere(KS_HANDLE_EFEMERA,
+                                 cifrar ? (uint8_t)KS_MODO_CIFRA
+                                        : (uint8_t)KS_MODO_DECIFRA,
+                                 iv, g_dados, g_res, n, cifrar);
+    }
     if (v == -1) {
         return ASCII_MODO;
     }
@@ -528,7 +543,35 @@ static uint8_t cripto(leitor_t *in, escritor_t *out, int cifrar)
 static uint8_t h_c0(leitor_t *in, escritor_t *out) { return cripto(in, out, 1); }
 static uint8_t h_c2(leitor_t *in, escritor_t *out) { return cripto(in, out, 0); }
 
-/* M0 -- CMAC-AES-256: bloco . dados -> MAC(32)
+/* Os dois campos do retail MAC (etapa 8.9a), depois do bloco 3DES: o
+ * preenchimento da ISO 9797-1 ('1' ou '2') e o tamanho do MAC em bytes
+ * ('4' ou '8'). */
+static uint8_t le_rmac(leitor_t *in, uint8_t *metodo, uint32_t *mac_n)
+{
+    uint8_t p, t;
+
+    if ((uint32_t)in->pos + 2u > in->n) {
+        return ASCII_MALFORMADA;
+    }
+    p = in->p[in->pos];
+    t = in->p[in->pos + 1u];
+    if (((p != (uint8_t)'1') && (p != (uint8_t)'2')) ||
+        ((t != (uint8_t)'4') && (t != (uint8_t)'8'))) {
+        return ASCII_PARAM;
+    }
+    *metodo = (uint8_t)(p - (uint8_t)'0');
+    *mac_n  = (uint32_t)(t - (uint8_t)'0');
+    in->pos = (uint16_t)(in->pos + 2u);
+    return ASCII_OK;
+}
+
+/* M0 -- MAC: bloco . dados -> MAC
+ *
+ * Bloco AES: CMAC-AES-256, MAC de 32 caracteres.
+ * Bloco 3DES (etapa 8.9a): retail MAC (ISO/IEC 9797-1, algoritmo 3), com
+ * dois campos antes dos dados -- bloco . preenchimento(1) . tamanho(1) .
+ * dados -> MAC de 8 ou 16 caracteres. A chave tem de ser dupla, e a
+ * mensagem nao pode ser vazia.
  *
  * Checklist: OPERATIONAL; sem dual control; oraculo de MAC sob a chave do
  * bloco, que e o servico; 'G' ou 'C' no `modo`; entra no log. */
@@ -538,17 +581,35 @@ static uint8_t h_m0(leitor_t *in, escritor_t *out)
     const uint8_t *b = 0;
     uint16_t       bn = 0u;
     uint8_t        tag[CMAC_TAG_LEN];
-    uint32_t       n = 0u;
+    uint32_t       n = 0u, mac_n = 0u;
     ks_info_t      info;
-    uint8_t        r;
+    uint8_t        r, tdes, metodo = 0u;
 
     if ((r = le_bloco(in, &b, &bn)) != ASCII_OK)               { return r; }
+    tdes = (b[7] == (uint8_t)KS_ALG_TDES) ? 1u : 0u;
+    if (tdes && ((r = le_rmac(in, &metodo, &mac_n)) != ASCII_OK)) {
+        return r;
+    }
     if ((r = le_dados(in, g_dados, ASCII_DADOS_MAX, &n)) != ASCII_OK) {
         return r;
     }
     if ((r = fim(in)) != ASCII_OK)                             { return r; }
+    if (tdes && (n == 0u)) {
+        return ASCII_DADOS;
+    }
     if ((r = abre_bloco(b, bn, &info)) != ASCII_OK)            { return r; }
 
+    if (info.algoritmo == (uint8_t)KS_ALG_TDES) {
+        v = keystore_retail_mac(KS_HANDLE_EFEMERA, 1, metodo, g_dados, n,
+                                tag, mac_n);
+        if (v != 0) {
+            return (v == -2) ? ASCII_ERRO_GRAVE
+                 : (v == -1) ? ASCII_MODO : ASCII_INTERNO;
+        }
+        poe_hex(out, tag, mac_n);
+        wipe(tag, sizeof tag);
+        return ASCII_OK;
+    }
     v = keystore_cmac(KS_HANDLE_EFEMERA, (n > 0u) ? g_dados : 0, n, tag);
     if (v != 0) {
         return (v == -2) ? ASCII_ERRO_GRAVE : ASCII_MODO;
@@ -557,30 +618,51 @@ static uint8_t h_m0(leitor_t *in, escritor_t *out)
     return ASCII_OK;
 }
 
-/* M2 -- verificar: bloco . MAC(32) . dados -> veredito no codigo de erro
+/* M2 -- verificar: bloco . MAC . dados -> veredito no codigo de erro
+ *
+ * Bloco AES: MAC de 32 caracteres (CMAC). Bloco 3DES (etapa 8.9a):
+ * bloco . preenchimento(1) . tamanho(1) . MAC(8 ou 16) . dados.
  *
  * UM BIT: 00 confere, 01 nao confere. A comparacao e em tempo constante,
- * dentro do key store. Devolver o MAC calculado entregaria 128 bits.
+ * dentro do key store. Devolver o MAC calculado entregaria o MAC inteiro.
  * 'V' ou 'C' no `modo`; entra no log. */
 static uint8_t h_m2(leitor_t *in, escritor_t *out)
 {
     const uint8_t *b = 0;
     uint16_t       bn = 0u;
     uint8_t        tag[CMAC_TAG_LEN];
-    uint32_t       n = 0u;
+    uint32_t       n = 0u, mac_n = CMAC_TAG_LEN;
     ks_info_t      info;
-    uint8_t        r;
+    uint8_t        r, tdes, metodo = 0u;
     int            v;
 
     (void)out;
     if ((r = le_bloco(in, &b, &bn)) != ASCII_OK)               { return r; }
-    if ((r = le_hex(in, tag, CMAC_TAG_LEN)) != ASCII_OK)       { return r; }
+    tdes = (b[7] == (uint8_t)KS_ALG_TDES) ? 1u : 0u;
+    if (tdes && ((r = le_rmac(in, &metodo, &mac_n)) != ASCII_OK)) {
+        return r;
+    }
+    if ((r = le_hex(in, tag, mac_n)) != ASCII_OK)              { return r; }
     if ((r = le_dados(in, g_dados, ASCII_DADOS_MAX, &n)) != ASCII_OK) {
         return r;
     }
     if ((r = fim(in)) != ASCII_OK)                             { return r; }
+    if (tdes && (n == 0u)) {
+        return ASCII_DADOS;
+    }
     if ((r = abre_bloco(b, bn, &info)) != ASCII_OK)            { return r; }
 
+    if (info.algoritmo == (uint8_t)KS_ALG_TDES) {
+        v = keystore_retail_mac(KS_HANDLE_EFEMERA, 0, metodo, g_dados, n,
+                                tag, mac_n);
+        if (v == -2) {
+            return ASCII_ERRO_GRAVE;
+        }
+        if (v < 0) {
+            return (v == -1) ? ASCII_MODO : ASCII_INTERNO;
+        }
+        return (v == 0) ? ASCII_OK : ASCII_VERIF_FALHOU;
+    }
     v = keystore_cmac_verifica(KS_HANDLE_EFEMERA, (n > 0u) ? g_dados : 0,
                                n, tag);
     if (v == -2) {

@@ -118,6 +118,41 @@ uso    fase 8, etapa 8.7 — key block sob KEK 3DES. Baixado em 2026-11-21.
        KBPK tripla com chave tripla. Esses casos são conferidos entre o C,
        o Python e a biblioteca `cryptography`.
 
+[Retail MAC — ISO/IEC 9797-1, algoritmo 3 (ANSI X9.19)]  valores de TERCEIROS, de duas fontes
+url    https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_mac.py
+sha256 d5c36aa09db80492434d4021d544c17304b017c3e7cc4fc19936b824eacfb518
+url    https://raw.githubusercontent.com/RustCrypto/MACs/753c4b6c040989f3f68672991fe7c87cf528f564/retail-mac/README.md
+sha256 9209750f7280b7c164b46ed7e111758064083ee9c75d817a1e557d34ed84fac7
+extrai 6 valores, pelo scripts/_extrai_retail_mac.py
+uso    fase 8, etapa 8.9a — MAC com chave 3DES. Baixado em 2026-11-23.
+       Decisão do usuário: da etapa 8.9 em diante, vetor de terceiros vem
+       de pelo menos duas fontes independentes.
+
+       ⚠ PROCEDÊNCIA: FONTE SECUNDÁRIA. A ISO/IEC 9797-1 e a X9.19 são
+       pagas, e não há vetor oficial público. As fontes: o teste da função
+       do `psec` (MIT; mesmo commit do CVV) e o exemplo do crate
+       `retail-mac` do RustCrypto (MIT/Apache-2.0), que diz transcrever a
+       ISO/IEC 9797-1:2011, seção B.4.
+
+       Duas leituras, e o extrator as documenta: o `psec` recebe as duas
+       chaves em 16 bytes ASCII com as metades iguais, o que faz do 3DES um
+       DES simples (K = 41…41, K' = 42…42); o crate preenche com zeros, o
+       preenchimento 1. `host/test_retail_mac.py` confere os 6 valores
+       contra a biblioteca `cryptography`.
+
+       Ficam fora: o preenchimento 3 do `psec` (este equipamento faz o 1 e
+       o 2), os casos repetidos sem tamanho, e o exemplo da documentação da
+       função do `psec`, que usa chaves de 16 bytes com metades diferentes:
+       isso não é o algoritmo 3 da norma, que usa DES simples na cadeia.
+
+       O que cobrem: a chave com K ≠ K'; os preenchimentos 1 e 2; mensagem
+       de 11, 22 e 24 bytes (bloco incompleto e completo); MAC de 4 e de 8
+       bytes.
+
+       O que NÃO cobrem: mensagem vazia, mensagem longa, e chave com K = K'
+       (o MAC vira um CBC-MAC de DES simples). Esses casos são conferidos
+       entre o C e o Python.
+
 [DUKPT AES — suplemento de vetores da ANSI X9.24-3:2017]  valores de TERCEIROS
 url    https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_aes128_test.c
 sha256 c23f8d711cd7c7bf1fa9397ae7cc7e6ba4f39222c6e6961d685161e417c71d2f
@@ -345,6 +380,7 @@ b0f695ad165b5855801122e178750bc5acd3e8413a5d82b27fc00b5b20339494  tdes/TECBpermo
 c4be8b474093b9a90c33d8f9dd63c99635b61b769a332b58f14f29a309edeb9c  tdes/TECBvarkey.rsp
 f2f3bf4b729fe132b0f9010f5b61c1dffad20723a659bfe4f82169cc40325909  tdes/TECBvartext.rsp
 e354b7b0b2fdc6f296ba0560cc55ec82de4cf37a2d3e32383657088235da191e  dukpt/x924_1_tdes.rsp
+f61f2c1689df68370d20d86fea66c977c2696eb77df166a174874a86332cdee9  mac/retail_mac.rsp
 d2a4a17a97d66dc1dc45b4fc340c710d226227404f3d7eb1356f4cbd47401f95  dukpt/x924_3_aes128.rsp
 35214a649b86e6a653f336f7ee38452afcf4767d25e3ba409f7f74275eec575d  dukpt/x924_3_aes256.rsp
 62f17126e870b9700234cc5b592b5bb50b295320b9844f341ee58a33eae735e6  aes/ECBGFSbox128.rsp

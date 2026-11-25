@@ -507,6 +507,43 @@ def tr31b_e_cmac_tdes():
     return cmac, tr31b
 
 
+def retail_mac_vetores():
+    """Etapa 8.9a: dois valores de retail MAC (ISO/IEC 9797-1, algoritmo 3) de
+    vectors/mac/retail_mac.rsp, valores de terceiros -- ver o MANIFEST. Um de
+    cada preenchimento, com o MAC de 8 bytes: o da ISO/IEC 9797-1:2011 B.4
+    (RustCrypto, preenchimento 1, 24 bytes, bloco completo) e o do psec
+    (preenchimento 2, 11 bytes)."""
+    regs, reg, fonte = [], {}, ""
+    for ln in (VEC / "mac" / "retail_mac.rsp").read_text().splitlines():
+        ln = ln.strip()
+        if not ln:
+            if reg:
+                reg["fonte"] = fonte
+                regs.append(reg)
+                reg = {}
+            continue
+        if ln.startswith("#"):
+            fonte = ln
+            continue
+        k, v = [x.strip() for x in ln.split("=", 1)]
+        reg[k] = v
+    if reg:
+        reg["fonte"] = fonte
+        regs.append(reg)
+    if len(regs) != 6:
+        raise SystemExit("retail MAC: esperava 6 valores, achei %d" % len(regs))
+
+    def um(pad, tem):
+        achados = [r for r in regs if r["PAD"] == pad and len(r["MAC"]) == 16
+                   and tem in r["fonte"]]
+        if not achados:
+            raise SystemExit("retail MAC: falta o valor PAD %s de %s" % (pad, tem))
+        r = achados[0]
+        return {"chave": bytes.fromhex(r["KEY"]), "msg": bytes.fromhex(r["MSG"]),
+                "mac": bytes.fromhex(r["MAC"]), "pad": int(pad)}
+    return [um("1", "RustCrypto"), um("2", "psec")]
+
+
 def dukpt_tdes():
     """Etapa 8.8a: um caso do DUKPT TDES de vectors/dukpt/x924_1_tdes.rsp,
     valores de terceiros (X9.24-1:2009 A.4, transcritos pelo openemv/dukpt;
@@ -787,6 +824,14 @@ def main():
     L.append(f"#define KAT_TR31B_KEY_LEN {len(tr31b['key'])}u")
     L.append(carr("kat_tr31b_kb", tr31b["kb"]))
     L.append(f"#define KAT_TR31B_KB_LEN {len(tr31b['kb'])}u")
+    L.append("/* Etapa 8.9a: retail MAC, valores de terceiros (vectors/mac/retail_mac.rsp),")
+    L.append(" * um de cada preenchimento. Autoteste de primeiro uso do 3DES. */")
+    for j, rv in enumerate(retail_mac_vetores(), 1):
+        L.append(carr("kat_rmac%d_chave" % j, rv["chave"]))
+        L.append(carr("kat_rmac%d_msg" % j, rv["msg"]))
+        L.append(f"#define KAT_RMAC{j}_MSG_LEN {len(rv['msg'])}u")
+        L.append(f"#define KAT_RMAC{j}_PAD {rv['pad']}u")
+        L.append(carr("kat_rmac%d_mac" % j, rv["mac"]))
     dk = dukpt_tdes()
     L.append(carr("kat_dukpt_bdk", dk["bdk"]))
     L.append(carr("kat_dukpt_ksn", dk["ksn"]))

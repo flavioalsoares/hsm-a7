@@ -41,6 +41,27 @@ pega erro frequente. Erro raro, de borda, só é pego por um caso **escolhido**
 para ele. Por isso os testes aqui têm as duas coisas: vetores escolhidos para
 as bordas, e sorteio para o resto.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 240" xmlns="http://www.w3.org/2000/svg">
+<line class="ln" x1="70" y1="190" x2="640" y2="190" marker-end="url(#seta)"/>
+<line class="ln" x1="70" y1="190" x2="70" y2="20" marker-end="url(#seta)"/>
+<g class="ts"><text x="70" y="206" text-anchor="middle">0</text><text x="180" y="206" text-anchor="middle">100</text><text x="290" y="206" text-anchor="middle">200</text><text x="400" y="206" text-anchor="middle">300</text><text x="510" y="206" text-anchor="middle">400</text><text x="620" y="206" text-anchor="middle">500</text>
+<text x="62" y="194" text-anchor="end">0</text><text x="62" y="114" text-anchor="end">0,5</text><text x="62" y="34" text-anchor="end">1</text></g>
+<line class="grade" x1="70" y1="110" x2="630" y2="110"/><line class="grade" x1="70" y1="30" x2="630" y2="30"/>
+<polyline points="70.0,30.0 75.5,30.8 81.0,31.6 86.5,32.4 92.0,33.2 97.5,34.0 103.0,34.7 108.5,35.5 114.0,36.3 119.5,37.0 125.0,37.8 130.5,38.6 136.0,39.3 141.5,40.1 147.0,40.8 152.5,41.6 158.0,42.3 163.5,43.0 169.0,43.8 174.5,44.5 180.0,45.2 185.5,46.0 191.0,46.7 196.5,47.4 202.0,48.1 207.5,48.8 213.0,49.5 218.5,50.2 224.0,50.9 229.5,51.6 235.0,52.3 240.5,53.0 246.0,53.7 251.5,54.3 257.0,55.0 262.5,55.7 268.0,56.4 273.5,57.0 279.0,57.7 284.5,58.4 290.0,59.0 295.5,59.7 301.0,60.3 306.5,61.0 312.0,61.6 317.5,62.3 323.0,62.9 328.5,63.5 334.0,64.2 339.5,64.8 345.0,65.4 350.5,66.0 356.0,66.6 361.5,67.3 367.0,67.9 372.5,68.5 378.0,69.1 383.5,69.7 389.0,70.3 394.5,70.9 400.0,71.5 405.5,72.1 411.0,72.7 416.5,73.3 422.0,73.8 427.5,74.4 433.0,75.0 438.5,75.6 444.0,76.1 449.5,76.7 455.0,77.3 460.5,77.8 466.0,78.4 471.5,78.9 477.0,79.5 482.5,80.1 488.0,80.6 493.5,81.1 499.0,81.7 504.5,82.2 510.0,82.8 515.5,83.3 521.0,83.8 526.5,84.4 532.0,84.9 537.5,85.4 543.0,85.9 548.5,86.5 554.0,87.0 559.5,87.5 565.0,88.0 570.5,88.5 576.0,89.0 581.5,89.5 587.0,90.0 592.5,90.5 598.0,91.0 603.5,91.5 609.0,92.0 614.5,92.5 620.0,93.0" fill="none" stroke="#888" stroke-width="2"/><polyline points="70.0,30.0 75.5,37.8 81.0,45.3 86.5,52.4 92.0,59.1 97.5,65.5 103.0,71.6 108.5,77.4 114.0,83.0 119.5,88.2 125.0,93.2 130.5,97.9 136.0,102.5 141.5,106.7 147.0,110.8 152.5,114.7 158.0,118.4 163.5,121.9 169.0,125.2 174.5,128.4 180.0,131.4 185.5,134.3 191.0,137.0 196.5,139.6 202.0,142.1 207.5,144.4 213.0,146.7 218.5,148.8 224.0,150.8 229.5,152.7 235.0,154.6 240.5,156.3 246.0,158.0 251.5,159.5 257.0,161.0 262.5,162.4 268.0,163.8 273.5,165.1 279.0,166.3 284.5,167.5 290.0,168.6 295.5,169.6 301.0,170.6 306.5,171.6 312.0,172.5 317.5,173.3 323.0,174.1 328.5,174.9 334.0,175.7 339.5,176.4 345.0,177.0 350.5,177.7 356.0,178.3 361.5,178.8 367.0,179.4 372.5,179.9 378.0,180.4 383.5,180.9 389.0,181.3 394.5,181.7 400.0,182.2 405.5,182.5 411.0,182.9 416.5,183.3 422.0,183.6 427.5,183.9 433.0,184.2 438.5,184.5 444.0,184.8 449.5,185.0 455.0,185.3 460.5,185.5 466.0,185.7 471.5,185.9 477.0,186.1 482.5,186.3 488.0,186.5 493.5,186.7 499.0,186.8 504.5,187.0 510.0,187.1 515.5,187.3 521.0,187.4 526.5,187.5 532.0,187.7 537.5,187.8 543.0,187.9 548.5,188.0 554.0,188.1 559.5,188.2 565.0,188.3 570.5,188.3 576.0,188.4 581.5,188.5 587.0,188.6 592.5,188.6 598.0,188.7 603.5,188.8 609.0,188.8 614.5,188.9 620.0,188.9" fill="none" stroke="#2d4f73" stroke-width="2"/><polyline points="70.0,30.0 75.5,66.2 81.0,94.2 86.5,115.9 92.0,132.6 97.5,145.6 103.0,155.7 108.5,163.4 114.0,169.4 119.5,174.1 125.0,177.7 130.5,180.5 136.0,182.6 141.5,184.3 147.0,185.6 152.5,186.6 158.0,187.4 163.5,188.0 169.0,188.4 174.5,188.8 180.0,189.1 185.5,189.3 191.0,189.4 196.5,189.6 202.0,189.7 207.5,189.7 213.0,189.8 218.5,189.8 224.0,189.9 229.5,189.9 235.0,189.9 240.5,189.9 246.0,190.0 251.5,190.0 257.0,190.0 262.5,190.0 268.0,190.0 273.5,190.0 279.0,190.0 284.5,190.0 290.0,190.0 295.5,190.0 301.0,190.0 306.5,190.0 312.0,190.0 317.5,190.0 323.0,190.0 328.5,190.0 334.0,190.0 339.5,190.0 345.0,190.0 350.5,190.0 356.0,190.0 361.5,190.0 367.0,190.0 372.5,190.0 378.0,190.0 383.5,190.0 389.0,190.0 394.5,190.0 400.0,190.0 405.5,190.0 411.0,190.0 416.5,190.0 422.0,190.0 427.5,190.0 433.0,190.0 438.5,190.0 444.0,190.0 449.5,190.0 455.0,190.0 460.5,190.0 466.0,190.0 471.5,190.0 477.0,190.0 482.5,190.0 488.0,190.0 493.5,190.0 499.0,190.0 504.5,190.0 510.0,190.0 515.5,190.0 521.0,190.0 526.5,190.0 532.0,190.0 537.5,190.0 543.0,190.0 548.5,190.0 554.0,190.0 559.5,190.0 565.0,190.0 570.5,190.0 576.0,190.0 581.5,190.0 587.0,190.0 592.5,190.0 598.0,190.0 603.5,190.0 609.0,190.0 614.5,190.0 620.0,190.0" fill="none" stroke="#7a1f1f" stroke-width="2"/>
+<line x1="180" y1="190" x2="180" y2="30" stroke="#555" stroke-dasharray="3 3"/>
+<text x="186" y="127.4" class="ts" fill="#2d4f73">37%</text>
+<text x="186" y="183.0" class="ts td">0,6%</text>
+<text x="560" y="80.0" class="ts" fill="#888">f = 0,1%</text>
+<text x="420" y="174.2" class="ts" fill="#2d4f73">f = 1%</text>
+<text x="100" y="185.4" class="ts td">f = 5%</text>
+<text x="355" y="230" text-anchor="middle" class="ts">n, entradas sorteadas</text>
+<text x="20" y="105" class="ts" transform="rotate(-90 20 105)" text-anchor="middle">chance de o defeito escapar</text>
+</svg>
+<figcaption>Figura 40.1 — (1 − f)ⁿ: a chance de um defeito que afeta a fração f das entradas escapar de n sorteios. Erro raro pede caso escolhido.</figcaption>
+</figure>
+
 **Zero falhas em `n` tentativas é uma medida, e não uma garantia.** Se a
 taxa real de falha fosse `p`, a chance de ver zero falhas em `n` tentativas
 seria `(1 − p)^n`. Com 95% de confiança, a taxa real é menor que
@@ -83,6 +104,25 @@ ruído físico. A placa não deixa ver por dentro.
 A ordem é fixa: PC, simulação, placa. Um erro de enchimento que aparece na
 placa aparece como "resposta errada", sem pista. Na simulação, o mesmo erro
 aparece com todos os sinais à vista.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 190" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxv" x="10" y="40" width="150" height="70"/><text x="85" y="62" text-anchor="middle" class="tb">no PC</text><text x="85" y="80" text-anchor="middle" class="ts">C com gcc, e Python</text><text x="85" y="94" text-anchor="middle" class="ts">segundos</text>
+<rect class="cxa" x="180" y="40" width="150" height="70"/><text x="255" y="62" text-anchor="middle" class="tb">simulação</text><text x="255" y="80" text-anchor="middle" class="ts">circuito e firmware reais</text><text x="255" y="94" text-anchor="middle" class="ts">horas</text>
+<rect class="cx" x="350" y="40" width="150" height="70"/><text x="425" y="62" text-anchor="middle" class="tb">na placa</text><text x="425" y="80" text-anchor="middle" class="ts">o silício, pela serial</text><text x="425" y="94" text-anchor="middle" class="ts">minutos</text>
+<rect class="cxd" x="520" y="40" width="150" height="70"/><text x="595" y="62" text-anchor="middle" class="tb">no boot</text><text x="595" y="80" text-anchor="middle" class="ts">o autoteste</text><text x="595" y="94" text-anchor="middle" class="ts">28 ms, sempre</text>
+<line class="ln" x1="160" y1="75" x2="178" y2="75" marker-end="url(#seta)"/>
+<line class="ln" x1="330" y1="75" x2="348" y2="75" marker-end="url(#seta)"/>
+<line class="ln" x1="500" y1="75" x2="518" y2="75" marker-end="url(#seta)"/>
+<text x="85" y="130" text-anchor="middle" class="ts">milhares de casos</text><text x="85" y="144" text-anchor="middle" class="ts">e as bordas</text>
+<text x="255" y="130" text-anchor="middle" class="ts">sinais internos,</text><text x="255" y="144" text-anchor="middle" class="ts">falhas provocadas</text>
+<text x="425" y="130" text-anchor="middle" class="ts">ruído, temperatura,</text><text x="425" y="144" text-anchor="middle" class="ts">o gerador de verdade</text>
+<text x="595" y="130" text-anchor="middle" class="ts">esta placa,</text><text x="595" y="144" text-anchor="middle" class="ts">agora</text>
+<text x="340" y="178" text-anchor="middle" class="ts">o que só aquele lugar vê; um erro achado mais à esquerda custa menos para achar a causa</text>
+</svg>
+<figcaption>Figura 40.2 — Os quatro lugares onde se testa. Cada um cobre o que os outros não alcançam.</figcaption>
+</figure>
 
 ## 41. Testes de resposta conhecida
 
@@ -254,6 +294,19 @@ formato usam as outras três referências da seção 40.
 
 O MAC do bloco tem 128 bits. Quem não tem a chave acerta um MAC com chance
 de `2⁻¹²⁸` por tentativa.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 170" xmlns="http://www.w3.org/2000/svg">
+<text x="20" y="20" class="ts">as 112 posições de um key block AES; troca-se um caractere por vez</text>
+<rect class="cxa" x="20" y="30" width="20" height="22"/><text x="30" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="42" y="30" width="20" height="22"/><text x="52" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="64" y="30" width="20" height="22"/><text x="74" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="86" y="30" width="20" height="22"/><text x="96" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="108" y="30" width="20" height="22"/><text x="118" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="130" y="30" width="20" height="22"/><text x="140" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="152" y="30" width="20" height="22"/><text x="162" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="174" y="30" width="20" height="22"/><text x="184" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="196" y="30" width="20" height="22"/><text x="206" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="218" y="30" width="20" height="22"/><text x="228" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="240" y="30" width="20" height="22"/><text x="250" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="262" y="30" width="20" height="22"/><text x="272" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="284" y="30" width="20" height="22"/><text x="294" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="306" y="30" width="20" height="22"/><text x="316" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="328" y="30" width="20" height="22"/><text x="338" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cxa" x="350" y="30" width="20" height="22"/><text x="360" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="372" y="30" width="20" height="22"/><text x="382" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="394" y="30" width="20" height="22"/><text x="404" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="416" y="30" width="20" height="22"/><text x="426" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="438" y="30" width="20" height="22"/><text x="448" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="460" y="30" width="20" height="22"/><text x="470" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="482" y="30" width="20" height="22"/><text x="492" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="504" y="30" width="20" height="22"/><text x="514" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="526" y="30" width="20" height="22"/><text x="536" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="548" y="30" width="20" height="22"/><text x="558" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="570" y="30" width="20" height="22"/><text x="580" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="592" y="30" width="20" height="22"/><text x="602" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="614" y="30" width="20" height="22"/><text x="624" y="46" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="20" y="56" width="20" height="22"/><text x="30" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="42" y="56" width="20" height="22"/><text x="52" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="64" y="56" width="20" height="22"/><text x="74" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="86" y="56" width="20" height="22"/><text x="96" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="108" y="56" width="20" height="22"/><text x="118" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="130" y="56" width="20" height="22"/><text x="140" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="152" y="56" width="20" height="22"/><text x="162" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="174" y="56" width="20" height="22"/><text x="184" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="196" y="56" width="20" height="22"/><text x="206" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="218" y="56" width="20" height="22"/><text x="228" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="240" y="56" width="20" height="22"/><text x="250" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="262" y="56" width="20" height="22"/><text x="272" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="284" y="56" width="20" height="22"/><text x="294" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="306" y="56" width="20" height="22"/><text x="316" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="328" y="56" width="20" height="22"/><text x="338" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="350" y="56" width="20" height="22"/><text x="360" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="372" y="56" width="20" height="22"/><text x="382" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="394" y="56" width="20" height="22"/><text x="404" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="416" y="56" width="20" height="22"/><text x="426" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="438" y="56" width="20" height="22"/><text x="448" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="460" y="56" width="20" height="22"/><text x="470" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="482" y="56" width="20" height="22"/><text x="492" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="504" y="56" width="20" height="22"/><text x="514" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="526" y="56" width="20" height="22"/><text x="536" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="548" y="56" width="20" height="22"/><text x="558" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="570" y="56" width="20" height="22"/><text x="580" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="592" y="56" width="20" height="22"/><text x="602" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="614" y="56" width="20" height="22"/><text x="624" y="72" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="20" y="82" width="20" height="22"/><text x="30" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="42" y="82" width="20" height="22"/><text x="52" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="64" y="82" width="20" height="22"/><text x="74" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="86" y="82" width="20" height="22"/><text x="96" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="108" y="82" width="20" height="22"/><text x="118" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="130" y="82" width="20" height="22"/><text x="140" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="152" y="82" width="20" height="22"/><text x="162" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="174" y="82" width="20" height="22"/><text x="184" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="196" y="82" width="20" height="22"/><text x="206" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="218" y="82" width="20" height="22"/><text x="228" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="240" y="82" width="20" height="22"/><text x="250" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="262" y="82" width="20" height="22"/><text x="272" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="284" y="82" width="20" height="22"/><text x="294" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="306" y="82" width="20" height="22"/><text x="316" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="328" y="82" width="20" height="22"/><text x="338" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="350" y="82" width="20" height="22"/><text x="360" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="372" y="82" width="20" height="22"/><text x="382" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="394" y="82" width="20" height="22"/><text x="404" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="416" y="82" width="20" height="22"/><text x="426" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="438" y="82" width="20" height="22"/><text x="448" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="460" y="82" width="20" height="22"/><text x="470" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="482" y="82" width="20" height="22"/><text x="492" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="504" y="82" width="20" height="22"/><text x="514" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cx" x="526" y="82" width="20" height="22"/><text x="536" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="548" y="82" width="20" height="22"/><text x="558" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="570" y="82" width="20" height="22"/><text x="580" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="592" y="82" width="20" height="22"/><text x="602" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="614" y="82" width="20" height="22"/><text x="624" y="98" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="20" y="108" width="20" height="22"/><text x="30" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="42" y="108" width="20" height="22"/><text x="52" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="64" y="108" width="20" height="22"/><text x="74" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="86" y="108" width="20" height="22"/><text x="96" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="108" y="108" width="20" height="22"/><text x="118" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="130" y="108" width="20" height="22"/><text x="140" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="152" y="108" width="20" height="22"/><text x="162" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="174" y="108" width="20" height="22"/><text x="184" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="196" y="108" width="20" height="22"/><text x="206" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="218" y="108" width="20" height="22"/><text x="228" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="240" y="108" width="20" height="22"/><text x="250" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="262" y="108" width="20" height="22"/><text x="272" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="284" y="108" width="20" height="22"/><text x="294" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="306" y="108" width="20" height="22"/><text x="316" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="328" y="108" width="20" height="22"/><text x="338" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="350" y="108" width="20" height="22"/><text x="360" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="372" y="108" width="20" height="22"/><text x="382" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="394" y="108" width="20" height="22"/><text x="404" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="416" y="108" width="20" height="22"/><text x="426" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="438" y="108" width="20" height="22"/><text x="448" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="460" y="108" width="20" height="22"/><text x="470" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="482" y="108" width="20" height="22"/><text x="492" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="504" y="108" width="20" height="22"/><text x="514" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="526" y="108" width="20" height="22"/><text x="536" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="548" y="108" width="20" height="22"/><text x="558" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="570" y="108" width="20" height="22"/><text x="580" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="592" y="108" width="20" height="22"/><text x="602" y="124" text-anchor="middle" class="ts td">✗</text><rect class="cxv" x="614" y="108" width="20" height="22"/><text x="624" y="124" text-anchor="middle" class="ts td">✗</text>
+<rect class="cxa" x="20" y="142" width="14" height="14"/><text x="40" y="154" class="ts">cabeçalho (16)</text>
+<rect class="cx" x="150" y="142" width="14" height="14"/><text x="170" y="154" class="ts">corpo cifrado (64)</text>
+<rect class="cxv" x="300" y="142" width="14" height="14"/><text x="320" y="154" class="ts">MAC (32)</text>
+<text x="420" y="154" class="ts td">✗ = o equipamento tem de recusar</text>
+</svg>
+<figcaption>Figura 42.1 — O teste de um caractere trocado. Uma implementação que deixa o cabeçalho fora do MAC passa nos outros testes e falha nas 16 primeiras casas.</figcaption>
+</figure>
 
 **O acordo entre as duas implementações.** O formato está escrito em C e em
 Python. Um teste gera 100 chaves no equipamento, exporta, abre no Python, e
@@ -657,6 +710,57 @@ publicado refeito sob ela, e a chave de PIN AES-256 da mesma transação.
 conta é a da norma, e não a da transcrição; que o equipamento conversa com
 um terminal real; e as chaves de MAC e de dados DUKPT, que são da etapa 8.9.
 
+### 42.10 O retail MAC e os dados com 3DES
+
+O retail MAC da seção 39.10 não tem vetor oficial público: a ISO/IEC 9797-1
+e a X9.19 são pagas. Desde a etapa 8.9, um valor de terceiros só entra com
+**duas fontes independentes**.
+
+**Os valores de terceiros.** Seis, de duas fontes, fixadas por commit e por
+hash:
+
+- o teste da função do `psec`: a mesma mensagem com os preenchimentos 1 e 2,
+  e o MAC de 8 e de 4 bytes;
+- o exemplo do crate `retail-mac` do RustCrypto, que transcreve a seção B.4
+  da ISO/IEC 9797-1:2011: duas mensagens, de 24 e de 22 bytes.
+
+As duas fontes pedem uma leitura, e o extrator a escreve. O `psec` recebe
+cada chave em 16 bytes com as metades iguais, o que faz do 3DES um DES
+simples: a chave `K ‖ K'` sai das duas metades. O crate preenche com zeros, o
+método 1. Um terceiro valor do `psec`, o exemplo da documentação da função,
+fica fora: usa chaves de metades diferentes, e isso não é o algoritmo da
+norma.
+
+**Duas implementações.** O `host/test_retail_mac.py` confere o Python
+(`host/mac_tdes.py`, com o DES da biblioteca `cryptography`) e o C
+(`fw/src/mac_tdes.c`, com o `des.c` do firmware) contra os seis valores.
+Depois, os dois calculam o MAC de 2 000 mensagens ao acaso, de 1 a 160 bytes,
+nos dois preenchimentos, e de todo tamanho de 1 a 40 bytes, onde moram as
+bordas de bloco. Uma em vinte chaves tem `K = K'`, o caso em que o MAC vira um
+CBC-MAC de DES simples. Mensagem vazia e preenchimento 0 ou 3 têm de ser
+recusados nos dois.
+
+**O 3DES-CBC** tem vetor oficial, os MMT do NIST (seção 41.3), e o teste o
+confere no Python nas duas direções.
+
+**No firmware real.** O `tb_mac3` leva ao equipamento as chaves publicadas,
+embrulhadas sob a LMK, e pede:
+
+1. o `M0` com a chave e a mensagem da B.4: o MAC publicado. O primeiro uso
+   de chave 3DES roda o autoteste do 3DES, que inclui o retail MAC;
+2. o `M2` com o mesmo MAC: confere;
+3. o `M2` com a chave do `psec`, em modo `V`, e o MAC de 4 bytes do
+   preenchimento 2: confere; com um caractere trocado, não confere (`01`);
+4. o `C0` e o `C2` com o vetor CBC de chave tripla do NIST, de 64 bytes: a
+   saída publicada, nos dois sentidos;
+5. sete recusas: `M0` com chave de modo `V`, com chave tripla e com chave
+   `D0` (`11`); mensagem vazia (`15`); preenchimento 3 (`16`); `C2` com
+   chave de modo `E` (`11`); `C0` com 12 bytes (`15`).
+
+**O que estes testes não provam.** Que a conta é a da norma, e não a das
+duas fontes: as duas podem ter lido a norma do mesmo jeito errado. Duas
+fontes independentes tornam isso menos provável, e não impossível.
+
 ## 43. Testes do gerador aleatório
 
 Não existe KAT para aleatoriedade. Um gerador que devolve sempre a mesma
@@ -699,6 +803,23 @@ O limite é o valor que a contagem só ultrapassa com probabilidade `α`: é a
 cauda da binomial, calculada por programa, e dá **793**. Uma fonte que solta
 o mesmo valor em 85% das amostras passa no teste de repetição, porque nunca
 repete 41 vezes seguidas, e reprova aqui.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 240" xmlns="http://www.w3.org/2000/svg">
+<line class="ln" x1="40" y1="190" x2="660" y2="190"/>
+<polyline points="42.4,190.0 44.8,190.0 47.2,190.0 49.6,190.0 52.0,190.0 54.4,190.0 56.8,190.0 59.2,190.0 61.6,190.0 64.0,190.0 66.4,190.0 68.8,190.0 71.2,190.0 73.6,190.0 76.0,190.0 78.4,189.9 80.8,189.9 83.2,189.9 85.6,189.9 88.0,189.8 90.4,189.8 92.8,189.7 95.2,189.7 97.6,189.6 100.0,189.5 102.4,189.3 104.8,189.2 107.2,189.0 109.6,188.7 112.0,188.4 114.4,188.1 116.8,187.7 119.2,187.2 121.6,186.6 124.0,185.9 126.4,185.1 128.8,184.2 131.2,183.1 133.6,181.9 136.0,180.5 138.4,178.9 140.8,177.1 143.2,175.0 145.6,172.7 148.0,170.2 150.4,167.4 152.8,164.2 155.2,160.8 157.6,157.1 160.0,153.1 162.4,148.7 164.8,144.1 167.2,139.2 169.6,134.0 172.0,128.5 174.4,122.8 176.8,117.0 179.2,110.9 181.6,104.8 184.0,98.6 186.4,92.4 188.8,86.3 191.2,80.3 193.6,74.5 196.0,68.9 198.4,63.7 200.8,58.8 203.2,54.4 205.6,50.5 208.0,47.1 210.4,44.3 212.8,42.2 215.2,40.8 217.6,40.0 220.0,39.9 222.4,40.6 224.8,41.9 227.2,44.0 229.6,46.7 232.0,50.0 234.4,53.8 236.8,58.3 239.2,63.1 241.6,68.4 244.0,74.0 246.4,79.9 248.8,86.0 251.2,92.2 253.6,98.5 256.0,104.8 258.4,111.1 260.8,117.2 263.2,123.2 265.6,129.0 268.0,134.6 270.4,139.9 272.8,144.9 275.2,149.7 277.6,154.1 280.0,158.2 282.4,161.9 284.8,165.3 287.2,168.5 289.6,171.3 292.0,173.8 294.4,176.1 296.8,178.1 299.2,179.9 301.6,181.4 304.0,182.8 306.4,183.9 308.8,184.9 311.2,185.8 313.6,186.5 316.0,187.1 318.4,187.7 320.8,188.1 323.2,188.5 325.6,188.8 328.0,189.0 330.4,189.2 332.8,189.4 335.2,189.5 337.6,189.6 340.0,189.7 342.4,189.8 344.8,189.8 347.2,189.9 349.6,189.9 352.0,189.9 354.4,189.9 356.8,190.0 359.2,190.0 361.6,190.0 364.0,190.0 366.4,190.0 368.8,190.0 371.2,190.0 373.6,190.0 376.0,190.0 378.4,190.0 380.8,190.0 383.2,190.0 385.6,190.0 388.0,190.0 390.4,190.0 392.8,190.0 395.2,190.0 397.6,190.0 400.0,190.0 402.4,190.0 404.8,190.0 407.2,190.0 409.6,190.0 412.0,190.0 414.4,190.0 416.8,190.0 419.2,190.0 421.6,190.0 424.0,190.0 426.4,190.0 428.8,190.0 431.2,190.0 433.6,190.0 436.0,190.0 438.4,190.0 440.8,190.0 443.2,190.0 445.6,190.0 448.0,190.0 450.4,190.0 452.8,190.0 455.2,190.0 457.6,190.0 460.0,190.0 462.4,190.0 464.8,190.0 467.2,190.0 469.6,190.0 472.0,190.0 474.4,190.0 476.8,190.0 479.2,190.0 481.6,190.0 484.0,190.0 486.4,190.0 488.8,190.0 491.2,190.0 493.6,190.0 496.0,190.0 498.4,190.0 500.8,190.0 503.2,190.0 505.6,190.0 508.0,190.0 510.4,190.0 512.8,190.0 515.2,190.0 517.6,190.0 520.0,190.0 522.4,190.0 524.8,190.0 527.2,190.0 529.6,190.0 532.0,190.0 534.4,190.0 536.8,190.0 539.2,190.0 541.6,190.0 544.0,190.0 546.4,190.0 548.8,190.0 551.2,190.0 553.6,190.0 556.0,190.0 558.4,190.0 560.8,190.0 563.2,190.0 565.6,190.0 568.0,190.0 570.4,190.0 572.8,190.0 575.2,190.0 577.6,190.0 580.0,190.0 582.4,190.0 584.8,190.0 587.2,190.0 589.6,190.0 592.0,190.0 594.4,190.0 596.8,190.0 599.2,190.0 601.6,190.0 604.0,190.0 606.4,190.0 608.8,190.0 611.2,190.0 613.6,190.0 616.0,190.0 618.4,190.0 620.8,190.0 623.2,190.0 625.6,190.0 628.0,190.0 630.4,190.0 632.8,190.0 635.2,190.0 637.6,190.0 640.0,190.0" fill="none" stroke="#2f5f2f" stroke-width="2"/>
+<polyline points="42.4,190.0 44.8,190.0 47.2,190.0 49.6,190.0 52.0,190.0 54.4,190.0 56.8,190.0 59.2,190.0 61.6,190.0 64.0,190.0 66.4,190.0 68.8,190.0 71.2,190.0 73.6,190.0 76.0,190.0 78.4,190.0 80.8,190.0 83.2,190.0 85.6,190.0 88.0,190.0 90.4,190.0 92.8,190.0 95.2,190.0 97.6,190.0 100.0,190.0 102.4,190.0 104.8,190.0 107.2,190.0 109.6,190.0 112.0,190.0 114.4,190.0 116.8,190.0 119.2,190.0 121.6,190.0 124.0,190.0 126.4,190.0 128.8,190.0 131.2,190.0 133.6,190.0 136.0,190.0 138.4,190.0 140.8,190.0 143.2,190.0 145.6,190.0 148.0,190.0 150.4,190.0 152.8,190.0 155.2,190.0 157.6,190.0 160.0,190.0 162.4,190.0 164.8,190.0 167.2,190.0 169.6,190.0 172.0,190.0 174.4,190.0 176.8,190.0 179.2,190.0 181.6,190.0 184.0,190.0 186.4,190.0 188.8,190.0 191.2,190.0 193.6,190.0 196.0,190.0 198.4,190.0 200.8,190.0 203.2,190.0 205.6,190.0 208.0,190.0 210.4,190.0 212.8,190.0 215.2,190.0 217.6,190.0 220.0,190.0 222.4,190.0 224.8,190.0 227.2,190.0 229.6,190.0 232.0,190.0 234.4,190.0 236.8,190.0 239.2,190.0 241.6,190.0 244.0,190.0 246.4,190.0 248.8,190.0 251.2,190.0 253.6,190.0 256.0,190.0 258.4,190.0 260.8,190.0 263.2,190.0 265.6,190.0 268.0,190.0 270.4,190.0 272.8,190.0 275.2,190.0 277.6,190.0 280.0,190.0 282.4,190.0 284.8,190.0 287.2,190.0 289.6,190.0 292.0,190.0 294.4,190.0 296.8,190.0 299.2,190.0 301.6,190.0 304.0,190.0 306.4,190.0 308.8,190.0 311.2,190.0 313.6,190.0 316.0,190.0 318.4,190.0 320.8,190.0 323.2,190.0 325.6,190.0 328.0,190.0 330.4,190.0 332.8,190.0 335.2,190.0 337.6,190.0 340.0,190.0 342.4,190.0 344.8,190.0 347.2,190.0 349.6,190.0 352.0,190.0 354.4,190.0 356.8,190.0 359.2,190.0 361.6,190.0 364.0,190.0 366.4,190.0 368.8,190.0 371.2,190.0 373.6,190.0 376.0,190.0 378.4,190.0 380.8,190.0 383.2,190.0 385.6,190.0 388.0,190.0 390.4,190.0 392.8,190.0 395.2,190.0 397.6,190.0 400.0,190.0 402.4,190.0 404.8,190.0 407.2,190.0 409.6,190.0 412.0,190.0 414.4,190.0 416.8,190.0 419.2,190.0 421.6,190.0 424.0,190.0 426.4,190.0 428.8,190.0 431.2,190.0 433.6,190.0 436.0,190.0 438.4,190.0 440.8,190.0 443.2,190.0 445.6,190.0 448.0,190.0 450.4,190.0 452.8,190.0 455.2,189.9 457.6,189.9 460.0,189.9 462.4,189.9 464.8,189.8 467.2,189.7 469.6,189.6 472.0,189.5 474.4,189.4 476.8,189.2 479.2,188.9 481.6,188.6 484.0,188.2 486.4,187.7 488.8,187.0 491.2,186.2 493.6,185.3 496.0,184.1 498.4,182.6 500.8,180.9 503.2,178.9 505.6,176.5 508.0,173.6 510.4,170.4 512.8,166.6 515.2,162.3 517.6,157.4 520.0,151.9 522.4,145.8 524.8,139.1 527.2,131.8 529.6,123.9 532.0,115.4 534.4,106.5 536.8,97.1 539.2,87.4 541.6,77.5 544.0,67.6 546.4,57.7 548.8,48.1 551.2,38.8 553.6,30.2 556.0,22.3 558.4,15.3 560.8,9.4 563.2,4.7 565.6,1.3 568.0,-0.8 570.4,-1.3 572.8,-0.5 575.2,1.9 577.6,5.6 580.0,10.7 582.4,17.0 584.8,24.3 587.2,32.6 589.6,41.7 592.0,51.4 594.4,61.5 596.8,71.8 599.2,82.1 601.6,92.4 604.0,102.4 606.4,112.0 608.8,121.2 611.2,129.8 613.6,137.7 616.0,145.0 618.4,151.6 620.8,157.5 623.2,162.8 625.6,167.4 628.0,171.4 630.4,174.8 632.8,177.7 635.2,180.1 637.6,182.1 640.0,183.8" fill="none" stroke="#7a1f1f" stroke-width="2"/>
+<line x1="383.2" y1="30" x2="383.2" y2="190" stroke="#1a1a1a" stroke-dasharray="5 3"/>
+<text x="389.2" y="40" class="ts tb">limite 793</text>
+<text x="217.6" y="24" text-anchor="middle" class="ts" fill="#2f5f2f">fonte sã, H = 0,5: média 724</text>
+<text x="544.0" y="60" text-anchor="middle" class="ts td">fonte viciada, 85%:</text><text x="544.0" y="74" text-anchor="middle" class="ts td">média 871</text>
+<g class="ts"><text x="40.0" y="206" text-anchor="middle">650</text><text x="160.0" y="206" text-anchor="middle">700</text><text x="280.0" y="206" text-anchor="middle">750</text><text x="400.0" y="206" text-anchor="middle">800</text><text x="520.0" y="206" text-anchor="middle">850</text><text x="640.0" y="206" text-anchor="middle">900</text></g>
+<text x="350" y="230" text-anchor="middle" class="ts">quantas vezes a primeira amostra reaparece numa janela de 1024</text>
+<text x="389.2" y="170" class="ts">à direita: alarme falso 2⁻²⁰</text>
+</svg>
+<figcaption>Figura 43.1 — O teste de proporção. A fonte sã quase nunca passa de 793; a viciada quase sempre passa.</figcaption>
+</figure>
 
 | H (bits por amostra) | Limite do RCT | Limite do APT |
 |---|---|---|
@@ -873,7 +994,7 @@ ontem não aparece em teste de laboratório nenhum.
 | RSA, verificação | boot | resposta conhecida, e a recusa da adulterada |
 | RSA, assinatura | primeiro uso | resposta conhecida |
 | ECDSA | primeiro uso | resposta conhecida com `k` fixo, e verificação |
-| DES e 3DES | primeiro uso | resposta conhecida, 25 vetores; o CMAC-TDES e um key block versão B (etapa 8.7); a IPEK e uma transação do DUKPT (etapa 8.8a) |
+| DES e 3DES | primeiro uso | resposta conhecida, 25 vetores; o CMAC-TDES e um key block versão B (etapa 8.7); a IPEK e uma transação do DUKPT (etapa 8.8a); dois retail MACs publicados, um de cada preenchimento (etapa 8.9a) |
 | AES-128 e DUKPT AES | primeiro uso | resposta conhecida: o motor nas duas direções, e as chaves de PIN AES-128 e AES-256 de uma transação, com o PIN block refeito (etapa 8.8b) |
 | Par assimétrico recém-gerado | a cada geração | assina e verifica antes de entregar |
 | Toda assinatura | a cada assinatura | verificada com a chave pública antes de sair |
@@ -882,6 +1003,26 @@ ontem não aparece em teste de laboratório nenhum.
 de um algoritmo rode antes do primeiro uso dele, e não no boot. O critério
 aqui foi o custo: cada propriedade conferida no boot cobra tempo de todo
 boot, para sempre. Os três testes de primeiro uso são os mais caros.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<line class="ln" x1="20" y1="120" x2="660" y2="120" marker-end="url(#seta)"/>
+<text x="650" y="140" text-anchor="end" class="ts">tempo</text>
+<rect class="cxd" x="30" y="90" width="120" height="30"/><text x="90" y="110" text-anchor="middle" class="ts">POST, 28 ms</text>
+<text x="90" y="80" text-anchor="middle" class="ts">a cada boot</text>
+<rect class="cxv" x="150" y="90" width="510" height="30"/><text x="405" y="110" text-anchor="middle" class="ts">atende comandos</text>
+<line class="ln" x1="260" y1="40" x2="260" y2="88" marker-end="url(#seta)"/><rect class="cx" x="200" y="16" width="120" height="24"/><text x="260" y="33" text-anchor="middle" class="ts">1º comando 3DES</text>
+<line class="ln" x1="420" y1="40" x2="420" y2="88" marker-end="url(#seta)"/><rect class="cx" x="360" y="16" width="120" height="24"/><text x="420" y="33" text-anchor="middle" class="ts">1ª assinatura RSA</text>
+<line class="ln" x1="570" y1="40" x2="570" y2="88" marker-end="url(#seta)"/><rect class="cx" x="510" y="16" width="120" height="24"/><text x="570" y="33" text-anchor="middle" class="ts">1º uso de ECDSA</text>
+<text x="260" y="58" text-anchor="middle" class="ts">KAT do 3DES</text>
+<text x="420" y="58" text-anchor="middle" class="ts">KAT da assinatura</text>
+<text x="570" y="58" text-anchor="middle" class="ts">KAT do ECDSA</text>
+<text x="340" y="166" text-anchor="middle" class="ts">cada KAT de primeiro uso roda uma vez por boot, antes do primeiro comando que usa o algoritmo</text>
+<text x="340" y="184" text-anchor="middle" class="ts td">reprovou: apaga as chaves, TAMPERED, e o comando responde 91</text>
+</svg>
+<figcaption>Figura 46.1 — O autoteste no tempo. O que custa pouco roda no boot; o que custa muito, antes do primeiro uso.</figcaption>
+</figure>
 
 **O que acontece se reprovar.** O equipamento apaga as chaves e vai para
 `TAMPERED`, de onde não sai por comando. Ele continua respondendo só ao
@@ -913,7 +1054,7 @@ implementação independente no PC a refaz ou a desfaz.
 | Tradução de PIN | traduz um PIN block entre duas chaves e entre os formatos 0 e 4 | faz o papel do terminal e o do destino; no formato 0, prevê o bloco de saída |
 | Verificação de PIN | gera e verifica offset e PVV, a partir de um PIN block | faz o papel do terminal e o do emissor; calcula o MAC da tabela com a LMK |
 | CVV | gera e verifica CVV, CVV2 e iCVV de um cartão | faz o papel do emissor e refaz a conta com a chave aberta |
-| Chaves 3DES | gera e devolve o KCV; com uma KEK 3DES, exporta e importa em bloco versão B | abre o bloco e confere tamanho, paridade e KCV; abre e fecha os blocos B com a KEK, e confere as recusas da regra de força |
+| Chaves 3DES | gera e devolve o KCV; com uma KEK 3DES, exporta e importa em bloco versão B; cifra e decifra dados e faz o retail MAC | abre o bloco e confere tamanho, paridade e KCV; abre e fecha os blocos B com a KEK, e confere as recusas da regra de força; refaz o 3DES-CBC e o retail MAC com a chave aberta |
 | DUKPT TDES e AES | traduz o PIN de um terminal DUKPT para uma chave de zona; gera a IPEK ou a IK sob uma KEK | faz o papel do terminal (cifra o PIN sob a chave da transação) e o do destino; abre a chave inicial com a KEK e a refaz da BDK; leva as BDKs publicadas (anexo A.4 da X9.24-1, suplemento da X9.24-3) e exige o PIN e a chave inicial publicados |
 | RSA e ECDSA | gera pares e assina | verifica só com a chave pública |
 | PKCS#8 | gera, e assina com chave vinda de fora | usa a chave do equipamento numa biblioteca, e o contrário |
@@ -921,6 +1062,26 @@ implementação independente no PC a refaz ou a desfaz.
 O PC precisa da LMK para abrir os blocos. Isso só existe porque o
 equipamento é de estudo: num sistema real, quem testa não tem a chave
 mestra, e a conferência independente é feita por um segundo HSM.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<rect class="fr" x="20" y="30" width="230" height="130"/>
+<text x="135" y="50" text-anchor="middle" class="tb">a placa</text>
+<rect class="cxd" x="40" y="65" width="190" height="34"/><text x="135" y="86" text-anchor="middle" class="ts">gera, cifra, assina, traduz…</text>
+<rect class="cx" x="40" y="110" width="190" height="34"/><text x="135" y="131" text-anchor="middle" class="ts">C, coprocessador, silício</text>
+<rect class="cxa" x="430" y="30" width="230" height="130"/>
+<text x="545" y="50" text-anchor="middle" class="tb">o PC</text>
+<rect class="cx" x="450" y="65" width="190" height="34"/><text x="545" y="80" text-anchor="middle" class="ts">abre o bloco com a LMK</text><text x="545" y="93" text-anchor="middle" class="ts">(só num equipamento de estudo)</text>
+<rect class="cx" x="450" y="110" width="190" height="34"/><text x="545" y="125" text-anchor="middle" class="ts">refaz ou desfaz a conta</text><text x="545" y="138" text-anchor="middle" class="ts">com outra implementação</text>
+<line class="ln" x1="250" y1="80" x2="428" y2="80" marker-end="url(#seta)"/>
+<text x="340" y="72" text-anchor="middle" class="ts">key block, criptograma, PIN block</text>
+<line class="ln" x1="428" y1="130" x2="250" y2="130" marker-end="url(#seta)"/>
+<text x="340" y="148" text-anchor="middle" class="ts">o caminho inverso: bloco do Python</text>
+<text x="340" y="188" text-anchor="middle" class="ts">cem voltas por teste; uma discordância de formato aparece na primeira volta</text>
+</svg>
+<figcaption>Figura 47.1 — O teste de conferência. O equipamento faz; uma implementação independente refaz ou desfaz.</figcaption>
+</figure>
 
 **O `r` não se repete.** No teste de ECDSA, cada assinatura tem o `r`
 comparado com os das anteriores. Dois `r` iguais significariam o mesmo `k`,

@@ -623,7 +623,7 @@ trabalha". As decisões:*
 | 8.6 | CVV: gerar e verificar | validada na placa em 2026-11-21 |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | validada na placa em 2026-11-22 |
 | 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | validada na placa em 2026-11-23 |
-| 8.9 | MAC de mensagem e cifra de dados com 3DES | a fazer |
+| 8.9 | MAC de mensagem e cifra de dados com 3DES | 8.9a (3DES) validada na placa em 2026-11-25; 8.9b (DUKPT) a fazer |
 | 8.10 | ARQC: chave do cartão derivada da chave mestra do emissor, gerar e verificar o ARQC, gerar o ARPC | a fazer |
 
 *Decisões do usuário para a 8.8 (2026-11-22): o DUKPT AES aceita BDK AES-128 ou
@@ -672,6 +672,23 @@ mensagem a 3072 bytes e a memória de dados a 32 KB.*
   ele é hoje o controle principal, à frente do CVV da tarja.*
 - *O `program.sh` continua sem examinar a saída do gravador. Depois de gravar,
   quem confere é o `hsmtool build`.*
+
+*Pedido do usuário para o manual da 8.10 (2026-11-25), a escrever junto com a
+etapa: a seção do ARQC traz, **como casos de uso** e com figura, onde mora cada
+chave e por que nenhuma delas sai ("é exatamente isto que eu quero"). Inclui
+o caso "tenho o cartão do meu banco: consigo abri-lo neste dispositivo?" e a
+resposta, ponto a ponto:*
+
+- *A chave do cartão (MK) fica dentro do chip, um elemento seguro feito para
+  nunca entregá-la; nem o dono do cartão a lê.*
+- *A chave mestra do emissor (IMK) existe só nos HSMs do emissor, embrulhada
+  sob a LMK deles. Conferir um ARQC exige essa chave.*
+- *Por isso, com um leitor no PC, dá para pedir ao chip um ARQC, mas não dá
+  para conferi-lo fora do emissor: é o que impede falsificar transações.*
+- *O HSM nunca toca no cartão: quem lê o chip é o terminal, e ao HSM chegam
+  só o ARQC, o PAN, o contador e os dados da transação.*
+- *Nos testes, o "chip" é um programa no PC com uma MK derivada de uma IMK de
+  teste e um PAN `999999…`.*
 
 ⚠ **Nenhum PAN real, nunca**, pela mesma razão que nenhuma chave de
 produção. Gerar CVV ou PIN para um número de cartão que existe deixa de ser

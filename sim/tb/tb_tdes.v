@@ -15,7 +15,10 @@
 //      bloco volta ao K2, que tem de dar o mesmo KCV;
 //   4. K0 pedindo uma tripla (T3): idem, e o bloco e diferente;
 //   5. K0 com DES simples (T1): erro 16. Com o campo pela metade: erro 22;
-//   6. C0 com uma chave 3DES de dados: erro 11 (o C0 e AES).
+//   6. C0 com uma chave 3DES de dados (desde a etapa 8.9a, o C0 aceita 3DES):
+//      IV de 8 bytes cifra, e o C2 devolve o texto; IV de 16 bytes, o do AES,
+//      e recusado (22). Ate a 8.9a, o C0 era so AES e a recusa era 11. Os
+//      valores do NIST ficam no tb_mac3; aqui e so a ida e a volta.
 //
 module tb_tdes;
 
@@ -381,6 +384,7 @@ module tb_tdes;
     endtask
 
     reg [7:0] antes [0:111];
+    reg [7:0] cifra [0:31];    // o que o C0 3DES devolveu, em hex
 
     initial begin
         $display("[tb_tdes] inicio");
@@ -454,13 +458,54 @@ module tb_tdes;
         ascii_troca();
         confere("K", "1", 22, "K0 com campo pela metade");
 
+        // C0 com chave 3DES: IV de 8 bytes, 16 bytes de zeros. Cifra, e o
+        // C2 com o mesmo IV devolve os zeros.
+        inicio("C", "0");
+        for (i = 0; i < 112; i = i + 1) poe(k2_d0[i]);
+        for (i = 0; i < 8; i = i + 1) poe_hex(8'h00);
+        poe_dec4(16);
+        for (i = 0; i < 16; i = i + 1) poe_hex(8'h00);
+        ascii_troca();
+        confere("C", "1", 0, "C0 com chave 3DES");
+        if (resp_len != 12 + 32) begin
+            $display("[tb_tdes] FAIL: C0 com chave 3DES -- %0d bytes, esperado 44", resp_len);
+            errors = errors + 1;
+        end else begin
+            iguais = 0;
+            for (i = 0; i < 32; i = i + 1) begin
+                cifra[i] = resp[12 + i];
+                if (cifra[i] === "0") iguais = iguais + 1;
+            end
+            if (iguais == 32) begin
+                $display("[tb_tdes] FAIL: C0 com chave 3DES devolveu o texto em claro");
+                errors = errors + 1;
+            end
+            inicio("C", "2");
+            for (i = 0; i < 112; i = i + 1) poe(k2_d0[i]);
+            for (i = 0; i < 8; i = i + 1) poe_hex(8'h00);
+            poe_dec4(16);
+            for (i = 0; i < 32; i = i + 1) poe(cifra[i]);
+            ascii_troca();
+            confere("C", "3", 0, "C2 com chave 3DES");
+            if (resp_len != 12 + 32) begin
+                $display("[tb_tdes] FAIL: C2 com chave 3DES -- %0d bytes, esperado 44", resp_len);
+                errors = errors + 1;
+            end else
+                for (i = 0; i < 32; i = i + 1)
+                    if (resp[12 + i] !== "0") begin
+                        $display("[tb_tdes] FAIL: C2 com chave 3DES -- caractere %0d: %c", i, resp[12 + i]);
+                        errors = errors + 1;
+                    end
+        end
+
+        // IV de 16 bytes, o tamanho do AES, com chave 3DES: sobra (22).
         inicio("C", "0");
         for (i = 0; i < 112; i = i + 1) poe(k2_d0[i]);
         for (i = 0; i < 16; i = i + 1) poe_hex(8'h00);
         poe_dec4(16);
         for (i = 0; i < 16; i = i + 1) poe_hex(8'h00);
         ascii_troca();
-        confere("C", "1", 11, "C0 com chave 3DES");
+        confere("C", "1", 22, "C0 3DES, IV de 16 bytes");
         $display("[tb_tdes] %0t ns: recusas conferidas", $time);
 
         if (errors == 0) $display("[tb_tdes] PASS");

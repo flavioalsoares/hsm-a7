@@ -230,6 +230,32 @@ int keystore_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
                          const uint8_t iv[16], const uint8_t *entrada,
                          uint8_t *saida, uint32_t n, int cifrar);
 
+/* 3DES-CBC com dupla execucao (etapa 8.9a), o par de keystore_cbc_confere()
+ * para chave 3DES de dados (uso D0, algoritmo T, dupla ou tripla). IV de 8
+ * bytes; `n` multiplo de 8, de 8 a KS_CONFERE_MAX. As subchaves sao
+ * preparadas duas vezes, e as duas saidas comparadas. Devolve 0; -1 se o
+ * `uso`, o algoritmo ou o `modo` proibe; -2 se discordou (`saida` apagada,
+ * erro grave marcado); -3 em erro interno ou tamanho invalido. */
+int keystore_tdes_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
+                              const uint8_t iv[8], const uint8_t *entrada,
+                              uint8_t *saida, uint32_t n, int cifrar);
+
+/* Retail MAC, ISO/IEC 9797-1 algoritmo 3 (etapa 8.9a; ver mac_tdes.h).
+ *
+ * A chave do slot precisa ser 3DES de comprimento DUPLO (K, K'), de uso da
+ * familia M. Gerar pede modo 'G' ou 'C'; verificar, 'V' ou 'C'. `metodo` e o
+ * preenchimento (1 ou 2); `mac_n` e 4 ou 8. Gerar escreve `mac_n` bytes em
+ * `mac`; verificar compara os `mac_n` bytes de `mac` em tempo constante, e o
+ * MAC calculado nao sai. O MAC e o veredito sao calculados duas vezes.
+ *
+ * Devolve 0 (gerado, ou conferiu); 1 se nao conferiu; -1 se o uso, o
+ * algoritmo, o comprimento ou o modo proibe; -2 se duas execucoes
+ * discordaram (erro grave marcado); -3 em erro interno, mensagem vazia ou
+ * preenchimento invalido. */
+int keystore_retail_mac(ks_handle_t h, int gerar, uint8_t metodo,
+                        const uint8_t *msg, uint32_t n,
+                        uint8_t *mac, uint32_t mac_n);
+
 /* PIN block ISO 9564-1, formatos 0 e 4 (fase 8). Traduzir e abrir sob uma
  * chave e fechar sob outra, e as duas nao cabem juntas no slot efemero. Entre
  * as duas chamadas, o campo do PIN em claro fica numa area propria DESTE

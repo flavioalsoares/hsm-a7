@@ -115,6 +115,15 @@ DUKPT_AES128_SHA="c23f8d711cd7c7bf1fa9397ae7cc7e6ba4f39222c6e6961d685161e417c71d
 DUKPT_AES256_URL="https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_aes256_test.c"
 DUKPT_AES256_SHA="f8ba32d73aa16e2b5c20a50a27ff3538fb71b23e9e5fa27dd13b1c4af6fcea04"
 
+# Retail MAC (ISO/IEC 9797-1 algoritmo 3, X9.19) -- fase 8, etapa 8.9a. Sem vetor
+# oficial publico. Duas fontes independentes (decisao do usuario, 2026-11-23):
+#   psec (MIT), o teste da funcao, no mesmo commit do CVV
+RMAC_PSEC_URL="https://raw.githubusercontent.com/knovichikhin/psec/90ccbf3ae0ef15527751ac225668ed31ef756a16/tests/test_mac.py"
+RMAC_PSEC_SHA="d5c36aa09db80492434d4021d544c17304b017c3e7cc4fc19936b824eacfb518"
+#   RustCrypto retail-mac (MIT/Apache-2.0), o exemplo da ISO/IEC 9797-1:2011 B.4
+RMAC_RUST_URL="https://raw.githubusercontent.com/RustCrypto/MACs/753c4b6c040989f3f68672991fe7c87cf528f564/retail-mac/README.md"
+RMAC_RUST_SHA="9209750f7280b7c164b46ed7e111758064083ee9c75d817a1e557d34ed84fac7"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -153,7 +162,7 @@ fetch() {
     fi
 }
 
-mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa,pinblock,pinverif,cvv,tdes,dukpt}
+mkdir -p "$TMP" "$VEC"/{aes,sha,hmac,drbg,cmac,tr31,rsa,ecdsa,pinblock,pinverif,cvv,tdes,dukpt,mac}
 
 echo "=== baixando"
 fetch "$AES_URL"  "$AES_SHA"  "$TMP/KAT_AES.zip"
@@ -173,6 +182,8 @@ fetch "$CVV_JM_B_URL" "$CVV_JM_B_SHA" "$TMP/jm_ISO8583TestBase.java"
 fetch "$DUKPT_TDES_URL" "$DUKPT_TDES_SHA" "$TMP/openemv_dukpt_tdes_test.c"
 fetch "$DUKPT_AES128_URL" "$DUKPT_AES128_SHA" "$TMP/openemv_dukpt_aes128_test.c"
 fetch "$DUKPT_AES256_URL" "$DUKPT_AES256_SHA" "$TMP/openemv_dukpt_aes256_test.c"
+fetch "$RMAC_PSEC_URL" "$RMAC_PSEC_SHA" "$TMP/psec_test_mac.py"
+fetch "$RMAC_RUST_URL" "$RMAC_RUST_SHA" "$TMP/rustcrypto_retail_mac_README.md"
 fetch "$TDES_KAT_URL" "$TDES_KAT_SHA" "$TMP/KAT_TDES.zip"
 fetch "$TDES_MMT_URL" "$TDES_MMT_SHA" "$TMP/tdesmmt.zip"
 fetch "$RSA_URL" "$RSA_SHA" "$TMP/186-3rsatestvectors.zip"
@@ -255,6 +266,10 @@ python3 "$ROOT/scripts/_extrai_dukpt_aes.py" \
         "$TMP/openemv_dukpt_aes128_test.c" "$VEC/dukpt/x924_3_aes128.rsp" 128
 python3 "$ROOT/scripts/_extrai_dukpt_aes.py" \
         "$TMP/openemv_dukpt_aes256_test.c" "$VEC/dukpt/x924_3_aes256.rsp" 256
+
+# Retail MAC: 6 valores de 2 fontes, copiados literalmente. A extracao falha se
+# alguma fonte nao tiver exatamente a quantidade esperada.
+python3 "$ROOT/scripts/_extrai_retail_mac.py" "$TMP" "$VEC/mac/retail_mac.rsp"
 
 # CTR_DRBG vem num zip dentro do zip, e o arquivo completo tem 785 KB com
 # 3DES e AES-128/192 que este projeto nao usa. Filtra para [AES-256 ...].

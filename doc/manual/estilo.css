@@ -236,3 +236,46 @@ hr {
 a { color: var(--tinta); }
 
 strong { font-weight: 700; }
+
+/* ---- Figuras (SVG embutido no Markdown) ------------------------------
+ * Toda figura: <figure class="fig"><svg viewBox=...>...</svg>
+ * <figcaption>Figura N.M — ...</figcaption></figure>
+ * As setas (#seta, #seta-d) estao definidas uma vez, em 00-capa.md. */
+figure.fig {
+    margin: 1.4em auto;
+    text-align: center;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+figure.fig svg {
+    max-width: 100%;
+    height: auto;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+figure.fig figcaption {
+    font-size: 0.85em;
+    color: var(--suave);
+    margin-top: 0.5em;
+    text-align: center;
+    font-style: italic;
+}
+/* Os atributos do proprio SVG (fill, font-size) mandam: CSS de folha passa
+ * por cima de atributo de apresentacao, por isso os :not(). */
+.fig text:not([font-size])                { font-size: 12px; }
+.fig text:not([fill]):not(.td)            { fill: #1a1a1a; }
+.fig .ts:not([font-size])                 { font-size: 10px; }
+.fig .ts:not([fill]):not(.td)             { fill: #555; }
+.fig .tb       { font-weight: bold; }
+.fig .tm:not([font-size])                 { font-size: 11px; }
+.fig .tm       { font-family: "DejaVu Sans Mono", Menlo, Consolas, monospace; }
+.fig .td       { fill: #7a1f1f; }
+.fig .cx       { fill: #f6f6f4; stroke: #1a1a1a; stroke-width: 1.2; }
+.fig .cxd      { fill: #f6e6e4; stroke: #7a1f1f; stroke-width: 1.4; }   /* chave, segredo */
+.fig .cxa      { fill: #e6edf5; stroke: #2d4f73; stroke-width: 1.2; }   /* publico, host */
+.fig .cxv      { fill: #e5f0e3; stroke: #2f5f2f; stroke-width: 1.2; }   /* confere, aceito */
+.fig .cxc      { fill: #eeeeee; stroke: #888;    stroke-width: 1;   }   /* neutro, fora */
+.fig .ln       { stroke: #1a1a1a; stroke-width: 1.2; fill: none; }
+.fig .lnd      { stroke: #7a1f1f; stroke-width: 1.4; fill: none; }
+.fig .lnt      { stroke: #888; stroke-width: 1; fill: none; stroke-dasharray: 4 3; }
+.fig .fr       { fill: none; stroke: #7a1f1f; stroke-width: 2; stroke-dasharray: 7 4; }
+.fig .grade    { stroke: #d0d0d0; stroke-width: 0.8; }

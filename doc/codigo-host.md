@@ -193,6 +193,7 @@ python3 host/test_tr31.py           # key block
 python3 host/test_tr31b.py          # key block versão B (KEK 3DES)
 python3 host/test_cmac_tdes.py      # CMAC-TDES, vetores do NIST
 python3 host/test_dukpt.py          # DUKPT TDES e AES, valores publicados
+python3 host/test_retail_mac.py     # retail MAC e 3DES-CBC, duas fontes e o NIST
 ```
 
 - **`test_hsmtool.py`** liga o cliente a um **pty** e põe do outro lado um
@@ -379,6 +380,20 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   o Python e o C contra os valores publicados da X9.24-3 e entre si em 400
   casos (seção 42.9). No PC, o coprocessador é trocado pela OpenSSL; o teste
   precisa da `libcrypto`.
+
+- **`host/mac_tdes.py`** (etapa 8.9a) é o retail MAC (ISO/IEC 9797-1,
+  algoritmo 3) e o 3DES-CBC de dados em Python: `retail_mac()`, `preenche()`
+  e `cbc()`. O DES é o da biblioteca `cryptography`, pela mesma razão do
+  `dukpt.py`. O `hsmhost.py` ganhou `rmac=(preenchimento, tamanho)` em
+  `mac()` e `mac_verifica()`, e o `tdes-confere` passou a conferir, com
+  chave 3DES, o `C0`/`C2` e o retail MAC do `M0`/`M2` contra este módulo, e
+  as recusas: chave tripla, mensagem vazia, preenchimento 3, tamanho 5,
+  modo `G` no `M2`, chave `D0` no `M0` e chave `M` no `C0`.
+- **`host/test_retail_mac.py`** não fala com a placa. Confere o Python contra
+  os 6 valores de terceiros e o 3DES-CBC contra os MMT do NIST, e o C do
+  firmware (`mac_tdes.c` com o `des.c`, compilados com `gcc`) contra os
+  valores e contra o Python em 2 000 casos ao acaso e em todo tamanho de 1 a
+  40 bytes (manual, seção 42.10). Leva menos de 1 s.
 
 - **`host/regressao.py --lmk LMK [--rapido]`** é a regressão na placa: roda o
   `ping`, o `post`, os sensores, todos os `confere`, os vetores do CAVP e o

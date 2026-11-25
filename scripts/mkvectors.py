@@ -722,6 +722,95 @@ def dukpt_aes_tb():
     escreve("dukpt_aes_dados", ["%02x" % ord(c) for c in pedido], 2)
 
 
+def mac3_tb():
+    """Vetores do tb_mac3 (etapa 8.9a): dados e MAC com chave 3DES, pelos C0, C2,
+    M0 e M2.
+
+    Os valores de retail MAC sao de TERCEIROS (vectors/mac/retail_mac.rsp, duas
+    fontes; ver o MANIFEST): o da ISO/IEC 9797-1:2011 B.4 pelo RustCrypto
+    (preenchimento 1, MAC de 8 bytes) e o do psec (preenchimento 2, MAC de 4
+    bytes). O 3DES-CBC e do NIST (vectors/tdes/TCBCMMT3.rsp, chave tripla): o
+    vetor de mais blocos que cabe na porta host.
+
+    So a chave tripla de MAC, que o tb usa para uma recusa, e conta do Python.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import mac_tdes
+    import tr31
+
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    ench = bytes(range(16))
+
+    def sob_lmk(chave, uso, modo):
+        b = tr31.embrulha(lmk, chave, uso=uso, algoritmo="T", modo=modo,
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != 112:
+            raise SystemExit("tb_mac3: bloco de %d caracteres" % len(b))
+        return b
+
+    regs, reg, fonte = [], {}, ""
+    for ln in (VEC / "mac" / "retail_mac.rsp").read_text().splitlines():
+        ln = ln.strip()
+        if not ln:
+            if reg:
+                reg["fonte"] = fonte
+                regs.append(reg)
+                reg = {}
+            continue
+        if ln.startswith("#"):
+            fonte = ln
+            continue
+        k, v = [x.strip() for x in ln.split("=", 1)]
+        reg[k] = v
+    if reg:
+        reg["fonte"] = fonte
+        regs.append(reg)
+    rust = [r for r in regs if "RustCrypto" in r["fonte"] and len(r["MSG"]) == 48]
+    psec = [r for r in regs if "psec" in r["fonte"] and r["PAD"] == "2"
+            and len(r["MAC"]) == 8]
+    if len(rust) != 1 or len(psec) != 1:
+        raise SystemExit("tb_mac3: valores de retail MAC inesperados")
+    rust, psec = rust[0], psec[0]
+    for r in (rust, psec):
+        m = bytes.fromhex(r["MAC"])
+        if mac_tdes.retail_mac(bytes.fromhex(r["KEY"]), bytes.fromhex(r["MSG"]),
+                               int(r["PAD"]), len(m)) != m:
+            raise SystemExit("tb_mac3: o Python nao reproduz %s" % r["fonte"])
+
+    melhor = None
+    for bloco in (VEC / "tdes" / "TCBCMMT3.rsp").read_text().split("\n\n"):
+        d = dict(re.findall(r"^(\w+) = (\w+)$", bloco, re.M))
+        if "KEY1" not in d or len(d["PLAINTEXT"]) > 2 * 64:
+            continue
+        if melhor is None or len(d["PLAINTEXT"]) > len(melhor["PLAINTEXT"]):
+            melhor = d
+    if melhor is None:
+        raise SystemExit("tb_mac3: nenhum vetor CBC do NIST")
+    kc = bytes.fromhex(melhor["KEY1"] + melhor["KEY2"] + melhor["KEY3"])
+    iv = bytes.fromhex(melhor["IV"])
+    claro = bytes.fromhex(melhor["PLAINTEXT"])
+    cifrado = bytes.fromhex(melhor["CIPHERTEXT"])
+    if mac_tdes.cbc(kc, iv, claro, True) != cifrado:
+        raise SystemExit("tb_mac3: o Python nao reproduz o vetor do NIST")
+
+    tripla = hashlib.sha256(b"tb_mac3: tripla").digest()[:24]
+    t112 = (sob_lmk(bytes.fromhex(rust["KEY"]), "M3", "C")   # 0: RustCrypto, gera e verifica
+            + sob_lmk(bytes.fromhex(psec["KEY"]), "M3", "V")  # 1: psec, so verifica
+            + sob_lmk(kc, "D0", "B")                          # 2: NIST, cifra e decifra
+            + sob_lmk(tripla, "M3", "C")                      # 3: MAC com chave tripla
+            + sob_lmk(kc, "D0", "E"))                         # 4: NIST, so cifra
+    escreve("mac3_b112", ["%02x" % ord(c) for c in t112], 2)
+    n = len(claro)
+    pedido = (rust["MSG"] + rust["MAC"] + psec["MSG"] + psec["MAC"] + iv.hex().upper()
+              + claro.hex().upper() + cifrado.hex().upper())
+    # 48 + 16 + 22 + 8 + 16 + 2n + 2n caracteres
+    if len(pedido) != 110 + 4 * n:
+        raise SystemExit("tb_mac3: dados de %d caracteres" % len(pedido))
+    escreve("mac3_dados", ["%02x" % ord(c) for c in pedido], 2)
+    escreve("mac3_n", ["%02x" % n], 2)
+
+
 def rsa_r2(prefixo):
     """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
     embrulhada sob a LMK que o tb_rsa monta na cerimonia.
@@ -779,6 +868,7 @@ def main():
     kek3()
     dukpt_tb()
     dukpt_aes_tb()
+    mac3_tb()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.

@@ -20,6 +20,7 @@
 #include "kat.h"
 #include "dukpt.h"
 #include "aes128.h"
+#include "mac_tdes.h"
 #include "wipe.h"
 
 /* Slot completo -- com a chave. Este tipo NÃO aparece no header: nada fora
@@ -593,6 +594,140 @@ int keystore_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
         wipe(saida, n);
     }
     (void)hsm_cfs_wipe();
+    return r;
+}
+
+/* 1 se o slot e chave de dados 3DES (uso D0, algoritmo T) e o `modo` permite
+ * a operacao. A mesma regra de keystore_usa_aes(), do lado do 3DES: etapa
+ * 8.9a. */
+static int tdes_dados_pode(int i, uint8_t precisa_modo)
+{
+    if ((g_slots[i].algoritmo != (uint8_t)KS_ALG_TDES) ||
+        (g_slots[i].uso[0] != (uint8_t)KS_USO_DADOS[0]) ||
+        (g_slots[i].uso[1] != (uint8_t)KS_USO_DADOS[1])) {
+        return 0;
+    }
+    if (g_slots[i].modo == KS_MODO_NENHUM) {
+        return 0;
+    }
+    if (g_slots[i].modo == KS_MODO_AMBOS) {
+        return 1;
+    }
+    return (g_slots[i].modo == precisa_modo) ? 1 : 0;
+}
+
+/* 3DES-CBC com dupla execucao (etapa 8.9a). A chave e preparada DE NOVO para
+ * a segunda execucao, pela mesma razao do AES. FRONTEIRA: dentro. */
+int keystore_tdes_cbc_confere(ks_handle_t h, uint8_t precisa_modo,
+                              const uint8_t iv[DES_BLOCO],
+                              const uint8_t *entrada, uint8_t *saida,
+                              uint32_t n, int cifrar)
+{
+    static uint8_t segunda[KS_CONFERE_MAX];
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    int      i = indice(h);
+    int      r = 0;
+    uint32_t j;
+    uint8_t  dif = 0u;
+
+    if ((i < 0) || (n == 0u) || (n > KS_CONFERE_MAX) ||
+        ((n % DES_BLOCO) != 0u)) {
+        return -3;
+    }
+    if (!tdes_dados_pode(i, precisa_modo)) {
+        return -1;
+    }
+    if ((tdes_prepara(ctx, g_slots[i].chave, g_slots[i].key_len) != 0) ||
+        (tdes_cbc(ctx, iv, entrada, saida, n, cifrar) != 0)) {
+        r = -3;
+    } else {
+        tdes_apaga(ctx);
+        if ((tdes_prepara(ctx, g_slots[i].chave, g_slots[i].key_len) != 0) ||
+            (tdes_cbc(ctx, iv, entrada, segunda, n, cifrar) != 0)) {
+            r = -3;
+        } else {
+            g_slots[i].contador_uso++;
+            for (j = 0u; j < n; j++) {
+                dif |= (uint8_t)(saida[j] ^ segunda[j]);
+            }
+            if (dif != 0u) {
+                erro_grave_marca();
+                r = -2;
+            }
+        }
+    }
+    tdes_apaga(ctx);
+    wipe(segunda, sizeof segunda);
+    if (r != 0) {
+        wipe(saida, n);
+    }
+    return r;
+}
+
+/* 1 se o slot pode fazer retail MAC: chave 3DES DUPLA (o par K, K') da
+ * familia M, e o modo do grupo de MAC. A familia inteira, como no CMAC:
+ * decisao do usuario. Etapa 8.9a. */
+static int rmac_pode(int i, uint8_t precisa)
+{
+    if ((g_slots[i].algoritmo != (uint8_t)KS_ALG_TDES) ||
+        (g_slots[i].key_len != (uint8_t)TDES_CHAVE_2) ||
+        (g_slots[i].uso[0] != (uint8_t)KS_USO_MAC[0])) {
+        return 0;
+    }
+    return modo_mac_ok(g_slots[i].modo, precisa);
+}
+
+/* FRONTEIRA: dentro. Na verificacao o MAC calculado nao sai: so o veredito,
+ * comparado em tempo constante. */
+int keystore_retail_mac(ks_handle_t h, int gerar, uint8_t metodo,
+                        const uint8_t *msg, uint32_t n,
+                        uint8_t *mac, uint32_t mac_n)
+{
+    int      i = indice(h);
+    uint8_t  ma[RETAIL_MAC_LEN], mb[RETAIL_MAC_LEN];
+    uint32_t j;
+    uint8_t  dif = 0u, da = 0u, db = 0u;
+    int      r;
+
+    if ((i < 0) || (msg == 0) || (mac == 0) ||
+        ((mac_n != 4u) && (mac_n != RETAIL_MAC_LEN))) {
+        return -3;
+    }
+    if (!rmac_pode(i, gerar ? KS_MODO_GERA : KS_MODO_VERIFICA)) {
+        return -1;
+    }
+    if ((retail_mac(g_slots[i].chave, metodo, msg, n, ma) != 0) ||
+        (retail_mac(g_slots[i].chave, metodo, msg, n, mb) != 0)) {
+        r = -3;
+    } else {
+        g_slots[i].contador_uso++;
+        for (j = 0u; j < RETAIL_MAC_LEN; j++) {
+            dif |= (uint8_t)(ma[j] ^ mb[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        } else if (gerar) {
+            for (j = 0u; j < mac_n; j++) {
+                mac[j] = ma[j];
+            }
+            r = 0;
+        } else {
+            /* O veredito, duas vezes: e o que uma falha quer inverter. */
+            for (j = 0u; j < mac_n; j++) {
+                da |= (uint8_t)(ma[j] ^ mac[j]);
+                db |= (uint8_t)(mb[j] ^ mac[j]);
+            }
+            if ((da == 0u) != (db == 0u)) {
+                erro_grave_marca();
+                r = -2;
+            } else {
+                r = (da == 0u) ? 0 : 1;
+            }
+        }
+    }
+    wipe(ma, sizeof ma);
+    wipe(mb, sizeof mb);
     return r;
 }
 

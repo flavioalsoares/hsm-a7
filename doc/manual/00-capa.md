@@ -72,3 +72,11 @@ e não há vínculo, patrocínio, endosso ou alegação de compatibilidade com
 equipamento comercial algum. O conteúdo vem de normas públicas — ISO, ANSI,
 NIST, IETF — e de literatura acadêmica publicada; nada é derivado de
 documentação proprietária. Ver `THIRD-PARTY.md`.
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<defs>
+<marker id="seta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1a1a1a"/></marker>
+<marker id="seta-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7a1f1f"/></marker>
+<marker id="seta-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker>
+</defs>
+</svg>

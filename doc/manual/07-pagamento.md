@@ -7,8 +7,9 @@ fronteira criptográfica" de "sei por que aquele comando existe".
 
 O equipamento implementa uma parte do que está aqui: os PIN blocks formato
 0 e 4 e a tradução de PIN (seções 33 e 34), a verificação de PIN (seção 35),
-o CVV (seção 36), as chaves 3DES (seção 39) e a troca de chaves 3DES com
-outra instituição (seção 39.9). A seção 38 explica o que é
+o CVV (seção 36), o DUKPT (seção 37), as chaves 3DES (seção 39), a troca de
+chaves 3DES com outra instituição (seção 39.9) e o MAC e a cifra de dados com
+3DES (seção 39.10). A seção 38 explica o que é
 implementável, o que não é, e por quê. O resto do material é para entender
 o domínio.
 
@@ -111,6 +112,24 @@ do PAN.
 
 Quem abre o bloco desfaz a cifra, refaz o XOR com o campo do PAN e confere:
 controle `0`, tamanho de 4 a 12, dígitos de 0 a 9, enchimento `F`.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="37" class="ts">campo do PIN</text><rect class="cxa" x="150" y="20" width="28" height="24"/><text x="164" y="37" text-anchor="middle" class="tm">0</text><rect class="cxa" x="180" y="20" width="28" height="24"/><text x="194" y="37" text-anchor="middle" class="tm">5</text><rect class="cxa" x="210" y="20" width="28" height="24"/><text x="224" y="37" text-anchor="middle" class="tm">4</text><rect class="cxa" x="240" y="20" width="28" height="24"/><text x="254" y="37" text-anchor="middle" class="tm">8</text><rect class="cxa" x="270" y="20" width="28" height="24"/><text x="284" y="37" text-anchor="middle" class="tm">2</text><rect class="cxa" x="300" y="20" width="28" height="24"/><text x="314" y="37" text-anchor="middle" class="tm">1</text><rect class="cxa" x="330" y="20" width="28" height="24"/><text x="344" y="37" text-anchor="middle" class="tm">3</text><rect class="cxa" x="360" y="20" width="28" height="24"/><text x="374" y="37" text-anchor="middle" class="tm">F</text><rect class="cxa" x="390" y="20" width="28" height="24"/><text x="404" y="37" text-anchor="middle" class="tm">F</text><rect class="cxa" x="420" y="20" width="28" height="24"/><text x="434" y="37" text-anchor="middle" class="tm">F</text><rect class="cxa" x="450" y="20" width="28" height="24"/><text x="464" y="37" text-anchor="middle" class="tm">F</text><rect class="cxa" x="480" y="20" width="28" height="24"/><text x="494" y="37" text-anchor="middle" class="tm">F</text><rect class="cxa" x="510" y="20" width="28" height="24"/><text x="524" y="37" text-anchor="middle" class="tm">F</text><rect class="cxa" x="540" y="20" width="28" height="24"/><text x="554" y="37" text-anchor="middle" class="tm">F</text><rect class="cxa" x="570" y="20" width="28" height="24"/><text x="584" y="37" text-anchor="middle" class="tm">F</text><rect class="cxa" x="600" y="20" width="28" height="24"/><text x="614" y="37" text-anchor="middle" class="tm">F</text>
+<text x="10" y="73" class="ts">campo do PAN</text><rect class="cx" x="150" y="56" width="28" height="24"/><text x="164" y="73" text-anchor="middle" class="tm">0</text><rect class="cx" x="180" y="56" width="28" height="24"/><text x="194" y="73" text-anchor="middle" class="tm">0</text><rect class="cx" x="210" y="56" width="28" height="24"/><text x="224" y="73" text-anchor="middle" class="tm">0</text><rect class="cx" x="240" y="56" width="28" height="24"/><text x="254" y="73" text-anchor="middle" class="tm">0</text><rect class="cx" x="270" y="56" width="28" height="24"/><text x="284" y="73" text-anchor="middle" class="tm">9</text><rect class="cx" x="300" y="56" width="28" height="24"/><text x="314" y="73" text-anchor="middle" class="tm">9</text><rect class="cx" x="330" y="56" width="28" height="24"/><text x="344" y="73" text-anchor="middle" class="tm">9</text><rect class="cx" x="360" y="56" width="28" height="24"/><text x="374" y="73" text-anchor="middle" class="tm">0</text><rect class="cx" x="390" y="56" width="28" height="24"/><text x="404" y="73" text-anchor="middle" class="tm">1</text><rect class="cx" x="420" y="56" width="28" height="24"/><text x="434" y="73" text-anchor="middle" class="tm">2</text><rect class="cx" x="450" y="56" width="28" height="24"/><text x="464" y="73" text-anchor="middle" class="tm">3</text><rect class="cx" x="480" y="56" width="28" height="24"/><text x="494" y="73" text-anchor="middle" class="tm">4</text><rect class="cx" x="510" y="56" width="28" height="24"/><text x="524" y="73" text-anchor="middle" class="tm">5</text><rect class="cx" x="540" y="56" width="28" height="24"/><text x="554" y="73" text-anchor="middle" class="tm">6</text><rect class="cx" x="570" y="56" width="28" height="24"/><text x="584" y="73" text-anchor="middle" class="tm">7</text><rect class="cx" x="600" y="56" width="28" height="24"/><text x="614" y="73" text-anchor="middle" class="tm">8</text>
+<text x="10" y="109" class="tb">XOR</text><rect class="cxd" x="150" y="92" width="28" height="24"/><text x="164" y="109" text-anchor="middle" class="tm">0</text><rect class="cxd" x="180" y="92" width="28" height="24"/><text x="194" y="109" text-anchor="middle" class="tm">5</text><rect class="cxd" x="210" y="92" width="28" height="24"/><text x="224" y="109" text-anchor="middle" class="tm">4</text><rect class="cxd" x="240" y="92" width="28" height="24"/><text x="254" y="109" text-anchor="middle" class="tm">8</text><rect class="cx" x="270" y="92" width="28" height="24"/><text x="284" y="109" text-anchor="middle" class="tm">B</text><rect class="cx" x="300" y="92" width="28" height="24"/><text x="314" y="109" text-anchor="middle" class="tm">8</text><rect class="cx" x="330" y="92" width="28" height="24"/><text x="344" y="109" text-anchor="middle" class="tm">A</text><rect class="cx" x="360" y="92" width="28" height="24"/><text x="374" y="109" text-anchor="middle" class="tm">F</text><rect class="cx" x="390" y="92" width="28" height="24"/><text x="404" y="109" text-anchor="middle" class="tm">E</text><rect class="cx" x="420" y="92" width="28" height="24"/><text x="434" y="109" text-anchor="middle" class="tm">D</text><rect class="cx" x="450" y="92" width="28" height="24"/><text x="464" y="109" text-anchor="middle" class="tm">C</text><rect class="cx" x="480" y="92" width="28" height="24"/><text x="494" y="109" text-anchor="middle" class="tm">B</text><rect class="cx" x="510" y="92" width="28" height="24"/><text x="524" y="109" text-anchor="middle" class="tm">A</text><rect class="cx" x="540" y="92" width="28" height="24"/><text x="554" y="109" text-anchor="middle" class="tm">9</text><rect class="cx" x="570" y="92" width="28" height="24"/><text x="584" y="109" text-anchor="middle" class="tm">8</text><rect class="cx" x="600" y="92" width="28" height="24"/><text x="614" y="109" text-anchor="middle" class="tm">7</text>
+<path class="lnd" d="M150,124 V134 H268 V124"/>
+<text x="209" y="148" text-anchor="middle" class="ts td">controle, tamanho e os 2</text>
+<text x="209" y="160" text-anchor="middle" class="ts td">primeiros dígitos: sem mistura</text>
+<line class="ln" x1="390" y1="124" x2="390" y2="160" marker-end="url(#seta)"/>
+<text x="400" y="146" class="ts">3DES sob a chave de PIN</text>
+<rect class="cxv" x="300" y="162" width="190" height="28"/><text x="395" y="181" text-anchor="middle" class="tm">2DC3F05263417865</text>
+<text x="500" y="181" class="ts">o PIN block</text>
+<text x="340" y="206" text-anchor="middle" class="ts">PIN 48213, PAN inventado 9999990123456789: o campo do PAN usa os 12 dígitos antes do último</text>
+</svg>
+<figcaption>Figura 33.1 — O formato 0, nibble a nibble. Um XOR antes de uma única cifra; mesmo PIN, mesma conta e mesma chave dão sempre o mesmo bloco.</figcaption>
+</figure>
 
 **Três diferenças para o formato 4**, que a seção 33.4 descreve:
 
@@ -215,6 +234,30 @@ inventado `1234567890123456789` e os 8 bytes aleatórios fixados em `FF`:
 Com outros 8 bytes aleatórios, o bloco A muda na segunda metade, e o PIN
 block inteiro muda: a cifra espalha a diferença por todos os bits.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="20" width="270" height="34"/><text x="20" y="35" class="ts">bloco A: PIN e aleatório</text><text x="20" y="48" class="tm ts">441234AAAAAAAAAAFFFFFFFFFFFFFFFF</text>
+<line class="ln" x1="145" y1="54" x2="145" y2="78" marker-end="url(#seta)"/>
+<rect class="cxd" x="95" y="80" width="100" height="28"/><text x="145" y="99" text-anchor="middle" class="tb">AES_K</text>
+<line class="ln" x1="195" y1="94" x2="303" y2="94" marker-end="url(#seta)"/>
+<text x="250" y="88" text-anchor="middle" class="ts tm">CCFFA14C…</text>
+<circle class="cx" cx="320" cy="94" r="15"/><text x="320" y="99" text-anchor="middle" class="tb">⊕</text>
+<rect class="cx" x="380" y="20" width="290" height="34"/><text x="390" y="35" class="ts">bloco B: o PAN</text><text x="390" y="48" class="tm ts">71234567890123456789000000000000</text>
+<line class="ln" x1="460" y1="54" x2="335" y2="88" marker-end="url(#seta)"/>
+<line class="ln" x1="335" y1="94" x2="398" y2="94" marker-end="url(#seta)"/>
+<text x="460" y="88" class="ts">bloco C</text><text x="460" y="112" class="ts tm">BDDCE42B…</text>
+<line class="ln" x1="460" y1="116" x2="460" y2="138" marker-end="url(#seta)"/>
+<rect class="cxd" x="410" y="140" width="100" height="28"/><text x="460" y="159" text-anchor="middle" class="tb">AES_K</text>
+<line class="ln" x1="460" y1="168" x2="460" y2="186" marker-end="url(#seta)"/>
+<rect class="cxv" x="360" y="188" width="300" height="26"/><text x="510" y="206" text-anchor="middle" class="tm ts">28B41FDDD29B743E93124BD8E32D921E</text>
+<text x="20" y="160" class="ts">o PAN entra ENTRE as duas cifras:</text>
+<text x="20" y="174" class="ts">trocar um dígito do PAN embaralha</text>
+<text x="20" y="188" class="ts">o bloco inteiro na abertura</text>
+</svg>
+<figcaption>Figura 33.2 — O formato 4, com o exemplo do texto (chave AES-128 de teste, PIN 1234). Duas cifras, e o PAN no meio.</figcaption>
+</figure>
+
 O enchimento `A` não é dígito decimal. Quem abre o bloco confere o controle,
 o tamanho, os dígitos e o enchimento. Um bloco aberto com a chave errada, ou
 com o PAN errado, é um bloco ao acaso, e passa nessa conferência uma vez em
@@ -243,6 +286,24 @@ Quem faz isso é a **tradução de PIN block**. O comando:
 4. devolve o novo PIN block.
 
 O PIN existe em claro por microssegundos, dentro do módulo, e nunca sai.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 170" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="50" width="100" height="50"/><text x="60" y="72" text-anchor="middle" class="tb">terminal</text><text x="60" y="88" text-anchor="middle" class="ts">cifra o PIN</text>
+<rect class="fr" x="150" y="40" width="130" height="70"/><text x="215" y="62" text-anchor="middle" class="tb">HSM</text><text x="215" y="78" text-anchor="middle" class="ts">adquirente</text><text x="215" y="94" text-anchor="middle" class="ts tm">P0</text>
+<rect class="fr" x="320" y="40" width="130" height="70"/><text x="385" y="62" text-anchor="middle" class="tb">HSM</text><text x="385" y="78" text-anchor="middle" class="ts">bandeira</text><text x="385" y="94" text-anchor="middle" class="ts tm">P0</text>
+<rect class="fr" x="490" y="40" width="180" height="70"/><text x="580" y="62" text-anchor="middle" class="tb">HSM</text><text x="580" y="78" text-anchor="middle" class="ts">emissor</text><text x="580" y="94" text-anchor="middle" class="ts tm">verifica (V2, V6)</text>
+<line class="ln" x1="110" y1="75" x2="148" y2="75" marker-end="url(#seta)"/>
+<line class="ln" x1="280" y1="75" x2="318" y2="75" marker-end="url(#seta)"/>
+<line class="ln" x1="450" y1="75" x2="488" y2="75" marker-end="url(#seta)"/>
+<text x="130" y="130" text-anchor="middle" class="ts">chave do terminal</text>
+<text x="300" y="130" text-anchor="middle" class="ts">chave de zona 1</text>
+<text x="470" y="130" text-anchor="middle" class="ts">chave de zona 2</text>
+<text x="340" y="160" text-anchor="middle" class="ts">em cada trecho, um PIN block sob outra chave; o PIN em claro só existe dentro de um HSM</text>
+</svg>
+<figcaption>Figura 34.1 — O caminho de um PIN. Cada HSM traduz do domínio de chave anterior para o seguinte.</figcaption>
+</figure>
 
 **Por que é o comando mais perigoso:** ele é, por construção, um oráculo. O
 chamador escolhe as chaves, escolhe o PAN, escolhe os formatos, e observa se
@@ -391,6 +452,23 @@ atacante, com 9 trocas em cada uma das 12 posições, 108 pedidos):
 | 8 ou 9 | {0,1} {2,3} {4,5} {6,7} {8,9} |
 
   Em média, de 10 candidatos sobram 3,9. Com um 8 ou um 9 no PAN, sobram 2.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="30" class="tb">quanto do dígito do PIN o erro 14 entrega, por dígito do PAN na mesma posição</text>
+<line class="ln" x1="200" y1="210" x2="640" y2="210"/>
+<g class="ts"><text x="200" y="226" text-anchor="middle">0</text><text x="310" y="226" text-anchor="middle">2,5</text><text x="420" y="226" text-anchor="middle">5</text><text x="530" y="226" text-anchor="middle">7,5</text><text x="640" y="226" text-anchor="middle">10</text></g>
+<line class="grade" x1="420" y1="40" x2="420" y2="210"/>
+<text x="190" y="62" text-anchor="end">sem ataque</text><rect x="200" y="50" width="440" height="18" fill="#888"/><text x="610" y="64" class="ts" fill="#fff">10</text>
+<text x="190" y="96" text-anchor="end">PAN 0 a 7</text><rect x="200" y="84" width="193.6" height="18" fill="#2d4f73"/><text x="398" y="98" class="ts">4,4</text>
+<text x="190" y="130" text-anchor="end">média</text><rect x="200" y="118" width="172.5" height="18" fill="#7a1f1f"/><text x="378" y="132" class="ts">3,9</text>
+<text x="190" y="164" text-anchor="end">PAN 8 ou 9</text><rect x="200" y="152" width="88" height="18" fill="#2d4f73"/><text x="294" y="166" class="ts">2</text>
+<text x="190" y="198" text-anchor="end">2 primeiros dígitos</text><rect x="200" y="186" width="440" height="18" fill="#2f5f2f"/><text x="560" y="200" class="ts" fill="#fff">10: nada sai</text>
+<text x="420" y="244" text-anchor="middle" class="ts">candidatos que sobram para um dígito do PIN (média)</text>
+</svg>
+<figcaption>Figura 34.2 — O ataque de modificação do PAN no formato 0. Do terceiro dígito em diante, cada dígito do PIN cai de 10 candidatos para cerca de 4.</figcaption>
+</figure>
 - **O último bit de cada dígito nunca sai.** `XOR 1` nunca muda a resposta.
 - **Os dois primeiros dígitos nunca saem.** O campo do PAN é zero ali, e o
   atacante não tem o que trocar.
@@ -485,6 +563,29 @@ Para verificar, o equipamento soma o offset ao PIN natural e compara com o
 PIN que chegou no PIN block: `23912 + 25301 = 48213`, dígito a dígito, sem
 vai-um.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="20" width="150" height="40"/><text x="85" y="36" text-anchor="middle" class="ts">dados de validação</text><text x="85" y="51" text-anchor="middle" class="tm ts">9999990123456789</text>
+<line class="ln" x1="160" y1="40" x2="198" y2="40" marker-end="url(#seta)"/>
+<rect class="cxd" x="200" y="20" width="80" height="40"/><text x="240" y="44" text-anchor="middle" class="tb">3DES</text>
+<line class="ln" x1="280" y1="40" x2="318" y2="40" marker-end="url(#seta)"/>
+<rect class="cx" x="320" y="20" width="150" height="40"/><text x="395" y="36" text-anchor="middle" class="ts">cifrado</text><text x="395" y="51" text-anchor="middle" class="tm ts">C391C921EB0FE15C</text>
+<line class="ln" x1="470" y1="40" x2="508" y2="40" marker-end="url(#seta)"/>
+<rect class="cx" x="510" y="20" width="160" height="40"/><text x="590" y="36" text-anchor="middle" class="ts">decimalizado (tabela)</text><text x="590" y="51" text-anchor="middle" class="tm ts">2391292141054152</text>
+<line class="ln" x1="590" y1="60" x2="590" y2="88" marker-end="url(#seta)"/>
+<rect class="cxd" x="510" y="90" width="160" height="40"/><text x="590" y="106" text-anchor="middle" class="ts">PIN natural (5 dígitos)</text><text x="590" y="121" text-anchor="middle" class="tm tb">23912</text>
+<rect class="cxa" x="300" y="90" width="150" height="40"/><text x="375" y="106" text-anchor="middle" class="ts">PIN do cliente</text><text x="375" y="121" text-anchor="middle" class="tm tb">48213</text>
+<rect class="cxv" x="300" y="150" width="370" height="40"/><text x="485" y="166" text-anchor="middle" class="ts">offset = PIN − natural, dígito a dígito, módulo 10</text><text x="485" y="181" text-anchor="middle" class="tm tb">25301  (guardado; não é segredo)</text>
+<line class="ln" x1="590" y1="130" x2="590" y2="148" marker-end="url(#seta)"/>
+<line class="ln" x1="375" y1="130" x2="375" y2="148" marker-end="url(#seta)"/>
+<text x="20" y="110" class="ts">o natural vale tanto quanto o PIN:</text>
+<text x="20" y="124" class="ts">quem tem o natural e o offset,</text>
+<text x="20" y="138" class="ts">tem o PIN</text>
+</svg>
+<figcaption>Figura 35.1 — O método do offset, com o exemplo do texto. A chave e a tabela fazem o PIN natural; o offset faz o PIN escolhido.</figcaption>
+</figure>
+
 **O offset não é segredo.** Ele fica na base do emissor e já foi gravado na
 tarja do cartão. Sem a chave, ele não diz nada sobre o PIN. A consequência é
 que **o PIN natural vale tanto quanto o PIN**: quem conhece o natural de uma
@@ -502,6 +603,19 @@ dígitos de 0 a 5 saem com probabilidade 2/16 cada um, e os de 6 a 9 com
 
 O offset escolhido pelo cliente esconde esse desvio. Num emissor que entrega
 o PIN natural ao cliente, sem offset, ele fica exposto.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<line class="ln" x1="70" y1="170" x2="640" y2="170"/>
+<line class="grade" x1="70" y1="50" x2="640" y2="50"/><line class="grade" x1="70" y1="110" x2="640" y2="110"/>
+<text x="62" y="54" text-anchor="end" class="ts">2/16</text><text x="62" y="114" text-anchor="end" class="ts">1/16</text>
+<rect x="80" y="50" width="40" height="120" fill="#2d4f73"/><text x="100" y="186" text-anchor="middle" class="tb">0</text><rect x="135" y="50" width="40" height="120" fill="#2d4f73"/><text x="155" y="186" text-anchor="middle" class="tb">1</text><rect x="190" y="50" width="40" height="120" fill="#2d4f73"/><text x="210" y="186" text-anchor="middle" class="tb">2</text><rect x="245" y="50" width="40" height="120" fill="#2d4f73"/><text x="265" y="186" text-anchor="middle" class="tb">3</text><rect x="300" y="50" width="40" height="120" fill="#2d4f73"/><text x="320" y="186" text-anchor="middle" class="tb">4</text><rect x="355" y="50" width="40" height="120" fill="#2d4f73"/><text x="375" y="186" text-anchor="middle" class="tb">5</text><rect x="410" y="110" width="40" height="60" fill="#7a1f1f"/><text x="430" y="186" text-anchor="middle" class="tb">6</text><rect x="465" y="110" width="40" height="60" fill="#7a1f1f"/><text x="485" y="186" text-anchor="middle" class="tb">7</text><rect x="520" y="110" width="40" height="60" fill="#7a1f1f"/><text x="540" y="186" text-anchor="middle" class="tb">8</text><rect x="575" y="110" width="40" height="60" fill="#7a1f1f"/><text x="595" y="186" text-anchor="middle" class="tb">9</text>
+<line x1="70" y1="98" x2="640" y2="98" stroke="#2f5f2f" stroke-dasharray="5 3"/><text x="636" y="92" text-anchor="end" class="ts" fill="#2f5f2f">uniforme: 1/10</text>
+<text x="355" y="206" text-anchor="middle" class="ts">dígito do PIN natural: 0 a 5 vêm de dois hexadecimais (0 e A, 1 e B…); 6 a 9, de um só</text>
+</svg>
+<figcaption>Figura 35.2 — A distribuição de um dígito do PIN natural com a tabela usual. O desvio cai a busca média de 5 000 para 3 307 tentativas.</figcaption>
+</figure>
 
 ### 35.2 O PVV
 
@@ -530,6 +644,23 @@ e PIN `48213`:
 
 O índice permite ao emissor trocar de chave aos poucos: cada cartão diz com
 qual chave o PVV dele foi feito.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 190" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="150" y="20" width="110" height="34"/><text x="205" y="35" text-anchor="middle" class="ts">conta, 11 dígitos</text><text x="205" y="48" text-anchor="middle" class="tm ts">99012345678</text>
+<rect class="cx" x="262" y="20" width="60" height="34"/><text x="292" y="35" text-anchor="middle" class="ts">índice</text><text x="292" y="48" text-anchor="middle" class="tm ts">1</text>
+<rect class="cxd" x="324" y="20" width="90" height="34"/><text x="369" y="35" text-anchor="middle" class="ts">PIN, 4 dígitos</text><text x="369" y="48" text-anchor="middle" class="tm ts">4821</text>
+<line class="ln" x1="290" y1="54" x2="290" y2="72"/><text x="300" y="70" class="ts">3DES sob a chave V2</text>
+<line class="ln" x1="290" y1="72" x2="290" y2="96" marker-end="url(#seta)"/>
+<rect class="cxv" x="150" y="100" width="28" height="24"/><text x="164" y="117" text-anchor="middle" class="tm">6</text><rect class="cxv" x="180" y="100" width="28" height="24"/><text x="194" y="117" text-anchor="middle" class="tm">3</text><rect class="cxv" x="210" y="100" width="28" height="24"/><text x="224" y="117" text-anchor="middle" class="tm">6</text><rect class="cxv" x="240" y="100" width="28" height="24"/><text x="254" y="117" text-anchor="middle" class="tm">8</text><rect class="cxc" x="270" y="100" width="28" height="24"/><text x="284" y="117" text-anchor="middle" class="tm">D</text><rect class="cx" x="300" y="100" width="28" height="24"/><text x="314" y="117" text-anchor="middle" class="tm">8</text><rect class="cx" x="330" y="100" width="28" height="24"/><text x="344" y="117" text-anchor="middle" class="tm">4</text><rect class="cx" x="360" y="100" width="28" height="24"/><text x="374" y="117" text-anchor="middle" class="tm">5</text><rect class="cx" x="390" y="100" width="28" height="24"/><text x="404" y="117" text-anchor="middle" class="tm">4</text><rect class="cx" x="420" y="100" width="28" height="24"/><text x="434" y="117" text-anchor="middle" class="tm">6</text><rect class="cx" x="450" y="100" width="28" height="24"/><text x="464" y="117" text-anchor="middle" class="tm">6</text><rect class="cx" x="480" y="100" width="28" height="24"/><text x="494" y="117" text-anchor="middle" class="tm">7</text><rect class="cxc" x="510" y="100" width="28" height="24"/><text x="524" y="117" text-anchor="middle" class="tm">B</text><rect class="cxc" x="540" y="100" width="28" height="24"/><text x="554" y="117" text-anchor="middle" class="tm">A</text><rect class="cx" x="570" y="100" width="28" height="24"/><text x="584" y="117" text-anchor="middle" class="tm">3</text><rect class="cx" x="600" y="100" width="28" height="24"/><text x="614" y="117" text-anchor="middle" class="tm">9</text>
+<text x="10" y="117" class="ts">cifrado</text>
+<text x="150" y="146" class="ts">os 4 primeiros dígitos decimais, da esquerda para a direita:</text>
+<rect class="cxv" x="150" y="152" width="120" height="28"/><text x="210" y="171" text-anchor="middle" class="tm tb">PVV = 6368</text>
+<text x="290" y="171" class="ts">sem 4 decimais (1 em 2 214): segunda passada, A→0 … F→5</text>
+</svg>
+<figcaption>Figura 35.3 — O PVV, com o exemplo do texto. O PIN entra na cifra, e a extração escolhe os decimais.</figcaption>
+</figure>
 
 **A segunda passada é rara.** Um dígito hexadecimal é decimal com
 probabilidade 10/16. A chance de um bloco de 16 ter menos de 4 decimais é a
@@ -733,6 +864,30 @@ Com um PAN de 16 dígitos, `D1` é o mesmo nos três códigos. Só `D2` muda. Ma
 a cifra espalha a diferença, e os três códigos não têm relação visível entre
 si.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="20" width="160" height="40"/><text x="90" y="36" text-anchor="middle" class="ts">D1: o PAN</text><text x="90" y="51" text-anchor="middle" class="tm ts">9999990123456789</text>
+<rect class="cxa" x="10" y="110" width="160" height="40"/><text x="90" y="126" text-anchor="middle" class="ts">D2: validade, serviço, zeros</text><text x="90" y="141" text-anchor="middle" class="tm ts">2812101000000000</text>
+<line class="ln" x1="170" y1="40" x2="208" y2="40" marker-end="url(#seta)"/>
+<rect class="cxd" x="210" y="22" width="90" height="36"/><text x="255" y="38" text-anchor="middle" class="tb">DES</text><text x="255" y="52" text-anchor="middle" class="ts">sob A</text>
+<line class="ln" x1="300" y1="40" x2="340" y2="40"/><line class="ln" x1="340" y1="40" x2="340" y2="113" marker-end="url(#seta)"/>
+<text x="350" y="76" class="tm ts">A77E2DB5E4AE7B1F</text>
+<circle class="cx" cx="340" cy="130" r="15"/><text x="340" y="135" text-anchor="middle" class="tb">⊕</text>
+<line class="ln" x1="170" y1="130" x2="323" y2="130" marker-end="url(#seta)"/>
+<line class="ln" x1="355" y1="130" x2="408" y2="130" marker-end="url(#seta)"/>
+<text x="380" y="122" class="ts">X</text>
+<rect class="cxd" x="410" y="112" width="90" height="36"/><text x="455" y="128" text-anchor="middle" class="tb">3DES</text><text x="455" y="142" text-anchor="middle" class="ts">sob A ‖ B</text>
+<line class="ln" x1="500" y1="130" x2="528" y2="130" marker-end="url(#seta)"/>
+<rect class="cx" x="530" y="112" width="140" height="36"/><text x="600" y="128" text-anchor="middle" class="ts">C</text><text x="600" y="142" text-anchor="middle" class="tm ts">0374D7040AA393CD</text>
+<line class="ln" x1="600" y1="148" x2="600" y2="168" marker-end="url(#seta)"/>
+<rect class="cxv" x="530" y="170" width="140" height="30"/><text x="600" y="190" text-anchor="middle" class="tm tb">CVV = 037</text>
+<text x="10" y="186" class="ts">é o retail MAC sobre D1 ‖ D2 (seção 39.10), reduzido a 3 dígitos;</text>
+<text x="10" y="200" class="ts">o código de serviço em D2 separa CVV (101), CVV2 (000) e iCVV (999)</text>
+</svg>
+<figcaption>Figura 36.1 — O CVV, com o exemplo do texto. Um MAC de 64 bits sobre os dados do cartão, reduzido a 3 dígitos decimais.</figcaption>
+</figure>
+
 **A conta é um MAC.** Os passos 2 e 3 são o *retail MAC* da ISO/IEC 9797-1
 (algoritmo 3) sobre `D1 ‖ D2`, sem enchimento: DES encadeado sob `A`, e no
 último bloco decifrar sob `B` e cifrar sob `A`. Conferido por programa em
@@ -840,6 +995,30 @@ As três propriedades que isso compra:
 3. **Nada para distribuir.** O HSM rederiva; não existe base de um milhão de
    chaves para sincronizar.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+<rect class="fr" x="430" y="20" width="240" height="190"/>
+<text x="660" y="36" text-anchor="end" class="ts td">HSM do adquirente</text>
+<rect class="cxd" x="450" y="50" width="90" height="34"/><text x="495" y="72" text-anchor="middle" class="tb">BDK</text>
+<rect class="cx" x="450" y="110" width="200" height="40"/><text x="550" y="127" text-anchor="middle" class="ts">BDK + KSN → chave inicial</text><text x="550" y="141" text-anchor="middle" class="ts">→ chave da transação</text>
+<rect class="cxv" x="450" y="164" width="200" height="34"/><text x="550" y="185" text-anchor="middle" class="ts">a mesma chave do terminal</text>
+<line class="ln" x1="495" y1="84" x2="495" y2="108" marker-end="url(#seta)"/>
+<line class="ln" x1="550" y1="150" x2="550" y2="162" marker-end="url(#seta)"/>
+<g>
+<rect class="cxa" x="10" y="20" width="160" height="50"/><text x="90" y="40" text-anchor="middle" class="tb">terminal 1</text><text x="90" y="56" text-anchor="middle" class="ts">chave inicial própria</text>
+<rect class="cxa" x="10" y="85" width="160" height="50"/><text x="90" y="105" text-anchor="middle" class="tb">terminal 2</text><text x="90" y="121" text-anchor="middle" class="ts">a cada transação,</text>
+<rect class="cxa" x="10" y="150" width="160" height="50"/><text x="90" y="170" text-anchor="middle" class="tb">terminal 1 000 000</text><text x="90" y="186" text-anchor="middle" class="ts">deriva e apaga a anterior</text>
+</g>
+<line class="ln" x1="170" y1="110" x2="428" y2="128" marker-end="url(#seta)"/>
+<rect class="cx" x="200" y="88" width="200" height="30"/><text x="300" y="107" text-anchor="middle" class="ts">PIN block + KSN (em claro)</text>
+<text x="300" y="150" text-anchor="middle" class="ts">a BDK nunca vai ao terminal;</text>
+<text x="300" y="164" text-anchor="middle" class="ts">o HSM não guarda chave de terminal</text>
+<text x="300" y="178" text-anchor="middle" class="ts">nenhuma: ele refaz a conta</text>
+</svg>
+<figcaption>Figura 37.1 — O DUKPT. Uma BDK no HSM, uma chave por transação em cada terminal, e o KSN dizendo qual.</figcaption>
+</figure>
+
 ### 37.1 X9.24-1 (TDES) e X9.24-3 (AES)
 
 | | TDES DUKPT (X9.24-1) | AES DUKPT (X9.24-3) |
@@ -889,6 +1068,19 @@ nunca tem mais de 10 bits 1.
 
 O processo não volta: da chave da transação 5 não se calcula a da 4. É isso
 que dá o sigilo do passado.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 280" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxd" x="20" y="40" width="80" height="34"/><text x="60" y="61" text-anchor="middle" class="tb">IPEK</text><line class="ln" x1="60" y1="74" x2="110" y2="106" marker-end="url(#seta)"/><line class="ln" x1="60" y1="74" x2="260" y2="106" marker-end="url(#seta)"/><line class="ln" x1="260" y1="134" x2="260" y2="166" marker-end="url(#seta)"/><line class="ln" x1="60" y1="74" x2="480" y2="106" marker-end="url(#seta)"/><line class="ln" x1="480" y1="134" x2="480" y2="166" marker-end="url(#seta)"/><line class="ln" x1="480" y1="134" x2="580" y2="166" marker-end="url(#seta)"/><line class="ln" x1="580" y1="194" x2="580" y2="226" marker-end="url(#seta)"/><rect class="cx" x="70" y="106" width="80" height="28"/><text x="110" y="125" text-anchor="middle" class="tm">001</text><rect class="cx" x="220" y="106" width="80" height="28"/><text x="260" y="125" text-anchor="middle" class="tm">010</text><rect class="cx" x="220" y="166" width="80" height="28"/><text x="260" y="185" text-anchor="middle" class="tm">011</text><rect class="cx" x="440" y="106" width="80" height="28"/><text x="480" y="125" text-anchor="middle" class="tm">100</text><rect class="cx" x="440" y="166" width="80" height="28"/><text x="480" y="185" text-anchor="middle" class="tm">101</text><rect class="cx" x="540" y="166" width="80" height="28"/><text x="580" y="185" text-anchor="middle" class="tm">110</text><rect class="cx" x="540" y="226" width="80" height="28"/><text x="580" y="245" text-anchor="middle" class="tm">111</text>
+<text x="340" y="30" text-anchor="middle" class="ts">contador de 3 bits (no DUKPT TDES são 21): cada seta é um passo não reversível</text>
+<text x="20" y="200" class="ts">a chave de 101 nasce de 100,</text>
+<text x="20" y="214" class="ts">que nasce da IPEK: 2 passos,</text>
+<text x="20" y="228" class="ts">um por bit 1 do contador</text>
+<text x="420" y="270" class="ts">111: 3 passos; da chave de 111 não se volta à de 110</text>
+</svg>
+<figcaption>Figura 37.2 — A árvore de derivação do contador. O pai de cada contador é ele com o bit 1 mais baixo apagado.</figcaption>
+</figure>
 
 **Passo 3: a variante de PIN.** A chave da transação é combinada por XOR
 com `00000000000000FF 00000000000000FF`. A chave de PIN é diferente da
@@ -964,6 +1156,20 @@ Quantos contadores sobram? Os de 1 a 10 bits 1 entre 21 posições:
 C(21,21−k). Um terminal faz no máximo 1 048 575 transações com a mesma
 IPEK. Depois, ele precisa de uma carga nova.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 240" xmlns="http://www.w3.org/2000/svg">
+<line class="ln" x1="55" y1="190" x2="660" y2="190"/>
+<rect x="60" y="190.0" width="22" height="0.0" fill="#2d4f73"/><text x="71" y="204" text-anchor="middle" class="ts">1</text><rect x="88" y="189.9" width="22" height="0.1" fill="#2d4f73"/><text x="99" y="204" text-anchor="middle" class="ts">2</text><rect x="116" y="189.4" width="22" height="0.6" fill="#2d4f73"/><text x="127" y="204" text-anchor="middle" class="ts">3</text><rect x="144" y="187.5" width="22" height="2.5" fill="#2d4f73"/><text x="155" y="204" text-anchor="middle" class="ts">4</text><rect x="172" y="181.3" width="22" height="8.7" fill="#2d4f73"/><text x="183" y="204" text-anchor="middle" class="ts">5</text><rect x="200" y="166.9" width="22" height="23.1" fill="#2d4f73"/><text x="211" y="204" text-anchor="middle" class="ts">6</text><rect x="228" y="140.5" width="22" height="49.5" fill="#2d4f73"/><text x="239" y="204" text-anchor="middle" class="ts">7</text><rect x="256" y="103.5" width="22" height="86.5" fill="#2d4f73"/><text x="267" y="204" text-anchor="middle" class="ts">8</text><rect x="284" y="65.0" width="22" height="125.0" fill="#2d4f73"/><text x="295" y="204" text-anchor="middle" class="ts">9</text><rect x="312" y="40.0" width="22" height="150.0" fill="#2d4f73"/><text x="323" y="204" text-anchor="middle" class="ts">10</text><rect x="340" y="40.0" width="22" height="150.0" fill="#bbb"/><text x="351" y="204" text-anchor="middle" class="ts">11</text><rect x="368" y="65.0" width="22" height="125.0" fill="#bbb"/><text x="379" y="204" text-anchor="middle" class="ts">12</text><rect x="396" y="103.5" width="22" height="86.5" fill="#bbb"/><text x="407" y="204" text-anchor="middle" class="ts">13</text><rect x="424" y="140.5" width="22" height="49.5" fill="#bbb"/><text x="435" y="204" text-anchor="middle" class="ts">14</text><rect x="452" y="166.9" width="22" height="23.1" fill="#bbb"/><text x="463" y="204" text-anchor="middle" class="ts">15</text><rect x="480" y="181.3" width="22" height="8.7" fill="#bbb"/><text x="491" y="204" text-anchor="middle" class="ts">16</text><rect x="508" y="187.5" width="22" height="2.5" fill="#bbb"/><text x="519" y="204" text-anchor="middle" class="ts">17</text><rect x="536" y="189.4" width="22" height="0.6" fill="#bbb"/><text x="547" y="204" text-anchor="middle" class="ts">18</text><rect x="564" y="189.9" width="22" height="0.1" fill="#bbb"/><text x="575" y="204" text-anchor="middle" class="ts">19</text><rect x="592" y="190.0" width="22" height="0.0" fill="#bbb"/><text x="603" y="204" text-anchor="middle" class="ts">20</text><rect x="620" y="190.0" width="22" height="0.0" fill="#bbb"/><text x="631" y="204" text-anchor="middle" class="ts">21</text>
+<text x="355" y="222" text-anchor="middle" class="ts">bits 1 no contador de 21 bits</text>
+<text x="70" y="30" class="ts" fill="#2d4f73">válidos: 1 a 10 bits 1, 1 048 575 contadores</text>
+<text x="400" y="30" class="ts" fill="#888">recusados (16): 11 ou mais</text>
+<text x="330" y="60" class="ts">C(21, k): simétrico,</text>
+<text x="330" y="74" class="ts">por isso exatamente a metade</text>
+</svg>
+<figcaption>Figura 37.3 — Quantos contadores têm k bits 1. O DUKPT TDES usa a metade esquerda: no máximo 10 passos por transação.</figcaption>
+</figure>
+
 **O que o host pode tentar.** O KSN vem do host e escolhe a chave. Com um
 KSN que não é o da transação, o bloco abre sob outra chave, e o resultado é
 um bloco ao acaso. Um bloco ao acaso passa como formato 0 cerca de uma vez
@@ -1000,6 +1206,24 @@ O algoritmo e os bits são os da chave **derivada**. Uma chave AES-256 sai
 de dois AES, com o byte de bloco 01 e 02. A separação de chaves está nos
 dados: a chave de PIN e a de MAC da mesma transação diferem no campo de
 uso, e não por uma máscara combinada depois, como no TDES.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<text x="340" y="28" text-anchor="middle" class="ts">os 16 bytes que a chave mãe cifra, para cada chave derivada</text>
+<rect class="cxc" x="20" y="40" width="38" height="40"/><text x="39.0" y="57" text-anchor="middle" class="tm ts">01</text><text x="39.0" y="72" text-anchor="middle" class="ts">versão</text><rect class="cxc" x="58" y="40" width="38" height="40"/><text x="77.0" y="57" text-anchor="middle" class="tm ts">01</text><text x="77.0" y="72" text-anchor="middle" class="ts">bloco</text><rect class="cxd" x="96" y="40" width="76" height="40"/><text x="134.0" y="57" text-anchor="middle" class="tm ts">8001</text><text x="134.0" y="72" text-anchor="middle" class="ts">uso</text><rect class="cxa" x="172" y="40" width="76" height="40"/><text x="210.0" y="57" text-anchor="middle" class="tm ts">0002</text><text x="210.0" y="72" text-anchor="middle" class="ts">algoritmo</text><rect class="cxa" x="248" y="40" width="76" height="40"/><text x="286.0" y="57" text-anchor="middle" class="tm ts">0080</text><text x="286.0" y="72" text-anchor="middle" class="ts">bits</text><rect class="cx" x="324" y="40" width="300" height="40"/><text x="474.0" y="57" text-anchor="middle" class="tm ts">1234567890123456</text><text x="474.0" y="72" text-anchor="middle" class="ts">IKID ou IKID[4:8] ‖ contador</text>
+<text x="20" y="112" class="tb">a cadeia, com o exemplo do texto</text>
+<rect class="cxd" x="20" y="124" width="110" height="34"/><text x="75" y="145" text-anchor="middle" class="tb">BDK</text>
+<line class="ln" x1="130" y1="141" x2="178" y2="141" marker-end="url(#seta)"/><text x="154" y="134" text-anchor="middle" class="ts">8001</text>
+<rect class="cx" x="180" y="124" width="110" height="34"/><text x="235" y="139" text-anchor="middle" class="tb">IK</text><text x="235" y="152" text-anchor="middle" class="tm ts">1273671E…</text>
+<line class="ln" x1="290" y1="141" x2="338" y2="141" marker-end="url(#seta)"/><text x="314" y="134" text-anchor="middle" class="ts">8000</text>
+<rect class="cx" x="340" y="124" width="130" height="34"/><text x="405" y="139" text-anchor="middle" class="tb">transação</text><text x="405" y="152" text-anchor="middle" class="tm ts">4F21B565…</text>
+<line class="ln" x1="470" y1="141" x2="518" y2="141" marker-end="url(#seta)"/><text x="494" y="134" text-anchor="middle" class="ts">1000</text>
+<rect class="cxv" x="520" y="124" width="140" height="34"/><text x="590" y="139" text-anchor="middle" class="tb">chave de PIN</text><text x="590" y="152" text-anchor="middle" class="tm ts">AF8CB133…</text>
+<text x="340" y="186" text-anchor="middle" class="ts">um passo 8000 por bit 1 do contador (aqui, contador 1: um passo); MAC e dados mudam só o campo de uso</text>
+</svg>
+<figcaption>Figura 37.4 — A função de derivação do DUKPT AES. A separação de chaves está no campo de uso, e não numa máscara combinada depois.</figcaption>
+</figure>
 
 **Passo 1: a chave inicial (IK).** Os 8 bytes de dados são o IKID, e a
 chave mãe é a BDK.
@@ -1100,6 +1324,7 @@ de vetor de teste**.
 | CVV, CVV2 e iCVV | **feito** (seção 36) | inerentemente 3DES; não há variante AES em uso |
 | PVV | **feito** (seção 35.2) | idem |
 | DUKPT TDES (X9.24-1) | **feito** (seção 37.2) | 3DES, com vetores de terceiros do anexo A.4 |
+| MAC de mensagem e dados com 3DES | **feito** (seção 39.10) | retail MAC da ISO 9797-1 e 3DES-CBC, com vetores de duas fontes e do NIST |
 | Criptogramas EMV, emissão de PIN | fora, por enquanto | são funções de emissor, maiores que as demais |
 
 ### 38.1 Um HSM precisa de 3DES?
@@ -1155,24 +1380,162 @@ A seção 39 explica o DES e o 3DES.
 
 ### 38.3 O obstáculo maior são os vetores
 
-A regra inviolável deste projeto diz que, se um teste de resposta conhecida
-falha, **o erro está no código, não no vetor** — e isso só vale se a
-procedência do vetor for verificável por terceiros. AES, SHA, HMAC, CMAC e
-CTR_DRBG têm vetores públicos do NIST e do IETF, com hash registrado.
+Um **vetor de teste** é um caso de entrada com a saída correta conhecida:
+esta chave, esta mensagem, este resultado. O teste de resposta conhecida
+(KAT) dá a entrada ao equipamento e compara a saída. A regra nº 5 do projeto
+diz que, se um KAT falha, **o erro está no código, não no vetor**. Essa regra
+só se sustenta quando o vetor vem de alguém que não é o próprio projeto, e
+quando a procedência dele pode ser conferida.
 
-Criptografia de pagamento não tem esse luxo. Os vetores da ANSI X9.24-3
-estão atrás de paywall; os de CVV e PVV vivem em documentação de bandeira e
-em manual de fabricante. Sem vetor autoritativo não há KAT, e "implementei e
-parece certo" é exatamente o que a regra existe para proibir.
+**Por que a criptografia de pagamento não tem vetor oficial.** O NIST valida
+**algoritmos**: AES, SHA, CMAC, DES, RSA, ECDSA. O programa de validação dele
+(o CAVP) publica milhares de vetores, de graça. Mas um PIN block, um CVV, um
+DUKPT ou um retail MAC não são algoritmos novos: são **esquemas** que usam o
+DES ou o AES de um jeito definido. Esses esquemas estão em outros lugares:
 
-**Consequência prática:** onde não houver vetor público, o item não entra —
-ou entra explicitamente marcado como não verificado. Há um caminho do meio,
-usado no key block e no formato 4: um valor publicado por uma implementação
-aberta e independente, fixado por hash e marcado como **fonte secundária**.
-Ele não tem a autoridade de uma norma, mas é um número que este projeto não
-escolheu. Preferir a lacuna
-honesta à cobertura fingida é o mesmo critério que orienta o resto do
-documento.
+| Onde está a definição | Exemplos | Acesso |
+|---|---|---|
+| Normas ANSI e ISO | X9.24 (DUKPT), X9.143 (key block), ISO 9564 (PIN block), ISO/IEC 9797-1 (MAC) | pagas, com licença por leitor |
+| Documentação das bandeiras | CVV, PVV, iCVV | só para licenciados |
+| Manuais de fabricantes de HSM | tabelas de comandos, exemplos | licenciados; proibidos neste projeto |
+
+Um fabricante de HSM compra as normas, recebe das bandeiras os casos de
+teste de certificação e passa por laboratórios credenciados (PCI PTS HSM,
+FIPS 140-3). Este projeto não tem nada disso. Ele tem o que é público.
+
+**A escada de confiança.** Entre o vetor oficial e o "parece certo" há
+degraus. Cada função do equipamento está num deles, e a Figura 38.1 mostra
+quais.
+
+<figure class="fig">
+<svg viewBox="0 0 680 330" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxv" x="10"  y="20"  width="250" height="52"/>
+<text x="20" y="40" class="tb">1. Vetor oficial público</text>
+<text x="20" y="58" class="ts">NIST (CAVP) e IETF: a saída é a da norma</text>
+<rect class="cxc" x="70"  y="82"  width="250" height="52" style="stroke-dasharray:5 3"/>
+<text x="80" y="102" class="tb">2. A própria norma</text>
+<text x="80" y="120" class="ts">paga; um fabricante a compra. Não usada aqui</text>
+<rect class="cxa" x="130" y="144" width="250" height="52"/>
+<text x="140" y="164" class="tb">3. Duas fontes independentes</text>
+<text x="140" y="182" class="ts">bibliotecas abertas diferentes que concordam</text>
+<rect class="cx"  x="190" y="206" width="250" height="52"/>
+<text x="200" y="226" class="tb">4. Uma fonte</text>
+<text x="200" y="244" class="ts">uma biblioteca aberta, fixada por commit e hash</text>
+<rect class="cxd" x="250" y="268" width="250" height="52"/>
+<text x="260" y="288" class="tb">5. Só as duas implementações</text>
+<text x="260" y="306" class="ts">o C e o Python deste projeto concordam</text>
+<line class="ln" x1="522" y1="300" x2="522" y2="35" marker-end="url(#seta)"/>
+<text x="534" y="170" class="ts" transform="rotate(-90 534 170)" text-anchor="middle">mais confiança</text>
+<text x="548" y="48"  class="ts">AES, SHA, HMAC, CMAC,</text>
+<text x="548" y="61"  class="ts">DRBG, RSA, ECDSA, 3DES</text>
+<text x="548" y="170" class="ts">CVV, retail MAC</text>
+<text x="548" y="232" class="ts">key block, PIN block,</text>
+<text x="548" y="245" class="ts">PVV, DUKPT, offset</text>
+<text x="548" y="294" class="ts">casos que nenhuma</text>
+<text x="548" y="307" class="ts">fonte cobre</text>
+</svg>
+<figcaption>Figura 38.1 — A escada de confiança de um vetor de teste. À direita, as funções deste equipamento em cada degrau.</figcaption>
+</figure>
+
+**O que uma fonte secundária vale.** Uma biblioteca aberta que publica
+valores de teste (o `psec`, o `openemv/dukpt`, o `moov-io/dukpt`, o
+RustCrypto) leu a norma, ou outra fonte, e escreveu o resultado. Ela não tem
+a autoridade da norma, e nem sempre diz de onde tirou cada número. Mas ela
+dá um número que **este projeto não escolheu**. Esse é o ponto: um vetor que
+o próprio projeto calcula não acusa nada, porque o mesmo erro está no
+cálculo e no código.
+
+**Duas implementações, e o limite delas.** O projeto escreve cada esquema
+duas vezes, em C (o firmware) e em Python (o host), com motores de cifra
+diferentes, e exige que os dois concordem. Isso pega erro de programação:
+um índice trocado, um byte a mais no preenchimento. Não pega erro de
+**leitura**: se as duas implementações seguem a mesma fonte, e a fonte está
+errada, as duas erram igual e concordam. A Figura 38.2 mostra os dois casos.
+
+<figure class="fig">
+<svg viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
+<text x="160" y="18" class="tb" text-anchor="middle">Erro de programação: pego</text>
+<rect class="cxv" x="100" y="30" width="120" height="34"/>
+<text x="160" y="52" text-anchor="middle">fonte certa</text>
+<line class="ln" x1="130" y1="64" x2="80" y2="104" marker-end="url(#seta)"/>
+<line class="ln" x1="190" y1="64" x2="240" y2="104" marker-end="url(#seta)"/>
+<rect class="cxd" x="20" y="106" width="120" height="34"/>
+<text x="80" y="122" text-anchor="middle">C</text>
+<text x="80" y="135" class="ts" text-anchor="middle">um índice trocado</text>
+<rect class="cx" x="180" y="106" width="120" height="34"/>
+<text x="240" y="128" text-anchor="middle">Python</text>
+<line class="ln" x1="80" y1="140" x2="150" y2="180" marker-end="url(#seta)"/>
+<line class="ln" x1="240" y1="140" x2="170" y2="180" marker-end="url(#seta)"/>
+<rect class="cxv" x="90" y="182" width="140" height="40"/>
+<text x="160" y="200" text-anchor="middle" class="tb">discordam</text>
+<text x="160" y="214" text-anchor="middle" class="ts">o teste reprova</text>
+<line class="lnt" x1="340" y1="10" x2="340" y2="240"/>
+<text x="510" y="18" class="tb" text-anchor="middle">Erro de leitura: passa</text>
+<rect class="cxd" x="450" y="30" width="120" height="34"/>
+<text x="510" y="52" text-anchor="middle">fonte errada</text>
+<line class="lnd" x1="480" y1="64" x2="430" y2="104" marker-end="url(#seta-d)"/>
+<line class="lnd" x1="540" y1="64" x2="590" y2="104" marker-end="url(#seta-d)"/>
+<rect class="cx" x="370" y="106" width="120" height="34"/>
+<text x="430" y="128" text-anchor="middle">C</text>
+<rect class="cx" x="530" y="106" width="120" height="34"/>
+<text x="590" y="128" text-anchor="middle">Python</text>
+<line class="ln" x1="430" y1="140" x2="500" y2="180" marker-end="url(#seta)"/>
+<line class="ln" x1="590" y1="140" x2="520" y2="180" marker-end="url(#seta)"/>
+<rect class="cxd" x="440" y="182" width="140" height="40"/>
+<text x="510" y="200" text-anchor="middle" class="tb td">concordam no erro</text>
+<text x="510" y="214" text-anchor="middle" class="ts">o teste passa</text>
+</svg>
+<figcaption>Figura 38.2 — Duas implementações pegam o erro de programação, e não o erro da fonte. Contra o erro da fonte, só uma segunda fonte independente.</figcaption>
+</figure>
+
+Por isso uma segunda fonte vale mais que uma segunda implementação. Duas
+bibliotecas de autores diferentes, em linguagens diferentes, que chegam ao
+mesmo número, raramente leram a norma do mesmo jeito errado. Não é
+impossível: as duas podem ter copiado da mesma fonte intermediária. Mas é o
+melhor que se consegue sem a norma.
+
+**A regra deste projeto**, por decisão do usuário:
+
+1. Onde há vetor oficial, ele é obrigatório.
+2. Onde não há, desde a etapa 8.9, um valor de terceiros precisa de **duas
+   fontes independentes**. Com uma só, a decisão volta ao usuário, caso a
+   caso.
+3. Toda fonte é fixada por commit e por hash em `vectors/MANIFEST.txt`, que
+   diz o que ela cobre e o que não cobre.
+4. O que nenhuma fonte cobre é conferido entre o C e o Python, e o manual diz
+   isso (Parte VIII).
+
+O critério do usuário é didático: o equipamento precisa funcionar, e se
+comportar como um HSM real se comporta. A certificação de cada número fica
+para quem fabrica. A Figura 38.3 mostra onde cada função está.
+
+<figure class="fig">
+<svg viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg">
+<text x="345" y="28" text-anchor="middle" class="ts">oficial</text>
+<text x="425" y="28" text-anchor="middle" class="ts">duas ou mais</text>
+<text x="505" y="28" text-anchor="middle" class="ts">uma fonte</text>
+<text x="600" y="28" text-anchor="middle" class="ts">só C × Python</text>
+<line class="grade" x1="20" y1="36" x2="660" y2="36"/>
+<g>
+<text x="20" y="58">AES, SHA, HMAC, CMAC, DRBG</text><circle cx="345" cy="54" r="7" fill="#2f5f2f"/>
+<text x="20" y="82">RSA e ECDSA</text><circle cx="345" cy="78" r="7" fill="#2f5f2f"/>
+<text x="20" y="106">DES e 3DES, CMAC-TDES</text><circle cx="345" cy="102" r="7" fill="#2f5f2f"/>
+<text x="20" y="130">Key block versões D e B (abrir)</text><circle cx="505" cy="126" r="7" fill="#555"/>
+<text x="20" y="154">Key block (embrulhar: enchimento aleatório)</text><circle cx="600" cy="150" r="7" fill="#7a1f1f"/>
+<text x="20" y="178">PIN block formatos 0 e 4</text><circle cx="505" cy="174" r="7" fill="#555"/>
+<text x="20" y="202">Offset IBM 3624 e PVV</text><circle cx="505" cy="198" r="7" fill="#555"/>
+<text x="20" y="226">CVV, CVV2 e iCVV</text><circle cx="425" cy="222" r="7" fill="#2d4f73"/><text x="440" y="226" class="ts">3</text>
+<text x="20" y="250">DUKPT TDES e AES: chaves e PIN</text><circle cx="505" cy="246" r="7" fill="#555"/>
+<text x="20" y="274">Retail MAC (ISO 9797-1, alg. 3)</text><circle cx="425" cy="270" r="7" fill="#2d4f73"/><text x="440" y="274" class="ts">2</text>
+<text x="20" y="298">AES-128 (só o DUKPT)</text><circle cx="345" cy="294" r="7" fill="#2f5f2f"/>
+</g>
+<line class="grade" x1="305" y1="36" x2="305" y2="308"/>
+<line class="grade" x1="385" y1="36" x2="385" y2="308"/>
+<line class="grade" x1="465" y1="36" x2="465" y2="308"/>
+<line class="grade" x1="545" y1="36" x2="545" y2="308"/>
+</svg>
+<figcaption>Figura 38.3 — De onde vem a resposta conhecida de cada função. O número ao lado do ponto é a quantidade de fontes independentes.</figcaption>
+</figure>
 
 ### 38.4 Uma regra que não se negocia
 
@@ -1210,6 +1573,29 @@ metade. Para desfazer a rodada, basta calcular `f` de novo sobre o mesmo
 A consequência prática: **decifrar é cifrar com as subchaves na ordem
 inversa.** O mesmo circuito faz as duas coisas, o que valia ouro no hardware
 dos anos 1970.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="150" y="20" width="120" height="30"/><text x="210" y="40" text-anchor="middle" class="tb">L</text>
+<rect class="cxa" x="410" y="20" width="120" height="30"/><text x="470" y="40" text-anchor="middle" class="tb">R</text>
+<line class="ln" x1="470" y1="50" x2="470" y2="95"/>
+<rect class="cxd" x="320" y="80" width="60" height="30"/><text x="350" y="100" text-anchor="middle" class="tb">f</text>
+<line class="ln" x1="470" y1="95" x2="382" y2="95" marker-end="url(#seta)"/>
+<text x="350" y="128" text-anchor="middle" class="ts">subchave</text><line class="ln" x1="350" y1="120" x2="350" y2="112" marker-end="url(#seta)"/>
+<circle class="cx" cx="210" cy="95" r="14"/><text x="210" y="100" text-anchor="middle" class="tb">⊕</text>
+<line class="ln" x1="210" y1="50" x2="210" y2="79" marker-end="url(#seta)"/>
+<line class="ln" x1="320" y1="95" x2="226" y2="95" marker-end="url(#seta)"/>
+<line class="ln" x1="210" y1="109" x2="470" y2="168" marker-end="url(#seta)"/>
+<line class="ln" x1="470" y1="95" x2="470" y2="110"/><line class="ln" x1="470" y1="110" x2="210" y2="168" marker-end="url(#seta)"/>
+<rect class="cxa" x="150" y="170" width="120" height="30"/><text x="210" y="190" text-anchor="middle" class="tb">novo L = R</text>
+<rect class="cxa" x="410" y="170" width="120" height="30"/><text x="470" y="190" text-anchor="middle" class="tb">novo R = L ⊕ f(R)</text>
+<text x="560" y="96" class="ts">f nunca é invertida:</text>
+<text x="560" y="110" class="ts">para desfazer, basta</text>
+<text x="560" y="124" class="ts">calcular f de novo</text>
+</svg>
+<figcaption>Figura 39.1 — Uma rodada de Feistel. Metade do bloco passa intacta e serve de entrada à função que mascara a outra metade.</figcaption>
+</figure>
 
 Um exemplo de brinquedo, com bloco de 8 bits, três rodadas, subchaves
 `3, 12, 9` e a função `f(R, k) = ((R + k) · 7 + 3) mod 16`:
@@ -1263,6 +1649,26 @@ A função `f` de cada rodada tem quatro passos:
 4. **Permutação P.** Os 32 bits que saem são embaralhados, para que a saída
    de uma caixa S alimente várias caixas na rodada seguinte.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="90" width="80" height="34"/><text x="50" y="111" text-anchor="middle" class="ts">R, 32 bits</text>
+<line class="ln" x1="90" y1="107" x2="118" y2="107" marker-end="url(#seta)"/>
+<rect class="cx" x="120" y="90" width="90" height="34"/><text x="165" y="104" text-anchor="middle" class="tb">expansão</text><text x="165" y="117" text-anchor="middle" class="ts">32 → 48</text>
+<line class="ln" x1="210" y1="107" x2="238" y2="107" marker-end="url(#seta)"/>
+<circle class="cx" cx="254" cy="107" r="14"/><text x="254" y="112" text-anchor="middle" class="tb">⊕</text>
+<rect class="cxd" x="214" y="20" width="80" height="30"/><text x="254" y="40" text-anchor="middle" class="ts">subchave 48</text>
+<line class="ln" x1="254" y1="50" x2="254" y2="91" marker-end="url(#seta)"/>
+<line class="ln" x1="268" y1="107" x2="296" y2="107" marker-end="url(#seta)"/>
+<g><rect class="cxd" x="300" y="80" width="30" height="54"/><text x="315" y="104" text-anchor="middle" class="tb">S1</text><text x="315" y="122" text-anchor="middle" class="ts">6→4</text><rect class="cxd" x="334" y="80" width="30" height="54"/><text x="349" y="104" text-anchor="middle" class="tb">S2</text><text x="349" y="122" text-anchor="middle" class="ts">6→4</text><rect class="cxd" x="368" y="80" width="30" height="54"/><text x="383" y="104" text-anchor="middle" class="tb">S3</text><text x="383" y="122" text-anchor="middle" class="ts">6→4</text><rect class="cxd" x="402" y="80" width="30" height="54"/><text x="417" y="104" text-anchor="middle" class="tb">S4</text><text x="417" y="122" text-anchor="middle" class="ts">6→4</text><rect class="cxd" x="436" y="80" width="30" height="54"/><text x="451" y="104" text-anchor="middle" class="tb">S5</text><text x="451" y="122" text-anchor="middle" class="ts">6→4</text><rect class="cxd" x="470" y="80" width="30" height="54"/><text x="485" y="104" text-anchor="middle" class="tb">S6</text><text x="485" y="122" text-anchor="middle" class="ts">6→4</text><rect class="cxd" x="504" y="80" width="30" height="54"/><text x="519" y="104" text-anchor="middle" class="tb">S7</text><text x="519" y="122" text-anchor="middle" class="ts">6→4</text><rect class="cxd" x="538" y="80" width="30" height="54"/><text x="553" y="104" text-anchor="middle" class="tb">S8</text><text x="553" y="122" text-anchor="middle" class="ts">6→4</text></g>
+<line class="ln" x1="572" y1="107" x2="598" y2="107" marker-end="url(#seta)"/>
+<rect class="cx" x="600" y="90" width="70" height="34"/><text x="635" y="104" text-anchor="middle" class="tb">P</text><text x="635" y="117" text-anchor="middle" class="ts">32 bits</text>
+<text x="436" y="160" text-anchor="middle" class="ts td">as caixas S: a única parte não linear da cifra</text>
+<text x="340" y="196" text-anchor="middle" class="ts">a função f de uma rodada; o DES faz 16 rodadas, com permutação no início e no fim</text>
+</svg>
+<figcaption>Figura 39.2 — A função f do DES. Sem as oito caixas S, a cifra seria um sistema de equações lineares.</figcaption>
+</figure>
+
 As caixas S são o coração da cifra. Tudo o mais é XOR e troca de posição de
 bits, que são operações lineares: uma cifra só com elas se resolve como um
 sistema de equações. As caixas S são a única parte **não linear**.
@@ -1298,6 +1704,17 @@ digitação ou no transporte. A cifra ignora esses bits, e duas chaves que só
 diferem neles cifram igual. Quem gera uma chave DES acerta a paridade, e
 muitos equipamentos recusam uma chave que chega sem ela.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 130" xmlns="http://www.w3.org/2000/svg">
+<text x="20" y="28" class="ts">a chave 0123456789ABCDEF, bit a bit</text>
+<rect class="cxa" x="20" y="40" width="10" height="22"/><text x="25" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="30" y="40" width="10" height="22"/><text x="35" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="40" y="40" width="10" height="22"/><text x="45" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="50" y="40" width="10" height="22"/><text x="55" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="60" y="40" width="10" height="22"/><text x="65" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="70" y="40" width="10" height="22"/><text x="75" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="80" y="40" width="10" height="22"/><text x="85" y="56" text-anchor="middle" class="ts">0</text><rect class="cxd" x="90" y="40" width="10" height="22"/><text x="95" y="56" text-anchor="middle" class="ts">1</text><text x="60" y="80" text-anchor="middle" class="tm ts">01</text><rect class="cxa" x="102" y="40" width="10" height="22"/><text x="107" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="112" y="40" width="10" height="22"/><text x="117" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="122" y="40" width="10" height="22"/><text x="127" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="132" y="40" width="10" height="22"/><text x="137" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="142" y="40" width="10" height="22"/><text x="147" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="152" y="40" width="10" height="22"/><text x="157" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="162" y="40" width="10" height="22"/><text x="167" y="56" text-anchor="middle" class="ts">1</text><rect class="cxd" x="172" y="40" width="10" height="22"/><text x="177" y="56" text-anchor="middle" class="ts">1</text><text x="142" y="80" text-anchor="middle" class="tm ts">23</text><rect class="cxa" x="184" y="40" width="10" height="22"/><text x="189" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="194" y="40" width="10" height="22"/><text x="199" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="204" y="40" width="10" height="22"/><text x="209" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="214" y="40" width="10" height="22"/><text x="219" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="224" y="40" width="10" height="22"/><text x="229" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="234" y="40" width="10" height="22"/><text x="239" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="244" y="40" width="10" height="22"/><text x="249" y="56" text-anchor="middle" class="ts">0</text><rect class="cxd" x="254" y="40" width="10" height="22"/><text x="259" y="56" text-anchor="middle" class="ts">1</text><text x="224" y="80" text-anchor="middle" class="tm ts">45</text><rect class="cxa" x="266" y="40" width="10" height="22"/><text x="271" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="276" y="40" width="10" height="22"/><text x="281" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="286" y="40" width="10" height="22"/><text x="291" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="296" y="40" width="10" height="22"/><text x="301" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="306" y="40" width="10" height="22"/><text x="311" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="316" y="40" width="10" height="22"/><text x="321" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="326" y="40" width="10" height="22"/><text x="331" y="56" text-anchor="middle" class="ts">1</text><rect class="cxd" x="336" y="40" width="10" height="22"/><text x="341" y="56" text-anchor="middle" class="ts">1</text><text x="306" y="80" text-anchor="middle" class="tm ts">67</text><rect class="cxa" x="348" y="40" width="10" height="22"/><text x="353" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="358" y="40" width="10" height="22"/><text x="363" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="368" y="40" width="10" height="22"/><text x="373" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="378" y="40" width="10" height="22"/><text x="383" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="388" y="40" width="10" height="22"/><text x="393" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="398" y="40" width="10" height="22"/><text x="403" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="408" y="40" width="10" height="22"/><text x="413" y="56" text-anchor="middle" class="ts">0</text><rect class="cxd" x="418" y="40" width="10" height="22"/><text x="423" y="56" text-anchor="middle" class="ts">1</text><text x="388" y="80" text-anchor="middle" class="tm ts">89</text><rect class="cxa" x="430" y="40" width="10" height="22"/><text x="435" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="440" y="40" width="10" height="22"/><text x="445" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="450" y="40" width="10" height="22"/><text x="455" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="460" y="40" width="10" height="22"/><text x="465" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="470" y="40" width="10" height="22"/><text x="475" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="480" y="40" width="10" height="22"/><text x="485" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="490" y="40" width="10" height="22"/><text x="495" y="56" text-anchor="middle" class="ts">1</text><rect class="cxd" x="500" y="40" width="10" height="22"/><text x="505" y="56" text-anchor="middle" class="ts">1</text><text x="470" y="80" text-anchor="middle" class="tm ts">AB</text><rect class="cxa" x="512" y="40" width="10" height="22"/><text x="517" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="522" y="40" width="10" height="22"/><text x="527" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="532" y="40" width="10" height="22"/><text x="537" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="542" y="40" width="10" height="22"/><text x="547" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="552" y="40" width="10" height="22"/><text x="557" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="562" y="40" width="10" height="22"/><text x="567" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="572" y="40" width="10" height="22"/><text x="577" y="56" text-anchor="middle" class="ts">0</text><rect class="cxd" x="582" y="40" width="10" height="22"/><text x="587" y="56" text-anchor="middle" class="ts">1</text><text x="552" y="80" text-anchor="middle" class="tm ts">CD</text><rect class="cxa" x="594" y="40" width="10" height="22"/><text x="599" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="604" y="40" width="10" height="22"/><text x="609" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="614" y="40" width="10" height="22"/><text x="619" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="624" y="40" width="10" height="22"/><text x="629" y="56" text-anchor="middle" class="ts">0</text><rect class="cxa" x="634" y="40" width="10" height="22"/><text x="639" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="644" y="40" width="10" height="22"/><text x="649" y="56" text-anchor="middle" class="ts">1</text><rect class="cxa" x="654" y="40" width="10" height="22"/><text x="659" y="56" text-anchor="middle" class="ts">1</text><rect class="cxd" x="664" y="40" width="10" height="22"/><text x="669" y="56" text-anchor="middle" class="ts">1</text><text x="634" y="80" text-anchor="middle" class="tm ts">EF</text>
+<rect class="cxa" x="20" y="96" width="14" height="14"/><text x="40" y="108" class="ts">7 bits de chave por byte: 56 no total</text>
+<rect class="cxd" x="300" y="96" width="14" height="14"/><text x="320" y="108" class="ts">bit de paridade: completa um número ímpar de 1 no byte</text>
+</svg>
+<figcaption>Figura 39.3 — Os 64 bits de uma chave DES. Oito deles só conferem a digitação; a cifra os ignora.</figcaption>
+</figure>
+
 O DES tem ainda um pequeno conjunto de **chaves fracas**: quatro chaves com
 todas as subchaves iguais, em que cifrar duas vezes devolve o texto
 original, e seis pares de chaves semifracas. Um gerador de chaves as evita.
@@ -1317,6 +1734,16 @@ para busca exaustiva:
 A cifra não foi quebrada: ela foi alcançada. A lição se repete no projeto de
 qualquer sistema: uma cifra sem defeito conhecido ainda cai se o espaço de
 chaves for pequeno.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+<text x="200" y="44" text-anchor="end">DES</text><rect x="210" y="30" width="95.2" height="18" fill="#7a1f1f"/><text x="311.2" y="44" class="ts">56 bits</text><text x="200" y="74" text-anchor="end">2 × DES (encontro no meio)</text><rect x="210" y="60" width="96.9" height="18" fill="#7a1f1f"/><text x="312.9" y="74" class="ts">57 bits</text><text x="200" y="104" text-anchor="end">3DES duplo, muitos pares</text><rect x="210" y="90" width="136.0" height="18" fill="#888"/><text x="352.0" y="104" class="ts">80 bits</text><text x="200" y="134" text-anchor="end">3DES triplo</text><rect x="210" y="120" width="190.4" height="18" fill="#2d4f73"/><text x="406.4" y="134" class="ts">112 bits</text><text x="200" y="164" text-anchor="end">AES-128</text><rect x="210" y="150" width="217.6" height="18" fill="#2f5f2f"/><text x="433.6" y="164" class="ts">128 bits</text><text x="200" y="194" text-anchor="end">AES-256</text><rect x="210" y="180" width="435.2" height="18" fill="#2f5f2f"/><text x="651.2" y="194" class="ts">256 bits</text>
+<line x1="305.2" y1="20" x2="305.2" y2="210" stroke="#7a1f1f" stroke-dasharray="4 3"/>
+<text x="310" y="222" class="ts td">56 bits: achada em 22 horas em 1999</text>
+</svg>
+<figcaption>Figura 39.4 — A força efetiva de cada cifra, em bits de busca. Cada bit a mais dobra o trabalho: o AES-256 custa 2²⁰⁰ vezes o trabalho do DES.</figcaption>
+</figure>
 
 ### 39.5 O 3DES
 
@@ -1338,6 +1765,31 @@ procura uma coincidência no meio. O custo é de cerca de 2⁵⁷ operações, e
 **Por que decifrar no meio?** Por compatibilidade. Com `K1 = K2 = K3`, as
 duas primeiras operações se cancelam e sobra um DES simples. Um equipamento
 3DES conversava com um equipamento DES antigo só repetindo a chave.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="20" class="tb">3DES: cifra, decifra, cifra</text>
+<rect class="cxa" x="10" y="35" width="60" height="30"/><text x="40" y="55" text-anchor="middle">P</text>
+<rect class="cxd" x="110" y="35" width="90" height="30"/><text x="155" y="55" text-anchor="middle">E, K1</text>
+<rect class="cx" x="240" y="35" width="90" height="30"/><text x="285" y="55" text-anchor="middle">D, K2</text>
+<rect class="cxd" x="370" y="35" width="90" height="30"/><text x="415" y="55" text-anchor="middle">E, K3</text>
+<rect class="cxv" x="500" y="35" width="60" height="30"/><text x="530" y="55" text-anchor="middle">C</text>
+<line class="ln" x1="70" y1="50" x2="108" y2="50" marker-end="url(#seta)"/><line class="ln" x1="200" y1="50" x2="238" y2="50" marker-end="url(#seta)"/><line class="ln" x1="330" y1="50" x2="368" y2="50" marker-end="url(#seta)"/><line class="ln" x1="460" y1="50" x2="498" y2="50" marker-end="url(#seta)"/>
+<text x="580" y="46" class="ts">dupla: K3 = K1</text><text x="580" y="60" class="ts">simples: todas iguais</text>
+<text x="10" y="110" class="tb">por que não 2 × DES: o encontro no meio</text>
+<rect class="cxa" x="10" y="125" width="60" height="30"/><text x="40" y="145" text-anchor="middle">P</text>
+<rect class="cx" x="110" y="125" width="150" height="30"/><text x="185" y="140" text-anchor="middle" class="ts">E(K1, P) para todas</text><text x="185" y="151" text-anchor="middle" class="ts">as 2⁵⁶ chaves: tabela</text>
+<rect class="cxd" x="300" y="125" width="80" height="30"/><text x="340" y="145" text-anchor="middle" class="ts tb">iguais?</text>
+<rect class="cx" x="420" y="125" width="150" height="30"/><text x="495" y="140" text-anchor="middle" class="ts">D(K2, C) para todas</text><text x="495" y="151" text-anchor="middle" class="ts">as 2⁵⁶ chaves</text>
+<rect class="cxv" x="610" y="125" width="60" height="30"/><text x="640" y="145" text-anchor="middle">C</text>
+<line class="ln" x1="70" y1="140" x2="108" y2="140" marker-end="url(#seta)"/><line class="ln" x1="260" y1="140" x2="298" y2="140" marker-end="url(#seta)"/>
+<line class="ln" x1="418" y1="140" x2="382" y2="140" marker-end="url(#seta)"/><line class="ln" x1="608" y1="140" x2="572" y2="140" marker-end="url(#seta)"/>
+<text x="340" y="190" text-anchor="middle" class="ts">2⁵⁶ + 2⁵⁶ = 2⁵⁷ operações, e não 2¹¹²: as duas chaves se acham separadas</text>
+<text x="340" y="208" text-anchor="middle" class="ts">no 3DES, o encontro no meio ainda funciona, mas um dos lados tem duas cifras: cerca de 2¹¹²</text>
+</svg>
+<figcaption>Figura 39.5 — O 3DES, e por que não basta cifrar duas vezes.</figcaption>
+</figure>
 
 **Os dois tamanhos de chave**, que o mercado chama pelo comprimento:
 
@@ -1370,6 +1822,26 @@ PIN nunca cifra gigabytes. O problema do bloco pequeno aparece de outra
 forma: no formato 0, sem enchimento aleatório, o mesmo PIN na mesma conta dá
 sempre o mesmo bloco cifrado (seção 33.1). O formato 4 resolve isso com o
 bloco de 128 bits do AES, que tem espaço para o enchimento aleatório.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
+<line class="ln" x1="60" y1="200" x2="600" y2="200" marker-end="url(#seta)"/>
+<line class="ln" x1="60" y1="200" x2="60" y2="20" marker-end="url(#seta)"/>
+<g class="ts"><text x="60" y="216" text-anchor="middle">2²⁰</text><text x="164" y="216" text-anchor="middle">2²⁴</text><text x="268" y="216" text-anchor="middle">2²⁸</text><text x="372" y="216" text-anchor="middle">2³²</text><text x="476" y="216" text-anchor="middle">2³⁶</text><text x="580" y="216" text-anchor="middle">2⁴⁰</text>
+<text x="52" y="204" text-anchor="end">0</text><text x="52" y="119" text-anchor="end">0,5</text><text x="52" y="34" text-anchor="end">1</text></g>
+<line class="grade" x1="60" y1="115" x2="590" y2="115"/><line class="grade" x1="60" y1="30" x2="590" y2="30"/>
+<polyline points="60.0,200.0 66.5,200.0 73.0,200.0 79.5,200.0 86.0,200.0 92.5,200.0 99.0,200.0 105.5,200.0 112.0,200.0 118.5,200.0 125.0,200.0 131.5,200.0 138.0,200.0 144.5,200.0 151.0,200.0 157.5,200.0 164.0,200.0 170.5,200.0 177.0,200.0 183.5,200.0 190.0,200.0 196.5,200.0 203.0,200.0 209.5,200.0 216.0,200.0 222.5,200.0 229.0,200.0 235.5,199.9 242.0,199.9 248.5,199.9 255.0,199.8 261.5,199.8 268.0,199.7 274.5,199.5 281.0,199.3 287.5,199.1 294.0,198.7 300.5,198.1 307.0,197.4 313.5,196.3 320.0,194.8 326.5,192.7 333.0,189.7 339.5,185.6 346.0,180.0 352.5,172.5 359.0,162.4 365.5,149.4 372.0,133.1 378.5,113.8 385.0,92.5 391.5,71.3 398.0,53.0 404.5,40.0 411.0,33.1 417.5,30.6 424.0,30.1 430.5,30.0 437.0,30.0 443.5,30.0 450.0,30.0 456.5,30.0 463.0,30.0 469.5,30.0 476.0,30.0 482.5,30.0 489.0,30.0 495.5,30.0 502.0,30.0 508.5,30.0 515.0,30.0 521.5,30.0 528.0,30.0 534.5,30.0 541.0,30.0 547.5,30.0 554.0,30.0 560.5,30.0 567.0,30.0 573.5,30.0 580.0,30.0" fill="none" stroke="#7a1f1f" stroke-width="2.2"/>
+<line x1="60" y1="199" x2="590" y2="199" stroke="#2f5f2f" stroke-width="2.2"/>
+<circle cx="372" cy="133.1" r="5" fill="#7a1f1f"/>
+<text x="380" y="137.1" class="ts td">2³² blocos = 32 GB: 39%</text>
+<text x="420" y="60" class="ts td">bloco de 64 bits (DES, 3DES)</text>
+<text x="420" y="190" class="ts" fill="#2f5f2f">bloco de 128 bits (AES): fica em zero</text>
+<text x="330" y="240" text-anchor="middle" class="ts">blocos cifrados com a mesma chave</text>
+<text x="20" y="110" class="ts" transform="rotate(-90 20 110)" text-anchor="middle">chance de dois cifrados iguais</text>
+</svg>
+<figcaption>Figura 39.6 — O paradoxo do aniversário no bloco de 64 bits. Uma chave de PIN cifra um bloco por vez; uma conexão TLS, gigabytes.</figcaption>
+</figure>
 
 ### 39.7 DES, 3DES e AES, lado a lado
 
@@ -1432,8 +1904,8 @@ tem 112 caracteres, para os dois comprimentos. O bloco é protegido pela LMK
 AES-256, com as mesmas subchaves e o mesmo MAC das chaves AES: uma chave
 mais forte protege uma mais fraca, e nunca o contrário.
 
-**O que uma chave 3DES ainda não faz.** O tipo da chave trava os comandos, e
-cada trava cai quando a função correspondente entra:
+**O que uma chave 3DES faz em cada comando.** O tipo da chave trava os
+comandos, e cada trava caiu quando a função correspondente entrou:
 
 | Comando | Com chave 3DES | Quando muda |
 |---|---|---|
@@ -1441,10 +1913,11 @@ cada trava cai quando a função correspondente entra:
 | `K4`, `K6` sob uma KEK AES | exporta e importa | — |
 | `K4`, `K6` com uma KEK 3DES | exporta e importa, em bloco versão B | feito na etapa 8.7, seção 39.9 |
 | `P0` | traduz no formato 0; no formato 4, recusa (`11`) | feito na etapa 8.4, seção 34.2 |
-| `C0`, `C2`, `M0`, `M2` | recusa (`11`) | com a cifra de dados e o MAC em 3DES |
+| `C0`, `C2`, `M0`, `M2` | cifra dados em CBC e faz o retail MAC | feito na etapa 8.9a, seção 39.10 |
 
-A recusa não é só política. O coprocessador só faz AES-256: uma chave de 16
-bytes entregue a ele seria lida além do fim. A checagem do algoritmo fica no
+A trava não era só política. O coprocessador só faz AES-256: uma chave de 16
+bytes entregue a ele seria lida além do fim. Por isso o 3DES tem caminho
+próprio, em software, em cada comando. A checagem do algoritmo fica no
 key store, no mesmo lugar em que ficam as de uso e de modo.
 
 **O autoteste.** O 3DES é testado **no primeiro uso** depois do boot, e não
@@ -1548,6 +2021,28 @@ por programa (`host/test_tr31b.py`).
 **A regra de força.** Uma chave nunca sai embrulhada por outra mais fraca
 (decisão de projeto da seção 38.2). Para a KEK, a regra fica assim:
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 190" xmlns="http://www.w3.org/2000/svg">
+<text x="90" y="20" text-anchor="middle" class="tb">KEK</text>
+<text x="560" y="20" text-anchor="middle" class="tb">chave transportada</text>
+<rect class="cxv" x="20" y="35" width="140" height="34"/><text x="90" y="56" text-anchor="middle">AES-256</text>
+<rect class="cx" x="20" y="85" width="140" height="34"/><text x="90" y="106" text-anchor="middle">3DES triplo</text>
+<rect class="cxd" x="20" y="135" width="140" height="34"/><text x="90" y="156" text-anchor="middle">3DES duplo</text>
+<rect class="cxv" x="490" y="35" width="140" height="34"/><text x="560" y="56" text-anchor="middle">AES-256</text>
+<rect class="cx" x="490" y="85" width="140" height="34"/><text x="560" y="106" text-anchor="middle">3DES triplo</text>
+<rect class="cxd" x="490" y="135" width="140" height="34"/><text x="560" y="156" text-anchor="middle">3DES duplo</text>
+<line class="ln" x1="160" y1="52" x2="488" y2="52" marker-end="url(#seta)"/>
+<line class="ln" x1="160" y1="52" x2="488" y2="100" marker-end="url(#seta)"/>
+<line class="ln" x1="160" y1="52" x2="488" y2="150" marker-end="url(#seta)"/>
+<line class="ln" x1="160" y1="102" x2="488" y2="104" marker-end="url(#seta)"/>
+<line class="ln" x1="160" y1="102" x2="488" y2="154" marker-end="url(#seta)"/>
+<line class="ln" x1="160" y1="152" x2="488" y2="158" marker-end="url(#seta)"/>
+<text x="325" y="186" text-anchor="middle" class="ts">só setas para baixo ou na mesma linha: a chave nunca sai sob outra mais fraca (recusa 13 no K4, 10 no K6)</text>
+</svg>
+<figcaption>Figura 39.7 — A regra de força da KEK. Versão D sob a KEK AES; versão B sob a KEK 3DES.</figcaption>
+</figure>
+
 | KEK | Transporta | Não transporta |
 |---|---|---|
 | AES-256 | chave AES e chave 3DES | — |
@@ -1594,3 +2089,144 @@ sobre um campo que ninguém leu.
 incluir um vetor de CMAC-TDES do NIST, a abertura do bloco publicado acima,
 um bit trocado no cabeçalho, que tem de ser recusado, e uma ida e volta. Ele
 roda também quando o boot restaura da flash uma chave 3DES.
+
+### 39.10 MAC de mensagem e dados com 3DES
+
+Numa rede de pagamento, cada mensagem entre o terminal, o adquirente e o
+emissor leva um **MAC**: um código que só quem tem a chave calcula, e que
+denuncia qualquer alteração no caminho. Quando a chave é 3DES, o MAC quase
+sempre é o **retail MAC**, o algoritmo 3 da ISO/IEC 9797-1. O nome vem da
+ANSI X9.19, a norma de MAC do varejo financeiro americano, que o definiu
+primeiro.
+
+**O problema que ele resolve.** O MAC mais simples com uma cifra de bloco é o
+CBC-MAC: cifrar a mensagem em CBC, com IV zero, e ficar com o último bloco.
+Com DES simples, a chave tem 56 bits e cai por busca exaustiva (seção 39.4).
+Com 3DES em todo bloco, a chave tem 112 bits, mas cada bloco custa três DES.
+O retail MAC fica no meio: DES simples na cadeia, e o 3DES só no fim.
+
+```
+   chave dupla K ‖ K'          mensagem preenchida M1 M2 ... Mq
+
+   H1 = DES_K( M1 )
+   Hj = DES_K( H(j-1) ⊕ Mj )               j = 2 .. q
+   MAC = DES_K( DES⁻¹_K'( Hq ) )           as duas chaves, só no último
+```
+
+O passo final é o 3DES de chave dupla `K ‖ K'` sobre o último bloco: o
+primeiro DES desse 3DES é o último da cadeia. Uma mensagem de `q` blocos custa
+`q + 2` DES, e não `3q`.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<g>
+<rect class="cxa" x="40" y="20" width="80" height="28"/><text x="80" y="39" text-anchor="middle" class="tm">M1</text>
+<rect class="cxa" x="200" y="20" width="80" height="28"/><text x="240" y="39" text-anchor="middle" class="tm">M2</text>
+<rect class="cxa" x="360" y="20" width="80" height="28"/><text x="400" y="39" text-anchor="middle" class="tm">…</text>
+<rect class="cxa" x="520" y="20" width="80" height="28"/><text x="560" y="39" text-anchor="middle" class="tm">Mq</text>
+</g>
+<rect class="cx" x="40" y="90" width="80" height="30"/><text x="80" y="110" text-anchor="middle" class="ts">DES, K</text>
+<circle class="cx" cx="240" cy="70" r="12"/><text x="240" y="75" text-anchor="middle" class="tb">⊕</text>
+<rect class="cx" x="200" y="90" width="80" height="30"/><text x="240" y="110" text-anchor="middle" class="ts">DES, K</text>
+<circle class="cx" cx="400" cy="70" r="12"/><text x="400" y="75" text-anchor="middle" class="tb">⊕</text>
+<rect class="cx" x="360" y="90" width="80" height="30"/><text x="400" y="110" text-anchor="middle" class="ts">DES, K</text>
+<circle class="cx" cx="560" cy="70" r="12"/><text x="560" y="75" text-anchor="middle" class="tb">⊕</text>
+<rect class="cxd" x="500" y="90" width="120" height="30"/><text x="560" y="110" text-anchor="middle" class="ts">3DES, K ‖ K'</text>
+<line class="ln" x1="80" y1="48" x2="80" y2="88" marker-end="url(#seta)"/>
+<line class="ln" x1="240" y1="48" x2="240" y2="56" marker-end="url(#seta)"/>
+<line class="ln" x1="400" y1="48" x2="400" y2="56" marker-end="url(#seta)"/>
+<line class="ln" x1="560" y1="48" x2="560" y2="56" marker-end="url(#seta)"/>
+<line class="ln" x1="240" y1="82" x2="240" y2="88" marker-end="url(#seta)"/>
+<line class="ln" x1="400" y1="82" x2="400" y2="88" marker-end="url(#seta)"/>
+<line class="ln" x1="560" y1="82" x2="560" y2="88" marker-end="url(#seta)"/>
+<path class="ln" d="M120,105 H160 V70 H226" marker-end="url(#seta)"/>
+<path class="ln" d="M280,105 H320 V70 H386" marker-end="url(#seta)"/>
+<path class="ln" d="M440,105 H480 V70 H546" marker-end="url(#seta)"/>
+<line class="ln" x1="560" y1="120" x2="560" y2="148" marker-end="url(#seta)"/>
+<rect class="cxv" x="490" y="150" width="140" height="30"/><text x="560" y="170" text-anchor="middle" class="tb">MAC: 4 ou 8 bytes</text>
+<text x="40" y="160" class="ts">a cadeia é um CBC-MAC com DES simples sob K;</text>
+<text x="40" y="174" class="ts">só o último bloco vê as duas chaves</text>
+<text x="40" y="198" class="ts">preenchimento 1: zeros · preenchimento 2: 80 e zeros</text>
+</svg>
+<figcaption>Figura 39.8 — O retail MAC (ISO/IEC 9797-1, algoritmo 3). Uma mensagem de q blocos custa q + 2 DES.</figcaption>
+</figure>
+
+**O preenchimento.** A mensagem é completada até um múltiplo de 8 bytes. A
+ISO 9797-1 define três métodos, e este equipamento faz os dois mais usados:
+
+| Método | Regra | Mensagem já múltipla de 8 |
+|---|---|---|
+| 1 | completar com zeros | nada é acrescentado |
+| 2 | um byte `80`, e zeros | um bloco inteiro é acrescentado: `80 00 … 00` |
+
+O método 1 é ambíguo: `41 42` e `41 42 00` dão o mesmo MAC. Ele só é seguro
+quando o tamanho da mensagem é fixo, ou vem dentro dela, como num campo de
+tamanho da mensagem ISO 8583. O método 2 não tem essa ambiguidade.
+
+**O tamanho.** O MAC tem 8 bytes, e muitas redes usam só os 4 da esquerda.
+Com 4 bytes, quem tenta forjar acerta uma vez em 2³², e o controle é
+recusar e contar as tentativas, como no CVV (seção 36).
+
+**Um exemplo.** É o da ISO/IEC 9797-1:2011, seção B.4, que o projeto confere
+nos testes. A chave e a mensagem `"Now is the time for it"` (22 bytes), com
+o preenchimento 1:
+
+```
+   K  = 0123456789ABCDEF           K' = FEDCBA9876543210
+
+   M1 = 4E6F772069732074           H1 = 3FA40E8A984D4815
+   M2 = 68652074696D6520           H2 = 0B2E73F88DC5856A
+   M3 = 666F722069740000           H3 = E45B3AD2B7CC0856
+                                   DES⁻¹_K'(H3) = 328AC78BA1CA0B3F
+                                   MAC = DES_K(…) = 2E2B1428CC78254F
+```
+
+Com o preenchimento 2, só o último bloco muda (`M3 = 666F722069748000`), e o
+MAC passa a `5A692CE64F404145`. Uma diferença de um byte no preenchimento
+muda o MAC inteiro.
+
+**A fraqueza conhecida.** A cadeia em DES simples cobra um preço. Preneel e
+van Oorschot (*Electronics Letters* 32(17), 1996) mostraram que, com cerca de
+2^32,5 pares conhecidos de mensagem e MAC, as duas chaves saem em cerca de
+3 · 2^56 cifras DES, uma de cada vez: a força volta à do DES simples. Daí a
+recomendação de trocar a chave de MAC muito antes de 2³² mensagens e, num
+sistema novo, usar CMAC com AES. O DUKPT resolve de outro modo: uma chave por
+transação (seção 37).
+
+**Dados com 3DES.** A cifra de dados com chave 3DES é o CBC da seção 39.5,
+com IV de 8 bytes e dados em múltiplos de 8. O pedido não leva enchimento:
+quem completa a mensagem é o host, como no AES.
+
+**Neste equipamento.** Os comandos são os mesmos do AES, e o algoritmo da
+chave, no cabeçalho do key block, escolhe a conta:
+
+| Comando | Chave AES | Chave 3DES |
+|---|---|---|
+| `C0`, `C2` | AES-CBC, IV de 32 caracteres, dados múltiplos de 16 | 3DES-CBC, IV de 16 caracteres, dados múltiplos de 8 |
+| `M0` | CMAC-AES, MAC de 32 caracteres | retail MAC: key block ‖ preenchimento (`1`/`2`) ‖ tamanho (`4`/`8`) ‖ dados → MAC de 8 ou 16 caracteres |
+| `M2` | verifica o CMAC | key block ‖ preenchimento ‖ tamanho ‖ MAC ‖ dados → `00` confere, `01` não confere |
+
+```
+    pedido      M0  <bloco 3DES, uso M3, modo C>  1  8  0022  4E6F77…6974
+                                                  |  |  |
+                                                  |  |  22 bytes de mensagem
+                                                  |  MAC de 8 bytes
+                                                  preenchimento 1
+    resposta    M1  00  2E2B1428CC78254F
+```
+
+As regras do equipamento:
+
+- **A chave de MAC 3DES é dupla.** O retail MAC usa o par `K`, `K'`. Uma
+  chave tripla responde `11`, como no CVV.
+- **O uso é o da família `M`**, como a chave de CMAC, e o modo separa gerar
+  (`G`) de verificar (`V`); `C` faz os dois. Uma chave `D0` não faz MAC, e
+  uma chave `M` não cifra dados: os dois respondem `11`.
+- **Mensagem vazia** responde `15`, e preenchimento ou tamanho fora da
+  tabela, `16`.
+- **O `M2` devolve um bit**, e compara em tempo constante dentro do
+  equipamento, como o CMAC. O MAC e o veredito são calculados duas vezes, e
+  uma discordância responde `91`.
+- **O autoteste do 3DES** (seção 39.8) passou a incluir dois valores
+  publicados de retail MAC, um de cada preenchimento.

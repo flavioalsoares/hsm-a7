@@ -1,0 +1,45 @@
+# Retail MAC (ISO/IEC 9797-1, algoritmo 3; ANSI X9.19) -- valores
+# conhecidos de terceiros, de duas fontes.
+#
+# NAO E VETOR OFICIAL. Ver vectors/MANIFEST.txt para a procedencia e
+# para o que estes valores cobrem e o que NAO cobrem.
+#
+# KEY  a chave dupla K . K' (DES de K na cadeia, K' so no fim)
+# MSG  a mensagem, em hex; PAD  o preenchimento da ISO 9797-1 (1 ou 2)
+# MAC  o MAC, com o tamanho da fonte (4 ou 8 bytes)
+
+# psec, tests/test_mac.py
+KEY = 41414141414141414242424242424242
+MSG = 68656C6C6F20776F726C64
+PAD = 1
+MAC = 3DDE5C5511661CBF
+
+# psec, tests/test_mac.py
+KEY = 41414141414141414242424242424242
+MSG = 68656C6C6F20776F726C64
+PAD = 2
+MAC = E16941032C3BC7D4
+
+# psec, tests/test_mac.py
+KEY = 41414141414141414242424242424242
+MSG = 68656C6C6F20776F726C64
+PAD = 1
+MAC = 3DDE5C55
+
+# psec, tests/test_mac.py
+KEY = 41414141414141414242424242424242
+MSG = 68656C6C6F20776F726C64
+PAD = 2
+MAC = E1694103
+
+# RustCrypto retail-mac, README.md (ISO/IEC 9797-1:2011 B.4)
+KEY = 0123456789ABCDEFFEDCBA9876543210
+MSG = 4E6F77206973207468652074696D6520666F7220616C6C20
+PAD = 1
+MAC = A1C72E74EA3FA9B6
+
+# RustCrypto retail-mac, README.md (ISO/IEC 9797-1:2011 B.4)
+KEY = 0123456789ABCDEFFEDCBA9876543210
+MSG = 4E6F77206973207468652074696D6520666F72206974
+PAD = 1
+MAC = 2E2B1428CC78254F

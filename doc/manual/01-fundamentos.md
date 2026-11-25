@@ -50,6 +50,41 @@ Com HSM:
 O atacante não é impedido — ele é **reduzido a um canal estreito, medido e
 auditável**. Essa redução é o produto que um HSM vende.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 270" xmlns="http://www.w3.org/2000/svg">
+<text x="160" y="18" class="tb" text-anchor="middle">Sem HSM</text>
+<rect class="cx" x="40" y="40" width="240" height="120"/>
+<text x="160" y="60" text-anchor="middle" class="tb">servidor de autorização</text>
+<rect class="cxd" x="70" y="80" width="180" height="34"/>
+<text x="160" y="102" text-anchor="middle">chave de PIN na memória</text>
+<text x="160" y="140" text-anchor="middle" class="ts">o programa usa a chave e pode copiá-la</text>
+<rect class="cxd" x="25" y="200" width="270" height="40"/>
+<text x="160" y="218" text-anchor="middle" class="tb td">invasor com root</text>
+<text x="160" y="232" text-anchor="middle" class="ts">leva a chave; calcula o PIN de qualquer conta</text>
+<line class="lnd" x1="160" y1="200" x2="160" y2="118" marker-end="url(#seta-d)"/>
+<line class="lnt" x1="340" y1="10" x2="340" y2="260"/>
+<text x="510" y="18" class="tb" text-anchor="middle">Com HSM</text>
+<rect class="cx" x="370" y="40" width="130" height="70"/>
+<text x="435" y="62" text-anchor="middle" class="tb">servidor</text>
+<text x="435" y="80" text-anchor="middle" class="ts">sem chave</text>
+<rect class="fr" x="540" y="30" width="125" height="95"/>
+<rect class="cxd" x="555" y="55" width="95" height="40"/>
+<text x="602" y="73" text-anchor="middle">chave</text>
+<text x="602" y="87" text-anchor="middle" class="ts">nunca sai</text>
+<text x="602" y="118" text-anchor="middle" class="ts td">HSM</text>
+<line class="ln" x1="500" y1="60" x2="553" y2="60" marker-end="url(#seta)"/>
+<text x="520" y="52" class="ts" text-anchor="middle">confere?</text>
+<line class="ln" x1="553" y1="88" x2="500" y2="88" marker-end="url(#seta)"/>
+<text x="520" y="102" class="ts" text-anchor="middle">sim / não</text>
+<rect class="cxa" x="360" y="200" width="240" height="40"/>
+<text x="480" y="218" text-anchor="middle" class="tb">invasor com root</text>
+<text x="480" y="232" text-anchor="middle" class="ts">só pergunta: contado, limitado, registrado</text>
+<line class="ln" x1="450" y1="200" x2="435" y2="112" marker-end="url(#seta)"/>
+</svg>
+<figcaption>Figura 1.1 — O mesmo ataque, sem e com HSM. Com HSM, o invasor ganha o direito de perguntar, e não a chave.</figcaption>
+</figure>
+
 ## 2. Modelo de ameaça
 
 "Seguro" não significa nada sem dizer contra quem. HSMs são projetados
@@ -62,6 +97,27 @@ contra uma escada de adversários, e cada degrau custa mais caro de defender.
 | **Insider com acesso físico** | Toca no equipamento, opera o painel | Dual control, split knowledge, log de auditoria |
 | **Atacante com o aparelho na mão** | Bancada, osciloscópio, fonte de alimentação | Antitamper, sensores, canal lateral, injeção de falha |
 | **Laboratório especializado** | Decapsulação, microssonda, FIB | Malha ativa, camadas de blindagem, zeroização por detecção |
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 270" xmlns="http://www.w3.org/2000/svg">
+<line class="ln" x1="30" y1="225" x2="660" y2="225" marker-end="url(#seta)"/>
+<line class="ln" x1="30" y1="225" x2="30" y2="15" marker-end="url(#seta)"/>
+<text x="345" y="264" text-anchor="middle" class="ts">capacidade do adversário</text>
+<text x="18" y="120" class="ts" transform="rotate(-90 18 120)" text-anchor="middle">custo da defesa</text>
+<rect class="cxa" x="40"  y="190" width="118" height="35"/><text x="99" y="212" text-anchor="middle" class="ts">aplicação</text>
+<rect class="cxa" x="163" y="160" width="118" height="65"/><text x="222" y="182" text-anchor="middle" class="ts">admin. do host</text>
+<rect class="cx"  x="286" y="125" width="118" height="100"/><text x="345" y="147" text-anchor="middle" class="ts">insider</text>
+<rect class="cxd" x="409" y="85"  width="118" height="140"/><text x="468" y="107" text-anchor="middle" class="ts">aparelho na mão</text>
+<rect class="cxd" x="532" y="35"  width="118" height="190"/><text x="591" y="57" text-anchor="middle" class="ts">laboratório</text>
+<text x="99"  y="240" text-anchor="middle" class="ts">API</text>
+<text x="222" y="240" text-anchor="middle" class="ts">root</text>
+<text x="345" y="240" text-anchor="middle" class="ts">acesso físico</text>
+<text x="468" y="240" text-anchor="middle" class="ts">bancada</text>
+<text x="591" y="240" text-anchor="middle" class="ts">FIB, microssonda</text>
+</svg>
+<figcaption>Figura 2.1 — A escada de adversários. Cada degrau custa mais caro de defender; o objetivo é tornar o ataque mais caro que o valor protegido.</figcaption>
+</figure>
 
 Duas observações que orientam o resto do documento.
 
@@ -110,6 +166,35 @@ propriedade mais frequentemente subestimada: um log que registra apenas
 sucessos mostra um dispositivo saudável exatamente enquanto ele está sendo
 mapeado por um atacante, cujo trabalho produz muitos erros e poucos acertos.
 
+
+<figure class="fig">
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="70" width="90" height="50"/>
+<text x="55" y="92" text-anchor="middle" class="tb">host</text>
+<text x="55" y="108" text-anchor="middle" class="ts">hostil</text>
+<line class="ln" x1="100" y1="95" x2="168" y2="95" marker-end="url(#seta)"/>
+<text x="134" y="88" text-anchor="middle" class="ts">pedido</text>
+<rect class="fr" x="160" y="20" width="510" height="160"/>
+<text x="660" y="38" text-anchor="end" class="ts td">fronteira: confinamento</text>
+<rect class="cx" x="180" y="50" width="200" height="90"/>
+<text x="280" y="68" text-anchor="middle" class="tb">mediação</text>
+<text x="190" y="88" class="ts">1. estado certo?</text>
+<text x="190" y="102" class="ts">2. autorização suficiente?</text>
+<text x="190" y="116" class="ts">3. a chave permite isto?</text>
+<text x="190" y="130" class="ts">4. o pedido é bem formado?</text>
+<line class="ln" x1="380" y1="95" x2="450" y2="95" marker-end="url(#seta)"/>
+<text x="415" y="88" text-anchor="middle" class="ts">passou</text>
+<rect class="cxd" x="452" y="60" width="200" height="70"/>
+<text x="552" y="88" text-anchor="middle" class="tb">chaves e operações</text>
+<text x="552" y="106" text-anchor="middle" class="ts">o que é segredo fica aqui</text>
+<rect class="cxv" x="230" y="190" width="300" height="34"/>
+<text x="380" y="212" text-anchor="middle"><tspan class="tb">evidência:</tspan> o log registra o pedido, antes</text>
+<line class="lnt" x1="280" y1="140" x2="280" y2="190" marker-end="url(#seta-t)"/>
+<line class="lnt" x1="134" y1="100" x2="240" y2="190" marker-end="url(#seta-t)"/>
+</svg>
+<figcaption>Figura 3.1 — As três propriedades no caminho de um pedido. O log vê também os pedidos recusados.</figcaption>
+</figure>
+
 ## 4. Onde HSMs são usados
 
 O termo cobre famílias de equipamento bastante diferentes, e saber qual é
@@ -129,6 +214,7 @@ para quem processa transações de cartão.
 
 O comando típico não é "assine" — é "verifique este PIN", "traduza este PIN
 block desta chave para aquela", "gere uma chave de terminal".
+
 
 ### HSM de propósito geral
 
@@ -156,6 +242,31 @@ smartcard, a chave de autenticação USB. Mesma
 ideia — chave que não sai, operação mediada — com orçamento de área,
 consumo e custo muito menores. Um cartão de crédito com chip é um HSM
 minúsculo cuja produção passa de bilhões de unidades por ano.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+<line class="ln" x1="40" y1="200" x2="660" y2="200" marker-end="url(#seta)"/>
+<line class="ln" x1="40" y1="200" x2="40" y2="15" marker-end="url(#seta)"/>
+<text x="350" y="222" text-anchor="middle" class="ts">interface: de serviço (comandos)  ←→  de biblioteca (objetos, sessões)</text>
+<text x="26" y="108" class="ts" transform="rotate(-90 26 108)" text-anchor="middle">tamanho e custo do equipamento</text>
+<rect class="cxd" x="70" y="30" width="190" height="56"/>
+<text x="165" y="52" text-anchor="middle" class="tb">HSM de pagamento</text>
+<text x="165" y="70" text-anchor="middle" class="ts">LMK, key block, PIN; PCI PTS HSM</text>
+<rect class="cxa" x="400" y="30" width="200" height="56"/>
+<text x="500" y="52" text-anchor="middle" class="tb">propósito geral</text>
+<text x="500" y="70" text-anchor="middle" class="ts">PKCS#11, PKI, TLS; FIPS 140-3</text>
+<rect class="cx" x="400" y="100" width="200" height="40"/>
+<text x="500" y="118" text-anchor="middle" class="tb">HSM em nuvem</text>
+<text x="500" y="132" text-anchor="middle" class="ts">os mesmos módulos; atestação remota</text>
+<rect class="cxc" x="250" y="152" width="230" height="38"/>
+<text x="365" y="168" text-anchor="middle" class="tb">elementos seguros e TPM</text>
+<text x="365" y="182" text-anchor="middle" class="ts">cartão com chip, telefone, placa-mãe</text>
+<circle cx="165" cy="105" r="6" fill="#7a1f1f"/>
+<text x="178" y="109" class="ts td">este projeto</text>
+</svg>
+<figcaption>Figura 4.1 — As famílias de HSM. Este projeto modela a de pagamento: protocolo de serviço, sem sessão.</figcaption>
+</figure>
 
 ### O que este projeto modela
 
@@ -198,6 +309,43 @@ um em detalhe.
   sozinha. Num equipamento comercial, cada pessoa se identifica com cartão e
   senha. Neste projeto, o HSM só aceita os comandos de cerimônia com dois
   botões da placa apertados ao mesmo tempo. Ver a seção 7.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 260" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="20" width="110" height="30"/><text x="65" y="40" text-anchor="middle">componente 1</text>
+<rect class="cxa" x="10" y="60" width="110" height="30"/><text x="65" y="80" text-anchor="middle">componente 2</text>
+<rect class="cxa" x="10" y="100" width="110" height="30"/><text x="65" y="120" text-anchor="middle">componente 3</text>
+<text x="65" y="148" text-anchor="middle" class="ts">um custodiante cada</text>
+<line class="ln" x1="120" y1="35" x2="200" y2="70" marker-end="url(#seta)"/>
+<line class="ln" x1="120" y1="75" x2="200" y2="75" marker-end="url(#seta)"/>
+<line class="ln" x1="120" y1="115" x2="200" y2="80" marker-end="url(#seta)"/>
+<rect class="fr" x="190" y="10" width="250" height="160"/>
+<text x="430" y="28" text-anchor="end" class="ts td">HSM</text>
+<circle cx="225" cy="75" r="20" class="cx"/><text x="225" y="80" text-anchor="middle" class="tb">⊕</text>
+<line class="ln" x1="245" y1="75" x2="300" y2="75" marker-end="url(#seta)"/>
+<rect class="cxd" x="302" y="55" width="110" height="40"/>
+<text x="357" y="73" text-anchor="middle" class="tb">LMK</text>
+<text x="357" y="88" text-anchor="middle" class="ts">nunca sai</text>
+<rect class="cx" x="210" y="120" width="210" height="36"/>
+<text x="315" y="136" text-anchor="middle" class="ts">dual control: dois botões</text>
+<text x="315" y="149" text-anchor="middle" class="ts">a cada componente</text>
+<line class="lnd" x1="412" y1="75" x2="500" y2="75" marker-end="url(#seta-d)"/>
+<text x="456" y="68" text-anchor="middle" class="ts">embrulha</text>
+<rect class="cx" x="502" y="20" width="170" height="130"/>
+<text x="587" y="40" text-anchor="middle" class="tb">fora do HSM</text>
+<text x="587" y="56" text-anchor="middle" class="ts">banco de dados do banco</text>
+<rect class="cxa" x="515" y="66" width="145" height="22"/><text x="587" y="81" text-anchor="middle" class="ts tm">key block: PIN</text>
+<rect class="cxa" x="515" y="92" width="145" height="22"/><text x="587" y="107" text-anchor="middle" class="ts tm">key block: MAC</text>
+<rect class="cxa" x="515" y="118" width="145" height="22"/><text x="587" y="133" text-anchor="middle" class="ts tm">key block: KEK</text>
+<line class="ln" x1="587" y1="150" x2="587" y2="200" marker-end="url(#seta)"/>
+<line class="ln" x1="587" y1="200" x2="357" y2="200"/>
+<line class="ln" x1="357" y1="200" x2="357" y2="174" marker-end="url(#seta)"/>
+<text x="470" y="216" text-anchor="middle" class="ts">a cada pedido, o bloco volta junto e é aberto só por dentro</text>
+<text x="340" y="248" text-anchor="middle" class="ts">split knowledge: ninguém conhece a LMK inteira · dual control: ninguém age sozinho</text>
+</svg>
+<figcaption>Figura 4.2 — Os quatro elementos que o projeto modela: componentes, LMK, key blocks e dual control.</figcaption>
+</figure>
 
 A Fase 5 do plano acrescenta a interface de host, e a escolha dela foi
 revista: em vez de um subconjunto de PKCS#11, um **command set ASCII** no
