@@ -315,6 +315,31 @@ class Host:
         _, c = self.pede("P2", campos.encode())
         return bytes.fromhex(c[:(16 if formatos[1] == "0" else 32)].decode())
 
+    def dukpt_mac_gera(self, bdk, ksn, msg, tam=8, trabalho=""):
+        """M6: o MAC de RESPOSTA. BDK 3DES: retail MAC de `tam` (4 ou 8)
+        bytes. BDK AES: CMAC de 16 bytes, com `trabalho` '2' ou '4'."""
+        extra = trabalho if trabalho else str(tam)
+        _, c = self.pede("M6", (bdk + ksn.hex().upper() + extra).encode()
+                         + dados(msg))
+        n = 16 if trabalho else tam
+        return bytes.fromhex(c[:2 * n].decode())
+
+    def dukpt_mac_verifica(self, bdk, ksn, mac, msg, trabalho=""):
+        """M4: confere o MAC de PEDIDO do terminal. Devolve True/False."""
+        extra = trabalho if trabalho else str(len(mac))
+        erro, _ = self.pede("M4", (bdk + ksn.hex().upper() + extra
+                                   + mac.hex().upper()).encode() + dados(msg),
+                            aceita=(0, 1))
+        return erro == 0
+
+    def dukpt_dados(self, bdk, ksn, iv, d, cifrar, trabalho=""):
+        """C4 (cifrar=False): decifra o PEDIDO do terminal. C6 (cifrar=True):
+        cifra a RESPOSTA. IV de 8 bytes (BDK 3DES) ou 16 (BDK AES)."""
+        _, c = self.pede("C6" if cifrar else "C4",
+                         (bdk + ksn.hex().upper() + trabalho
+                          + iv.hex().upper()).encode() + dados(d))
+        return le_dados(c)[0]
+
     def ipek(self, kek, bdk, ksn):
         """I0: a chave inicial do terminal do `ksn` (a IPEK, ou a IK do DUKPT
         AES), sob a KEK. Devolve (bloco, KCV)."""
@@ -1255,6 +1280,20 @@ def dukpt_confere(h, lmk, n):
         ("B1", "T", "X", "N"), "I0: cabecalho %r" % c
     print("anexo A.4: 4 transacoes traduzidas para PIN 1234, IPEK %s"
           % cab["IPEK"])
+    # Etapa 8.9b: MAC e dados com DUKPT TDES, valores das duas fontes
+    msg, sec = _dukpt_mac_vetores()
+    p24 = msg + bytes(24 - len(msg))
+    for t in sec["openemv TDES"][:6]:
+        assert h.dukpt_mac_verifica(bdk_a, t["KSN"], t["REQMAC"], msg), "M4 openemv"
+        assert h.dukpt_mac_gera(bdk_a, t["KSN"], msg, 4) == t["RESMAC"], "M6 openemv"
+        assert h.dukpt_dados(bdk_a, t["KSN"], bytes(8), t["REQDATA"], False) == p24, \
+            "C4 openemv"
+    for t in sec["moov-io TDES"]:
+        assert h.dukpt_mac_verifica(bdk_a, t["KSN"], t["REQMAC"], msg), "M4 moov"
+        assert h.dukpt_mac_gera(bdk_a, t["KSN"], msg, 8) == t["RESMAC"], "M6 moov"
+        assert h.dukpt_dados(bdk_a, t["KSN"], bytes(8), p24, True) == t["RESDATA"], \
+            "C6 moov"
+    print("MAC e dados publicados: 6 transacoes do openemv e 5 do moov-io conferidas")
 
     for volta in range(n):
         bdk_b, _ = h.gen("B0", "X", "E", "T2")
@@ -1304,11 +1343,53 @@ def dukpt_confere(h, lmk, n):
         recusa(11, h.dukpt_traduz, zona0, zona0, ksn, pan, epb)  # P0 como BDK
         recusa(13, h.ipek, zona0, bdk_b, ksn)          # P0 como KEK
         recusa(11, h.ipek, kek_i, bdk_b, ksn)          # KEK so de importar
-        print("volta %d: P2 (00, 04) e I0 (D, B) conferidos, KSN com %d bit(s) 1"
-              % (volta + 1, 1 + volta % 10))
+        # Etapa 8.9b: M4, M6, C4 e C6, contra o dukpt.py (papel do terminal)
+        msg = os.urandom(1 + volta * 7 % 150)
+        tam = (4, 8)[volta % 2]
+        mp = dukpt.mac(bdk, ksn, dukpt.MAC_PEDIDO, msg, tam)
+        assert h.dukpt_mac_verifica(bdk_b, ksn, mp, msg), "M4"
+        assert not h.dukpt_mac_verifica(bdk_b, ksn, bytes([mp[0] ^ 1]) + mp[1:],
+                                        msg), "M4 aceitou MAC errado"
+        assert h.dukpt_mac_gera(bdk_b, ksn, msg, tam) == \
+            dukpt.mac(bdk, ksn, dukpt.MAC_RESPOSTA, msg, tam), "M6"
+        iv, dd = os.urandom(8), os.urandom(8 * (1 + volta % 12))
+        cp = dukpt.dados(bdk, ksn, dukpt.DADOS_PEDIDO, iv, dd, True)
+        assert h.dukpt_dados(bdk_b, ksn, iv, cp, False) == dd, "C4"
+        assert h.dukpt_dados(bdk_b, ksn, iv, dd, True) == \
+            dukpt.dados(bdk, ksn, dukpt.DADOS_RESPOSTA, iv, dd, True), "C6"
+        recusa(16, h.dukpt_mac_gera, bdk_b, ksn0, msg, 8)        # KSN zero
+        recusa(16, h.dukpt_mac_gera, bdk_b, ksn, msg, 5)         # tamanho 5
+        recusa(15, h.dukpt_mac_gera, bdk_b, ksn, b"", 8)         # vazia
+        recusa(15, h.dukpt_dados, bdk_b, ksn, iv, dd + b"x", True)
+        recusa(11, h.dukpt_mac_gera, zona0, ksn, msg, 8)         # P0 como BDK
+        recusa(11, h.dukpt_dados, nao_x, ksn, iv, dd, True)      # BDK sem X
+        print("volta %d: P2 (00, 04), I0 (D, B), M4 M6 C4 C6 conferidos, KSN com "
+              "%d bit(s) 1" % (volta + 1, 1 + volta % 10))
     print("%d de %d voltas TDES conferidas" % (n, n))
     return dukpt_aes_confere(h, lmk, n, kek_a, kek_a_c, kek_t, kek_i, kek_i_c,
                              zona0, zona0_c, recusa, digitos)
+
+
+def _dukpt_mac_vetores():
+    """vectors/dukpt/dukpt_mac_dados.rsp: a mensagem e as secoes."""
+    secoes, msg, atual, reg = {}, None, None, None
+    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                           "vectors", "dukpt", "dukpt_mac_dados.rsp")
+    with open(caminho) as f:
+        for ln in f:
+            ln = ln.strip()
+            if ln.startswith("[") and ln.endswith("]"):
+                atual = secoes.setdefault(ln[1:-1], [])
+            elif " = " in ln and not ln.startswith("#"):
+                k, v = ln.split(" = ", 1)
+                if k == "MSG":
+                    msg = bytes.fromhex(v)
+                elif k == "COUNT":
+                    reg = {}
+                    atual.append(reg)
+                else:
+                    reg[k] = bytes.fromhex(v)
+    return msg, secoes
 
 
 def _dukpt_aes_vetores(nome):
@@ -1377,6 +1458,19 @@ def dukpt_aes_confere(h, lmk, n, kek_a, kek_a_c, kek_t, kek_i, kek_i_c,
                     ok += 1
             print("%s: IK %s; %d PIN blocks publicados traduzidos para PIN %s"
                   % (nome, cab["IK"].hex().upper(), ok, pin))
+            # Etapa 8.9b: CMAC e dados publicados (moov-io), BDK AES-128
+            msg, sec = _dukpt_mac_vetores()
+            p32 = msg + bytes(32 - len(msg))
+            for t in sec["moov-io AES BDK128"]:
+                assert h.dukpt_mac_verifica(bdk_b, t["KSN"], t["CMACREQ"], msg,
+                                            "2"), "M4 AES moov"
+                assert h.dukpt_mac_gera(bdk_b, t["KSN"], msg, 16, "2") == \
+                    t["CMACRES"], "M6 AES moov"
+                assert h.dukpt_dados(bdk_b, t["KSN"], bytes(16), t["REQDATA"],
+                                     False, "2") == p32, "C4 AES moov"
+                assert h.dukpt_dados(bdk_b, t["KSN"], bytes(16), p32, True,
+                                     "2") == t["RESDATA"], "C6 AES moov"
+            print("MAC e dados AES publicados: 8 transacoes do moov-io conferidas")
         else:
             print("%s: IK %s" % (nome, cab["IK"].hex().upper()))
 
@@ -1414,8 +1508,23 @@ def dukpt_aes_confere(h, lmk, n, kek_a, kek_a_c, kek_t, kek_i, kek_i_c,
         except pinblock.PinErro:
             recusa(14, h.dukpt_traduz, bdk_b, zona4, ksn, pan, outro, "44", tr)
         recusa(13, h.ipek, kek_t, bdk_b, ksn)
-        print("volta %d: P2 (44, 40) e I0 conferidos, BDK AES-%d, trabalho "
-              "AES-%d, KSN com %d bit(s) 1"
+        # Etapa 8.9b: M4, M6, C4 e C6 com BDK AES
+        msg = os.urandom(1 + volta * 7 % 150)
+        mp = dukpt.aes_mac(bdk, ksn, dukpt.MAC_PEDIDO, nt, msg)
+        assert h.dukpt_mac_verifica(bdk_b, ksn, mp, msg, tr), "M4 AES"
+        assert not h.dukpt_mac_verifica(bdk_b, ksn, bytes([mp[0] ^ 1]) + mp[1:],
+                                        msg, tr), "M4 AES aceitou MAC errado"
+        assert h.dukpt_mac_gera(bdk_b, ksn, msg, 16, tr) == \
+            dukpt.aes_mac(bdk, ksn, dukpt.MAC_RESPOSTA, nt, msg), "M6 AES"
+        iv, dd = os.urandom(16), os.urandom(16 * (1 + volta % 8))
+        cp = dukpt.aes_dados(bdk, ksn, dukpt.DADOS_PEDIDO, nt, iv, dd, True)
+        assert h.dukpt_dados(bdk_b, ksn, iv, cp, False, tr) == dd, "C4 AES"
+        assert h.dukpt_dados(bdk_b, ksn, iv, dd, True, tr) == \
+            dukpt.aes_dados(bdk, ksn, dukpt.DADOS_RESPOSTA, nt, iv, dd, True), "C6 AES"
+        recusa(16, h.dukpt_mac_gera, bdk_b, ksn, msg, 16, "3")   # trabalho 3
+        recusa(15, h.dukpt_dados, bdk_b, ksn, iv, dd[:8], True, tr)
+        print("volta %d: P2 (44, 40), I0, M4 M6 C4 C6 conferidos, BDK AES-%d, "
+              "trabalho AES-%d, KSN com %d bit(s) 1"
               % (volta + 1, nb * 8, nt * 8, 1 + volta % 16))
     # 3. AES-128 so na BDK: uma chave de dados AES-128 e recusada ao entrar.
     recusa(10, h.importa, kek_i, tr31.embrulha(kek_i_c, os.urandom(16), "D0",

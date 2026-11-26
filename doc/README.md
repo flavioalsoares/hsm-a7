@@ -9,7 +9,7 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 173 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 191 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
@@ -69,6 +69,9 @@ e como o 3DES entra. A seção 39 explica o DES e o 3DES.
 | [`../patches/`](../patches/) | Modificações em código de terceiros, com a justificativa junto do diff |
 | [`puf-experimento.md`](puf-experimento.md) | Experimento de RO-PUF da Fase 6 — mede por que um PUF de FPGA é ruim |
 | [`puf_resultados.md`](puf_resultados.md) | O que o RO-PUF mediu nesta placa |
+| [`ideia-lmk-em-cartao.md`](ideia-lmk-em-cartao.md) | Ideia registrada, não implementada: componentes da LMK e autorização em smartcards, e onde fica o leitor |
+| [`ideia-cartao-emv.md`](ideia-cartao-emv.md) | Ideia registrada, não implementada: cartão EMV de teste num Java Card, para o ARQC de ponta a ponta |
+| [`ideia-ethernet.md`](ideia-ethernet.md) | Ideia registrada, não implementada: porta host em Ethernet, com TCP/IP na placa; recursos e pilha |
 | `utilization_fase7.txt`, `timing_fase7.txt` | Recursos e timing com o RSA dentro do SoC |
 | `utilization_fase6.txt`, `timing_fase6.txt` | Recursos e timing com o XADC e a perda de lock |
 | `utilization_fase3.txt`, `timing_fase3.txt` | Recursos e timing com o key store dentro |

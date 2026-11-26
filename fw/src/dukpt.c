@@ -6,6 +6,7 @@
 #include "dukpt.h"
 #include "aes128.h"
 #include "des.h"
+#include "mac_tdes.h"
 #include "hsm_cfs.h"
 #include "wipe.h"
 #include "kat_vectors.h"
@@ -207,6 +208,22 @@ int dukpt_selftest(void)
                 r = (d == 0u) ? 0 : -1;
             }
         }
+    }
+    /* Etapa 8.9b: o MAC de pedido publicado da mesma transacao (retail MAC
+     * sob a variante de MAC, 4 bytes). */
+    if (r == 0) {
+        uint8_t mac[RETAIL_MAC_LEN];
+        r = -1;
+        if ((dukpt_tdes_chave_uso(kat_dukpt_bdk, kat_dukpt_ksn,
+                                  DUKPT_USO_MAC_PEDIDO, k) == 0) &&
+            (retail_mac(k, 1u, kat_dukpt_msg, KAT_DUKPT_MSG_LEN, mac) == 0)) {
+            d = 0u;
+            for (i = 0u; i < 4u; i++) {
+                d |= (uint8_t)(mac[i] ^ kat_dukpt_reqmac[i]);
+            }
+            r = (d == 0u) ? 0 : -1;
+        }
+        wipe(mac, sizeof mac);
     }
     wipe(k, sizeof k);
     wipe(epb, sizeof epb);
@@ -430,8 +447,232 @@ int dukpt_aes_selftest(void)
         d = 1u;
     }
     d |= difere(k, kat_dukpt_aes_pin256, DUKPT_AES256);
+    /* Etapa 8.9b: as chaves de MAC (2000) e de dados (3000) publicadas da
+     * mesma transacao, com a BDK AES-128. */
+    if (dukpt_aes_chave_uso(kat_dukpt_aes_bdk128, DUKPT_AES128,
+                            kat_dukpt_aes_ksn, DUKPT_USO_MAC_PEDIDO,
+                            DUKPT_AES128, k) != 0) {
+        d = 1u;
+    }
+    d |= difere(k, kat_dukpt_aes_mackey, DUKPT_AES128);
+    if (dukpt_aes_chave_uso(kat_dukpt_aes_bdk128, DUKPT_AES128,
+                            kat_dukpt_aes_ksn, DUKPT_USO_DADOS_PEDIDO,
+                            DUKPT_AES128, k) != 0) {
+        d = 1u;
+    }
+    d |= difere(k, kat_dukpt_aes_datakey, DUKPT_AES128);
 
     wipe(k, sizeof k);
     wipe(x, sizeof x);
     return (d == 0u) ? 0 : -1;
+}
+
+/* --------------------------------------------------------------------
+ * MAC e dados com a chave da transacao (etapa 8.9b)
+ * -------------------------------------------------------------------- */
+
+int dukpt_tdes_chave_uso(const uint8_t bdk[DUKPT_TDES_CHAVE],
+                         const uint8_t ksn[DUKPT_KSN_LEN], uint8_t uso,
+                         uint8_t chave[DUKPT_TDES_CHAVE])
+{
+    /* Os bytes da variante, por uso (X9.24-1, A.4.1). */
+    static const uint8_t var[4] = { 6u, 4u, 5u, 3u };
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    uint8_t     t[DUKPT_TDES_CHAVE];
+    uint32_t    i;
+    int         r = -1;
+
+    if ((chave == 0) || (uso > DUKPT_USO_DADOS_RESPOSTA)) {
+        return -1;
+    }
+    if (dukpt_tdes_chave_transacao(bdk, ksn, t) == 0) {
+        t[var[uso]]           ^= 0xFFu;
+        t[var[uso] + 8u]      ^= 0xFFu;
+        if (uso < DUKPT_USO_DADOS_PEDIDO) {
+            for (i = 0u; i < DUKPT_TDES_CHAVE; i++) {
+                chave[i] = t[i];
+            }
+            r = 0;
+        } else if (tdes_prepara(ctx, t, DUKPT_TDES_CHAVE) == 0) {
+            /* A funcao de mao unica: cada metade cifrada sob a chave toda. */
+            tdes_bloco(ctx, &t[0], &chave[0], 1);
+            tdes_bloco(ctx, &t[8], &chave[8], 1);
+            r = 0;
+        }
+        tdes_apaga(ctx);
+    }
+    wipe(t, sizeof t);
+    if (r != 0) {
+        wipe(chave, DUKPT_TDES_CHAVE);
+    }
+    return r;
+}
+
+int dukpt_aes_chave_uso(const uint8_t *bdk, uint32_t n,
+                        const uint8_t ksn[DUKPT_AES_KSN_LEN], uint8_t uso,
+                        uint32_t n_trabalho, uint8_t *chave)
+{
+    static const uint16_t usos[4] = { 0x2000u, 0x2001u, 0x3000u, 0x3001u };
+    uint8_t t[DUKPT_AES256];
+    int     r = -1;
+
+    if ((chave == 0) || (uso > DUKPT_USO_DADOS_RESPOSTA) ||
+        ((n_trabalho != DUKPT_AES128) && (n_trabalho != DUKPT_AES256))) {
+        return -1;
+    }
+    if (dukpt_aes_chave_transacao(bdk, n, ksn, t) == 0) {
+        r = aes_deriva(t, n, usos[uso], n_trabalho, &ksn[4], chave);
+    }
+    wipe(t, sizeof t);
+    return r;
+}
+
+/* O motor AES de uma chave de 16 ou 32 bytes, aberto uma vez para varios
+ * blocos. FRONTEIRA: dentro. */
+static int aesm_abre(const uint8_t *chave, uint32_t n)
+{
+    if (n == DUKPT_AES128) {
+        return aes128_prepara(aes128_ctx_comum(), chave);
+    }
+    if (n == DUKPT_AES256) {
+        return (hsm_cfs_aes_key(chave) == 0) ? 0 : -1;
+    }
+    return -1;
+}
+
+static int aesm_bloco(uint32_t n, const uint8_t ent[16], uint8_t sai[16],
+                      int cifrar)
+{
+    if (n == DUKPT_AES128) {
+        aes128_bloco(aes128_ctx_comum(), ent, sai, cifrar);
+        return 0;
+    }
+    return (hsm_cfs_aes_block(ent, sai, cifrar) == 0) ? 0 : -1;
+}
+
+static void aesm_fecha(uint32_t n)
+{
+    if (n == DUKPT_AES128) {
+        aes128_apaga(aes128_ctx_comum());
+    } else {
+        (void)hsm_cfs_wipe();
+    }
+}
+
+/* Dobra do CMAC no corpo de 2^128: desloca 1 bit e, se saiu um 1, XOR 87. */
+static void dobra128(const uint8_t e[16], uint8_t s[16])
+{
+    uint32_t i;
+    uint8_t  vai = (uint8_t)(e[0] >> 7);
+
+    for (i = 0u; i < 15u; i++) {
+        s[i] = (uint8_t)((e[i] << 1) | (e[i + 1u] >> 7));
+    }
+    s[15] = (uint8_t)((uint8_t)(e[15] << 1) ^ (uint8_t)(0x87u * vai));
+}
+
+int dukpt_aes_cmac(const uint8_t *chave, uint32_t n, const uint8_t *msg,
+                   uint32_t msg_n, uint8_t tag[16])
+{
+    uint8_t  l[16], k1[16], k2[16], x[16], b[16];
+    uint32_t completos, resto, i, j;
+    int      r = -1;
+
+    for (i = 0u; i < 16u; i++) {
+        l[i] = 0u;
+        x[i] = 0u;
+    }
+    if ((tag == 0) || ((msg == 0) && (msg_n != 0u)) || (aesm_abre(chave, n) != 0)) {
+        goto fim;
+    }
+    if (aesm_bloco(n, l, l, 1) != 0) {
+        goto fim;
+    }
+    dobra128(l, k1);
+    dobra128(k1, k2);
+    if ((msg_n != 0u) && ((msg_n % 16u) == 0u)) {
+        completos = (msg_n / 16u) - 1u;
+        resto     = 16u;
+    } else {
+        completos = msg_n / 16u;
+        resto     = msg_n % 16u;
+    }
+    for (i = 0u; i < completos; i++) {
+        for (j = 0u; j < 16u; j++) {
+            b[j] = (uint8_t)(x[j] ^ msg[i * 16u + j]);
+        }
+        if (aesm_bloco(n, b, x, 1) != 0) {
+            goto fim;
+        }
+    }
+    for (j = 0u; j < 16u; j++) {
+        uint8_t m;
+        if (j < resto) {
+            m = msg[completos * 16u + j];
+        } else {
+            m = (j == resto) ? 0x80u : 0u;
+        }
+        b[j] = (uint8_t)(x[j] ^ m ^ ((resto == 16u) ? k1[j] : k2[j]));
+    }
+    if (aesm_bloco(n, b, tag, 1) == 0) {
+        r = 0;
+    }
+fim:
+    aesm_fecha(n);
+    wipe(l, sizeof l);
+    wipe(k1, sizeof k1);
+    wipe(k2, sizeof k2);
+    wipe(x, sizeof x);
+    wipe(b, sizeof b);
+    if ((r != 0) && (tag != 0)) {
+        wipe(tag, 16u);
+    }
+    return r;
+}
+
+int dukpt_aes_cbc(const uint8_t *chave, uint32_t n, const uint8_t iv[16],
+                  const uint8_t *entrada, uint8_t *saida, uint32_t n_dados,
+                  int cifrar)
+{
+    uint8_t  v[16], b[16], c[16];
+    uint32_t i, j;
+    int      r = -1;
+
+    if ((entrada == 0) || (saida == 0) || (iv == 0) || (n_dados == 0u) ||
+        ((n_dados % 16u) != 0u) || (aesm_abre(chave, n) != 0)) {
+        aesm_fecha(n);
+        return -1;
+    }
+    for (j = 0u; j < 16u; j++) {
+        v[j] = iv[j];
+    }
+    r = 0;
+    for (i = 0u; (i < n_dados) && (r == 0); i += 16u) {
+        for (j = 0u; j < 16u; j++) {
+            c[j] = entrada[i + j];
+        }
+        if (cifrar) {
+            for (j = 0u; j < 16u; j++) {
+                b[j] = (uint8_t)(c[j] ^ v[j]);
+            }
+            r = aesm_bloco(n, b, &saida[i], 1);
+            for (j = 0u; j < 16u; j++) {
+                v[j] = saida[i + j];
+            }
+        } else {
+            r = aesm_bloco(n, c, b, 0);
+            for (j = 0u; j < 16u; j++) {
+                saida[i + j] = (uint8_t)(b[j] ^ v[j]);
+                v[j] = c[j];
+            }
+        }
+    }
+    aesm_fecha(n);
+    wipe(v, sizeof v);
+    wipe(b, sizeof b);
+    wipe(c, sizeof c);
+    if (r != 0) {
+        wipe(saida, n_dados);
+    }
+    return r;
 }

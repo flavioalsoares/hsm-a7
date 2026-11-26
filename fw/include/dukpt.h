@@ -96,4 +96,42 @@ int dukpt_aes_chave_transacao(const uint8_t *bdk, uint32_t n,
  * chave de PIN AES-256). 0 se passou. Roda no primeiro uso. */
 int dukpt_aes_selftest(void);
 
+/* ------------------------------------------------------------------
+ * MAC e dados com a chave da transacao (etapa 8.9b)
+ *
+ * Pedido e resposta sao do ponto de vista do terminal: ele faz o MAC e
+ * cifra o pedido; o HSM do adquirente confere esse MAC e decifra, e faz o
+ * MAC e cifra a resposta.
+ *
+ *   TDES: a chave da transacao com uma variante por uso (XOR de FF em dois
+ *         bytes); nas de dados, ainda a funcao de mao unica da norma (cada
+ *         metade cifrada em 3DES sob a propria chave).
+ *   AES:  a derivacao da chave de PIN com outro uso: 2000, 2001, 3000, 3001.
+ * ------------------------------------------------------------------ */
+#define DUKPT_USO_MAC_PEDIDO      0u
+#define DUKPT_USO_MAC_RESPOSTA    1u
+#define DUKPT_USO_DADOS_PEDIDO    2u
+#define DUKPT_USO_DADOS_RESPOSTA  3u
+
+/* A chave TDES de `uso` da transacao. Devolve 0, ou -1 (KSN invalido, uso
+ * invalido, chave zerada). FRONTEIRA: dentro. */
+int dukpt_tdes_chave_uso(const uint8_t bdk[DUKPT_TDES_CHAVE],
+                         const uint8_t ksn[DUKPT_KSN_LEN], uint8_t uso,
+                         uint8_t chave[DUKPT_TDES_CHAVE]);
+
+/* A chave AES de `uso`, de `n_trabalho` bytes (16 ou 32). Devolve 0, ou -1.
+ * FRONTEIRA: dentro. */
+int dukpt_aes_chave_uso(const uint8_t *bdk, uint32_t n,
+                        const uint8_t ksn[DUKPT_AES_KSN_LEN], uint8_t uso,
+                        uint32_t n_trabalho, uint8_t *chave);
+
+/* CMAC (SP 800-38B) e AES-CBC sob uma chave AES de `n` bytes: 16 pelo motor
+ * em C, 32 pelo coprocessador, que sai apagado. `n_dados` do CBC e multiplo
+ * de 16. Devolvem 0, ou -1. FRONTEIRA: dentro. */
+int dukpt_aes_cmac(const uint8_t *chave, uint32_t n, const uint8_t *msg,
+                   uint32_t msg_n, uint8_t tag[16]);
+int dukpt_aes_cbc(const uint8_t *chave, uint32_t n, const uint8_t iv[16],
+                  const uint8_t *entrada, uint8_t *saida, uint32_t n_dados,
+                  int cifrar);
+
 #endif /* DUKPT_H */

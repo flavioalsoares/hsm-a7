@@ -809,7 +809,7 @@ Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vi
 está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
 DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos (**feita**), 8.5
 verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV (**feita**), 8.7 troca de chaves 3DES (**feita**),
-8.8 DUKPT (8.8a TDES: **feita**; 8.8b AES: **feita**), 8.9 MAC e dados com 3DES (8.9a 3DES: **feita**; 8.9b DUKPT: a fazer), 8.10 ARQC (decisão do usuário, 2026-11-23).
+8.8 DUKPT (8.8a TDES: **feita**; 8.8b AES: **feita**), 8.9 MAC e dados com 3DES (8.9a 3DES: **feita**; 8.9b DUKPT: **feita**), 8.10 ARQC (decisão do usuário, 2026-11-23).
 
 ⚠ **O 3DES entra, por decisão do usuário (2026-11-14), e o critério é o mercado de
 meios de pagamento**: "o objetivo não é ser o melhor, o objetivo é aprender como o
@@ -1046,13 +1046,20 @@ wrapper, `__neorv32_rom_size` no `fw/Makefile`, `HSM_IMEM_BYTES` em `versao.h` e
 a imagem arredondada para a potência de 2 de cima, e o resto do espaço da IMEM a
 espelha. Com o firmware abaixo de 64 KB, a ROM tem 64 KB, a BRAM fica em 25,5, e o
 `GET_BUILD` lê a imagem duas vezes. `mkfwhash.py` modela o espelho; não trocar por
-"imagem + zeros". Quando o firmware passar de 64 KB, a ROM vai a 128 KB (41,5 BRAM).
+"imagem + zeros". **Desde a 8.9b o firmware passa de 64 KB**: a ROM tem 128 KB, sem
+espelho, a BRAM está em **41,5 de 50** e o timing em +0,280 ns.
 
-**Etapa 8.9a (dados e MAC com chave 3DES): ✅ validada em hardware 2026-11-25.** `tb_kek3` 8 h 00, `tb_mac3` 3 h 40, `tb_cvv` 3 h 34, `tb_ascii` 2 h 59, `tb_tdes` 2 h 40; `regressao.py` com 20 passos em 388 s. Firmware `0.8.11`, 64 544 bytes (ROM ainda de 64 KB). Próxima: etapa 8.9b. Os mesmos `C0`/`C2`/`M0`/`M2`: o algoritmo no cabeçalho do bloco escolhe a conta. Com chave 3DES, `C0`/`C2` fazem 3DES-CBC com IV de 8 bytes (IV de 16 é `22`), e `M0`/`M2` fazem o retail MAC (ISO/IEC 9797-1 algoritmo 3), com preenchimento `1`/`2` e MAC de 4 ou 8 bytes. A conta sem política está em `fw/src/mac_tdes.c`; a chave, em `keystore_tdes_cbc_confere()` e `keystore_retail_mac()`.
+**Etapa 8.9a (dados e MAC com chave 3DES): ✅ validada em hardware 2026-11-25.** `tb_kek3` 8 h 00, `tb_mac3` 3 h 40, `tb_cvv` 3 h 34, `tb_ascii` 2 h 59, `tb_tdes` 2 h 40; `regressao.py` com 20 passos em 388 s. Firmware `0.8.11`, 64 544 bytes (ROM ainda de 64 KB). Os mesmos `C0`/`C2`/`M0`/`M2`: o algoritmo no cabeçalho do bloco escolhe a conta. Com chave 3DES, `C0`/`C2` fazem 3DES-CBC com IV de 8 bytes (IV de 16 é `22`), e `M0`/`M2` fazem o retail MAC (ISO/IEC 9797-1 algoritmo 3), com preenchimento `1`/`2` e MAC de 4 ou 8 bytes. A conta sem política está em `fw/src/mac_tdes.c`; a chave, em `keystore_tdes_cbc_confere()` e `keystore_retail_mac()`.
 
 ⚠ **Chave de retail MAC é 3DES DUPLA**: chave tripla responde `11`, como no CVV. Mensagem vazia é `15`. O MAC e o veredito do `M2` são calculados duas vezes; não "simplificar".
 
 ⚠ **Os valores do retail MAC são de duas fontes** (`psec` e o crate `retail-mac` do RustCrypto, que transcreve a ISO/IEC 9797-1 B.4), em `vectors/mac/retail_mac.rsp`. Mexer no retail MAC exige mexer em `fw/src/mac_tdes.c` e `host/mac_tdes.py`, e rodar `host/test_retail_mac.py` (0,8 s).
+
+**Etapa 8.9b (MAC e dados com DUKPT): ✅ validada em hardware 2026-11-26.** `tb_dukpt_mac` 4 h 58, `tb_dukpt` 4 h 51, `tb_dukpt_aes` 3 h 31, `tb_ascii` 2 h 42 (3 simulações por vez); `regressao.py` com 20 passos em 426 s, o passo do DUKPT em 43,5 s. Firmware `0.8.12`, 68 028 bytes. Próxima: etapa 8.10 (ARQC). Comandos ASCII `M4` (conferir o MAC de pedido), `M6` (fazer o MAC de resposta), `C4` (decifrar os dados de pedido) e `C6` (cifrar os dados de resposta). A BDK é a do `P2`: com BDK TDES, retail MAC e 3DES-CBC sob as variantes da X9.24-1 (função de mão única nas chaves de dados); com BDK AES, CMAC e AES-CBC sob as chaves de uso `2000`/`2001`/`3000`/`3001`. As contas sem política estão em `fw/src/dukpt.c`; a BDK, em `keystore_dukpt_mac()` e `keystore_dukpt_dados()`.
+
+⚠ **Só o lado do adquirente.** Não criar comando que faça o MAC de um pedido ou cifre um pedido: é papel do terminal, e um HSM que fizesse os dois lados permitiria forjar mensagens de terminal. A chave de uso nunca entra em slot, como a chave de PIN da transação.
+
+⚠ **Os valores de MAC e dados DUKPT são de duas fontes** (`openemv/dukpt` e `moov-io/dukpt`), em `vectors/dukpt/dukpt_mac_dados.rsp`; os de resposta têm uma fonte só, por decisão do usuário. Mexer exige mexer em `fw/src/dukpt.c` e `host/dukpt.py`, e rodar `host/test_dukpt.py`.
 
 ⚠ **A extração do CVV repete a do PVV** (`cvv_extrai()` e `pinv_pvv_extrai()`), de
 propósito: generalizar mudaria código validado. Corrigir uma exige olhar a outra.

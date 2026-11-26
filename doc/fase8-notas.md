@@ -1077,6 +1077,94 @@ pedido sobrava. Por decisão do usuário (2026-11-24), o passo virou três
 conferências: `C0` com IV de 8 bytes cifra, o `C2` devolve o texto, e IV de 16
 bytes com chave 3DES é `22`.
 
+## Etapa 8.9b: MAC e dados com DUKPT
+
+Estado: validada na placa em 2026-11-26. Simulação dos seis testbenches que cobrem a mudança, todos PASS (3 por vez); bitstream com WNS +0,280 ns, 0 critical warnings, 8086 LUTs e BRAM 41,5; `hsmtool build` CONFERE com o firmware `0.8.12` (68 028 bytes); `regressao.py` com 20 passos em 426 s, o passo do DUKPT, agora com `M4`/`M6`/`C4`/`C6`, em 43,5 s.
+
+O equipamento faz o lado do adquirente do MAC e da cifra de dados com DUKPT,
+TDES e AES. Quatro comandos ASCII novos: `M4` confere o MAC de pedido, `M6`
+faz o MAC de resposta, `C4` decifra os dados de pedido e `C6` cifra os dados
+de resposta. A BDK é a mesma do `P2`, e o algoritmo dela escolhe a conta: no
+TDES, retail MAC (preenchimento 1, 4 ou 8 bytes) e 3DES-CBC sob as variantes
+da norma, com a função de mão única nas chaves de dados; no AES, CMAC e
+AES-CBC sob as chaves de uso `2000`, `2001`, `3000` e `3001`. A teoria, com
+o exemplo numérico, está no manual, seção 37.4; os testes, na 42.11.
+
+### As peças
+
+| Arquivo | O que faz |
+|---|---|
+| `fw/src/dukpt.c`, `dukpt.h` | `dukpt_tdes_chave_uso()` e `dukpt_aes_chave_uso()`: a chave de cada uso, sem política; `dukpt_aes_cmac()` e `dukpt_aes_cbc()`, no motor AES-128 ou, com 32 bytes, no coprocessador. O autoteste do DUKPT inclui um MAC de pedido TDES e as chaves de MAC e de dados AES-128 publicados |
+| `fw/src/keystore.c` | `keystore_dukpt_mac()` e `keystore_dukpt_dados()`: abrem a BDK, conferem o KSN, derivam a chave de uso e calculam duas vezes, com a derivação refeita, antes de algo sair |
+| `fw/src/cmd_ascii.c` | `M4`, `M6`, `C4` e `C6` |
+| `scripts/mkkat.py` | os valores do autoteste, de `dukpt_mac_dados.rsp` |
+| `host/dukpt.py`, `host/hsmhost.py` | as mesmas contas em Python; o `dukpt-confere` passa a cobrar os quatro comandos |
+| `scripts/_extrai_dukpt_mac.py` | copia os 63 valores das duas fontes para `vectors/dukpt/dukpt_mac_dados.rsp` |
+
+### Decisões
+
+Do usuário, em 2026-11-23 (`PLANO.md`): MAC e dados com a chave da
+transação, TDES e AES; no TDES, retail MAC sob a variante; no AES, CMAC e
+AES-CBC; sem HMAC. Vetores do `openemv/dukpt` e do `moov-io/dukpt`. Os
+valores de resposta (dados TDES, CMAC e dados AES) só existem no `moov-io`,
+e entraram com uma fonte por decisão do usuário.
+
+De implementação, seguindo decisões anteriores:
+
+- **Só o lado do adquirente.** Não há comando para fazer o MAC de um pedido,
+  conferir o de uma resposta, cifrar um pedido ou decifrar uma resposta: isso
+  é papel do terminal. Um HSM que fizesse os dois lados permitiria forjar
+  mensagens de terminal.
+- **A chave de uso nunca entra em slot**, como a chave de PIN da 8.8. Vive em
+  variável local dentro de `keystore.c` e sai apagada.
+- **O KSN é conferido antes da conta**, pela mesma regra do `P2` (`16`).
+- **O `M4` devolve um bit**, com comparação em tempo constante e veredito
+  calculado duas vezes. O MAC calculado não sai.
+
+### O checklist
+
+`M4`, `M6`, `C4` e `C6`, comandos ASCII novos; nenhum opcode binário.
+
+- **Estados:** só `OPERATIONAL`, como os demais comandos da porta host.
+- **Dual control:** não. É operação.
+- **Vazamento em laço:** `M6` e `C6` são oráculos de MAC e de cifra sob a
+  chave de uma transação, e `C4` é um oráculo de decifra. O alcance é uma
+  chave de uso de um KSN: a BDK e a chave da transação não saem, e a função
+  de mão única impede voltar da chave de dados TDES à chave da transação. O
+  controle é o log. O `M4` vaza um bit, inerente à verificação.
+- **Exportabilidade:** não se aplica: nenhuma chave sai.
+- **Log:** entra antes da execução, pelo despachante ASCII.
+
+### Vetores
+
+`vectors/dukpt/dukpt_mac_dados.rsp`: 63 transações de duas fontes, o
+`openemv/dukpt` (C, os mesmos arquivos da 8.8) e o `moov-io/dukpt` (Go),
+com a mesma mensagem, `4012345678909D987`. Onde as duas se cruzam, elas
+concordam. Procedência, o que tem uma fonte só e o que não cobrem: no
+`MANIFEST.txt`.
+
+### A ROM de 128 KB
+
+O firmware passou de 64 KB (68 028 bytes). Como previsto na seção "IMEM de
+128 KB", a ROM física foi a 128 KB, sem espelho, e a BRAM foi de 25,5 a 41,5
+de 50 blocos (83%). O timing caiu de +0,434 para +0,280 ns. O `tb_uart_frame`
+confere o hash do `GET_BUILD` sobre a ROM sem espelho, e o `hsmtool build`
+confere na placa.
+
+### Testes
+
+| Teste | O que cobre | Resultado |
+|---|---|---|
+| `host/test_dukpt.py` | Python e C contra os 63 valores; C contra Python em 200 BDKs TDES e 200 casos AES ao acaso | PASS, 0,9 s |
+| `tb_dukpt_mac` | pela UART, com o firmware real: os quatro comandos com os valores publicados, TDES e AES-128; CMAC com um caractere trocado dá `01`; quatro recusas | PASS, 4 h 58 |
+| `tb_dukpt` | o DUKPT TDES da 8.8a; `keystore.c` e `dukpt.c` mudaram | PASS, 4 h 51 |
+| `tb_dukpt_aes` | o DUKPT AES da 8.8b | PASS, 3 h 31 |
+| `tb_ascii` | a porta host inteira; a tabela de comandos mudou | PASS, 2 h 42 |
+| `tb_uart_frame` | o `GET_BUILD` com a ROM de 128 KB | PASS, 27 min |
+| `tb_tr31_block` | o POST e a máscara dele | PASS, 11 min |
+
+As simulações rodaram 3 por vez.
+
 ## PKCS#8 no key block
 
 Decisão do usuário em 2026-11-14: o conteúdo do key block de uma chave RSA ou de

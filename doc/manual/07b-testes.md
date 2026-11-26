@@ -647,8 +647,8 @@ faz o mesmo a cada volta.
 
 **O que estes testes não provam.** Que a conta é a da norma, e não a do
 `openemv/dukpt`: se a transcrição estiver errada, os três lados concordam
-no erro. Que o equipamento conversa com um terminal real. E os MACs e a
-cifra de dados com chave DUKPT, que são da etapa 8.9.
+no erro. Que o equipamento conversa com um terminal real. Os MACs e a
+cifra de dados com chave DUKPT estão na seção 42.11.
 
 ### 42.9 O DUKPT AES
 
@@ -708,7 +708,7 @@ publicado refeito sob ela, e a chave de PIN AES-256 da mesma transação.
 
 **O que estes testes não provam.** Os mesmos limites da seção 42.8: que a
 conta é a da norma, e não a da transcrição; que o equipamento conversa com
-um terminal real; e as chaves de MAC e de dados DUKPT, que são da etapa 8.9.
+um terminal real. O MAC e os dados com DUKPT estão na seção 42.11.
 
 ### 42.10 O retail MAC e os dados com 3DES
 
@@ -760,6 +760,42 @@ embrulhadas sob a LMK, e pede:
 **O que estes testes não provam.** Que a conta é a da norma, e não a das
 duas fontes: as duas podem ter lido a norma do mesmo jeito errado. Duas
 fontes independentes tornam isso menos provável, e não impossível.
+
+### 42.11 O MAC e os dados com DUKPT
+
+Os valores de terceiros vêm de **duas fontes**, fixadas por commit e por
+hash: o `openemv/dukpt` (as mesmas transações da seção 42.8) e o
+`moov-io/dukpt`, uma biblioteca em Go. A mensagem das duas é a mesma,
+`4012345678909D987`.
+
+| | `openemv/dukpt` | `moov-io/dukpt` |
+|---|---|---|
+| TDES, MAC de pedido e de resposta | 34 transações, 4 bytes | 5 transações, 8 bytes |
+| TDES, dados de pedido | 34 | 5 |
+| TDES, dados de resposta | — | 5 |
+| AES, chaves de MAC (2000) e de dados (3000) | 8 por BDK, AES-128 e AES-256 | — |
+| AES, CMAC e dados de pedido | — | 8 |
+| AES, CMAC e dados de resposta (2001, 3001) | — | 8 |
+
+Onde as duas se cruzam, elas concordam: o MAC de 4 bytes do `openemv` é o
+começo do MAC de 8 bytes do `moov-io`, e o CMAC do `moov-io` sai das chaves
+publicadas pelo `openemv`. As três linhas de resposta têm uma fonte só, e
+entraram por decisão do usuário (seção 38.3).
+
+**Duas implementações.** O `host/test_dukpt.py` confere o Python e o C do
+firmware contra os 63 valores. Depois compara os dois em 200 BDKs TDES ao
+acaso (as quatro chaves de uso) e em 200 casos AES ao acaso, com BDK e chave
+de trabalho de 16 e de 32 bytes: a chave de uso, o CMAC e o AES-CBC nos dois
+sentidos. O CMAC e o CBC do C rodam no motor AES-128 ou, com 32 bytes, no
+coprocessador, que no PC é trocado pela OpenSSL.
+
+**No firmware real.** O `tb_dukpt_mac` leva a BDK do anexo A.4 e a BDK
+AES-128 do suplemento ao equipamento, e pede, na primeira transação de
+cada uma, os quatro comandos com os valores publicados: o `M4` confere o MAC
+de pedido, o `M6` devolve o de resposta, o `C4` decifra o pedido e o `C6`
+cifra a resposta. Um CMAC com um caractere trocado tem de dar `01`. E quatro
+recusas: contador zero (`16`), chave de trabalho `3` (`16`), chave de zona no
+lugar da BDK (`11`) e dados que não são múltiplos de 8 (`15`).
 
 ## 43. Testes do gerador aleatório
 
@@ -994,8 +1030,8 @@ ontem não aparece em teste de laboratório nenhum.
 | RSA, verificação | boot | resposta conhecida, e a recusa da adulterada |
 | RSA, assinatura | primeiro uso | resposta conhecida |
 | ECDSA | primeiro uso | resposta conhecida com `k` fixo, e verificação |
-| DES e 3DES | primeiro uso | resposta conhecida, 25 vetores; o CMAC-TDES e um key block versão B (etapa 8.7); a IPEK e uma transação do DUKPT (etapa 8.8a); dois retail MACs publicados, um de cada preenchimento (etapa 8.9a) |
-| AES-128 e DUKPT AES | primeiro uso | resposta conhecida: o motor nas duas direções, e as chaves de PIN AES-128 e AES-256 de uma transação, com o PIN block refeito (etapa 8.8b) |
+| DES e 3DES | primeiro uso | resposta conhecida, 25 vetores; o CMAC-TDES e um key block versão B (etapa 8.7); a IPEK e uma transação do DUKPT (etapa 8.8a), com o MAC de pedido dela (etapa 8.9b); dois retail MACs publicados, um de cada preenchimento (etapa 8.9a) |
+| AES-128 e DUKPT AES | primeiro uso | resposta conhecida: o motor nas duas direções, e as chaves de PIN AES-128 e AES-256 de uma transação, com o PIN block refeito (etapa 8.8b), e as chaves de MAC e de dados dela (etapa 8.9b) |
 | Par assimétrico recém-gerado | a cada geração | assina e verifica antes de entregar |
 | Toda assinatura | a cada assinatura | verificada com a chave pública antes de sair |
 
@@ -1055,7 +1091,7 @@ implementação independente no PC a refaz ou a desfaz.
 | Verificação de PIN | gera e verifica offset e PVV, a partir de um PIN block | faz o papel do terminal e o do emissor; calcula o MAC da tabela com a LMK |
 | CVV | gera e verifica CVV, CVV2 e iCVV de um cartão | faz o papel do emissor e refaz a conta com a chave aberta |
 | Chaves 3DES | gera e devolve o KCV; com uma KEK 3DES, exporta e importa em bloco versão B; cifra e decifra dados e faz o retail MAC | abre o bloco e confere tamanho, paridade e KCV; abre e fecha os blocos B com a KEK, e confere as recusas da regra de força; refaz o 3DES-CBC e o retail MAC com a chave aberta |
-| DUKPT TDES e AES | traduz o PIN de um terminal DUKPT para uma chave de zona; gera a IPEK ou a IK sob uma KEK | faz o papel do terminal (cifra o PIN sob a chave da transação) e o do destino; abre a chave inicial com a KEK e a refaz da BDK; leva as BDKs publicadas (anexo A.4 da X9.24-1, suplemento da X9.24-3) e exige o PIN e a chave inicial publicados |
+| DUKPT TDES e AES | traduz o PIN de um terminal DUKPT para uma chave de zona; gera a IPEK ou a IK sob uma KEK; confere o MAC e decifra o pedido, e faz o MAC e cifra a resposta | faz o papel do terminal (cifra o PIN sob a chave da transação) e o do destino; abre a chave inicial com a KEK e a refaz da BDK; leva as BDKs publicadas (anexo A.4 da X9.24-1, suplemento da X9.24-3) e exige o PIN e a chave inicial publicados, e os MACs e dados das duas fontes |
 | RSA e ECDSA | gera pares e assina | verifica só com a chave pública |
 | PKCS#8 | gera, e assina com chave vinda de fora | usa a chave do equipamento numa biblioteca, e o contrário |
 

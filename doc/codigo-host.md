@@ -363,6 +363,9 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   adquirente. Desde a etapa 8.8b tem também o DUKPT AES (X9.24-3):
   `aes_ik()`, `aes_chave_transacao()`, `aes_chave_pin()` e
   `aes_ksn_valido()`, com a função de derivação única da norma.
+  Desde a etapa 8.9b, o MAC e os dados: `chave_uso()`, `mac()` e `dados()`
+  no TDES, `aes_chave_uso()`, `aes_mac()` e `aes_dados()` no AES, com as
+  constantes `MAC_PEDIDO`, `MAC_RESPOSTA`, `DADOS_PEDIDO` e `DADOS_RESPOSTA`.
 - **`hsmhost.py dukpt-confere --lmk LMK [-n N]`** leva a BDK do anexo A.4 da
   X9.24-1 ao equipamento por `K6` e exige o PIN e a IPEK publicados. Depois,
   a cada volta, gera uma BDK, simula um terminal, pede o `P2` para chaves de
@@ -372,14 +375,17 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   e o PIN dos PIN blocks publicados, e a cada volta usa uma das quatro
   combinações de BDK e chave de trabalho (16 ou 32 bytes). Cobra também a
   recusa de uma chave AES-128 que não é BDK. `--alg A128` entrou no
-  `comp-load`.
+  `comp-load`. Desde a etapa 8.9b, o `dukpt-confere` exige os MACs e os dados
+  publicados das duas fontes no `M4`, `M6`, `C4` e `C6`, e os confere a
+  cada volta, em TDES e em AES, contra o `dukpt.py`.
 - **`host/test_dukpt.py`** não fala com a placa. Confere o Python e o C do
   firmware (compilado com `gcc`) contra a IPEK e as 34 transações do anexo,
   e os dois entre si em 300 casos ao acaso (manual, seção 42.8). Na parte
   AES, confere o `aes128.c` contra os 568 vetores ECB de 128 bits do CAVP, e
   o Python e o C contra os valores publicados da X9.24-3 e entre si em 400
   casos (seção 42.9). No PC, o coprocessador é trocado pela OpenSSL; o teste
-  precisa da `libcrypto`.
+  precisa da `libcrypto`. Desde a etapa 8.9b, confere também os 63 valores de MAC e de
+  dados das duas fontes, e o C contra o Python ao acaso (seção 42.11).
 
 - **`host/mac_tdes.py`** (etapa 8.9a) é o retail MAC (ISO/IEC 9797-1,
   algoritmo 3) e o 3DES-CBC de dados em Python: `retail_mac()`, `preenche()`

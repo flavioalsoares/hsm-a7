@@ -1451,6 +1451,162 @@ sai:
 }
 
 /* ------------------------------------------------------------------ */
+/* MAC e dados com DUKPT -- etapa 8.9b                                 */
+/* ------------------------------------------------------------------ */
+
+/* O comeco comum de M4, M6, C4 e C6: o bloco da BDK, o KSN (20 caracteres
+ * com BDK 3DES, 24 com BDK AES) e, com BDK AES, o tipo da chave de trabalho
+ * ('2' AES-128, '4' AES-256). O algoritmo vem do cabecalho da BDK, que e
+ * publico e e autenticado depois, ao abrir. */
+static uint8_t le_dukpt(leitor_t *in, const uint8_t **kb, uint16_t *kbn,
+                        uint8_t ksn[DUKPT_AES_KSN_N], uint32_t *ksn_n,
+                        uint32_t *n_trab, uint8_t *aes)
+{
+    uint8_t r;
+
+    if ((r = le_bloco(in, kb, kbn)) != ASCII_OK)       { return r; }
+    *aes   = ((*kb)[7] == (uint8_t)KS_ALG_AES) ? 1u : 0u;
+    *ksn_n = *aes ? DUKPT_AES_KSN_N : DUKPT_KSN_N;
+    if ((r = le_hex(in, ksn, *ksn_n)) != ASCII_OK)     { return r; }
+    *n_trab = 0u;
+    if (*aes) {
+        if ((uint32_t)in->pos + 1u > in->n)            { return ASCII_MALFORMADA; }
+        *n_trab = trabalho_aes(in->p[in->pos]);
+        if (*n_trab == 0u)                             { return ASCII_PARAM; }
+        in->pos = (uint16_t)(in->pos + 1u);
+    }
+    return ASCII_OK;
+}
+
+/* O fim comum: o autoteste de primeiro uso (BDK AES), e a BDK aberta no slot
+ * efemero. */
+static uint8_t abre_bdk(const uint8_t *kb, uint16_t kbn, uint8_t aes)
+{
+    ks_info_t info;
+
+    if (aes && (primeiro_uso(KAT_FALHA_DUKPT_AES) != ASCII_OK)) {
+        return ASCII_ERRO_GRAVE;
+    }
+    return abre_bloco(kb, kbn, &info);
+}
+
+static uint8_t erro_dukpt(int v)
+{
+    if (v == -1) { return ASCII_MODO; }
+    if (v == -2) { return ASCII_ERRO_GRAVE; }
+    if (v == -5) { return ASCII_PARAM; }
+    return (v == -3) ? ASCII_DADOS : ASCII_INTERNO;
+}
+
+/* M4 -- verificar o MAC de PEDIDO de um terminal DUKPT:
+ *       bloco da BDK . KSN . [trabalho(1)] . [tamanho(1)] . MAC . dados
+ *       -> veredito no codigo de erro (00 confere, 01 nao confere)
+ * M6 -- gerar o MAC de RESPOSTA:
+ *       bloco da BDK . KSN . [trabalho(1)] . [tamanho(1)] . dados -> MAC
+ *
+ * BDK 3DES: retail MAC (preenchimento 1) sob a variante de MAC; o tamanho
+ * ('4' ou '8') e do MAC em bytes. BDK AES: CMAC de 16 bytes (32 caracteres)
+ * sob a chave de uso 2000 (pedido) ou 2001 (resposta); sem campo de tamanho.
+ *
+ * Checklist: OPERATIONAL; sem dual control. O HSM faz so o lado do
+ * adquirente: gerar o MAC de PEDIDO e papel do terminal, e nao ha comando
+ * para isso. O M4 devolve um bit, comparado em tempo constante; o M6 e o
+ * oraculo de MAC de resposta, que e o servico. KSN invalido e 16, antes de
+ * qualquer conta. Entra no log. */
+static uint8_t dukpt_mac_cmd(leitor_t *in, escritor_t *out, int gerar)
+{
+    const uint8_t *kb = 0;
+    uint16_t       kbn = 0u;
+    uint8_t        ksn[DUKPT_AES_KSN_N], mac[16];
+    uint32_t       ksn_n = 0u, n_trab = 0u, mac_n = 16u, n = 0u;
+    uint8_t        r, aes = 0u, t;
+    int            v;
+
+    if ((r = le_dukpt(in, &kb, &kbn, ksn, &ksn_n, &n_trab, &aes)) != ASCII_OK) {
+        return r;
+    }
+    if (!aes) {
+        if ((uint32_t)in->pos + 1u > in->n)            { return ASCII_MALFORMADA; }
+        t = in->p[in->pos];
+        if ((t != (uint8_t)'4') && (t != (uint8_t)'8')) { return ASCII_PARAM; }
+        mac_n = (uint32_t)(t - (uint8_t)'0');
+        in->pos = (uint16_t)(in->pos + 1u);
+    }
+    if (!gerar && ((r = le_hex(in, mac, mac_n)) != ASCII_OK)) {
+        return r;
+    }
+    if ((r = le_dados(in, g_dados, ASCII_DADOS_MAX, &n)) != ASCII_OK) {
+        return r;
+    }
+    if ((r = fim(in)) != ASCII_OK)                     { return r; }
+    if (n == 0u)                                       { return ASCII_DADOS; }
+    if ((r = abre_bdk(kb, kbn, aes)) != ASCII_OK)      { return r; }
+
+    v = keystore_dukpt_mac(KS_HANDLE_EFEMERA, ksn, ksn_n, n_trab, gerar,
+                           g_dados, n, mac, mac_n);
+    if (v < 0) {
+        wipe(mac, sizeof mac);
+        return erro_dukpt(v);
+    }
+    if (gerar) {
+        poe_hex(out, mac, mac_n);
+        wipe(mac, sizeof mac);
+        return ASCII_OK;
+    }
+    return (v == 0) ? ASCII_OK : ASCII_VERIF_FALHOU;
+}
+
+static uint8_t h_m4(leitor_t *in, escritor_t *out) { return dukpt_mac_cmd(in, out, 0); }
+static uint8_t h_m6(leitor_t *in, escritor_t *out) { return dukpt_mac_cmd(in, out, 1); }
+
+/* C4 -- decifrar os dados de PEDIDO de um terminal DUKPT:
+ * C6 -- cifrar os dados de RESPOSTA:
+ *       bloco da BDK . KSN . [trabalho(1)] . IV . dados -> dados
+ *
+ * BDK 3DES: 3DES-CBC sob a variante de dados (com a funcao de mao unica), IV
+ * de 16 caracteres, dados multiplos de 8. BDK AES: AES-CBC sob a chave de
+ * uso 3000 (pedido) ou 3001 (resposta), IV de 32 caracteres, dados multiplos
+ * de 16.
+ *
+ * Checklist: OPERATIONAL; sem dual control. O C4 e o oraculo de decifrar
+ * dados de terminal, que e o servico do adquirente; nao ha comando para
+ * cifrar um pedido nem decifrar uma resposta (papel do terminal). Entra no
+ * log. */
+static uint8_t dukpt_dados_cmd(leitor_t *in, escritor_t *out, int cifrar)
+{
+    const uint8_t *kb = 0;
+    uint16_t       kbn = 0u;
+    uint8_t        ksn[DUKPT_AES_KSN_N], iv[16];
+    uint32_t       ksn_n = 0u, n_trab = 0u, n = 0u, bloco;
+    uint8_t        r, aes = 0u;
+    int            v;
+
+    if ((r = le_dukpt(in, &kb, &kbn, ksn, &ksn_n, &n_trab, &aes)) != ASCII_OK) {
+        return r;
+    }
+    bloco = aes ? 16u : DES_BLOCO;
+    if ((r = le_hex(in, iv, bloco)) != ASCII_OK)       { return r; }
+    if ((r = le_dados(in, g_dados, ASCII_DADOS_MAX, &n)) != ASCII_OK) {
+        return r;
+    }
+    if ((r = fim(in)) != ASCII_OK)                     { return r; }
+    if ((n == 0u) || ((n % bloco) != 0u))              { return ASCII_DADOS; }
+    if ((r = abre_bdk(kb, kbn, aes)) != ASCII_OK)      { return r; }
+
+    v = keystore_dukpt_dados(KS_HANDLE_EFEMERA, ksn, ksn_n, n_trab, cifrar, iv,
+                             g_dados, g_res, n);
+    if (v != 0) {
+        return erro_dukpt(v);
+    }
+    poe_dec(out, n, 4u);
+    poe_hex(out, g_res, n);
+    return ASCII_OK;
+}
+
+static uint8_t h_c4(leitor_t *in, escritor_t *out) { return dukpt_dados_cmd(in, out, 0); }
+static uint8_t h_c6(leitor_t *in, escritor_t *out) { return dukpt_dados_cmd(in, out, 1); }
+
+/* ------------------------------------------------------------------ */
 /* Verificacao de PIN (fase 8, etapa 8.5)                              */
 /* ------------------------------------------------------------------ */
 
@@ -1781,6 +1937,10 @@ static const ascii_entry_t g_ascii[] = {
     { 'P', '0', ST_OPER,   h_p0, L },
     { 'P', '2', ST_OPER,   h_p2, L },
     { 'I', '0', ST_OPER,   h_i0, L },
+    { 'M', '4', ST_OPER,   h_m4, L },
+    { 'M', '6', ST_OPER,   h_m6, L },
+    { 'C', '4', ST_OPER,   h_c4, L },
+    { 'C', '6', ST_OPER,   h_c6, L },
     { 'V', '0', ST_OPER,   h_v0, L },
     { 'V', '2', ST_OPER,   h_v2, L },
     { 'V', '4', ST_OPER,   h_v4, L },

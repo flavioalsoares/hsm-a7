@@ -52,6 +52,11 @@ tem o tamanho da BDK. O comando `I0` a entrega sob uma KEK AES. Seção 37.3.
 DUKPT. Vem da BDK e do KSN do terminal, e é carregada nele uma vez. O
 comando `I0` a entrega sob uma KEK. Seção 37.2.
 
+**ISO 8583** — a norma das mensagens entre terminal, adquirente, bandeira e
+emissor: pedido de autorização, resposta, estorno. O HSM não a lê: a
+aplicação tira da mensagem os campos de que a conta precisa e monta o
+comando do HSM. Seção 24.14.
+
 **eFUSE** — memória de programação única do FPGA. **Proibida neste
 projeto**: erro vira brick permanente.
 
@@ -432,6 +437,10 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `V6` | `V7` | COMUM ‖ índice da chave(1) ‖ PVV(4) | — (o veredito é o erro) | `OPERATIONAL` |
 | `P2` | `P3` | bloco da BDK ‖ bloco da chave de destino ‖ KSN(20 ou 24) ‖ [chave de trabalho(1)] ‖ formato de origem(1) ‖ formato de destino(1) ‖ tamanho do PAN(2) ‖ PAN ‖ PIN block(16 ou 32) | PIN block(16 ou 32) | `OPERATIONAL` |
 | `I0` | `I1` | bloco da KEK ‖ bloco da BDK ‖ KSN(20 ou 24) | bloco da chave inicial sob a KEK ‖ KCV(6) | `OPERATIONAL` |
+| `M4` | `M5` | bloco da BDK ‖ KSN(20 ou 24) ‖ [chave de trabalho(1)] ‖ [tamanho(1)] ‖ MAC(8, 16 ou 32) ‖ dados | — (o veredito é o erro) | `OPERATIONAL` |
+| `M6` | `M7` | bloco da BDK ‖ KSN(20 ou 24) ‖ [chave de trabalho(1)] ‖ [tamanho(1)] ‖ dados | MAC(8, 16 ou 32) | `OPERATIONAL` |
+| `C4` | `C5` | bloco da BDK ‖ KSN(20 ou 24) ‖ [chave de trabalho(1)] ‖ IV(16 ou 32) ‖ dados | dados | `OPERATIONAL` |
+| `C6` | `C7` | bloco da BDK ‖ KSN(20 ou 24) ‖ [chave de trabalho(1)] ‖ IV(16 ou 32) ‖ dados | dados | `OPERATIONAL` |
 | `W0` | `W1` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) | código(3) | `OPERATIONAL` |
 | `W2` | `W3` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) ‖ código(3) | — (o veredito é o erro) | `OPERATIONAL` |
 

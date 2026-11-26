@@ -198,3 +198,93 @@ def aes_chave_pin(bdk, ksn, n_trabalho):
         raise DukptErro("KSN AES invalido: contador zero ou com mais de 16 bits 1")
     t = aes_chave_transacao(aes_ik(bdk, ksn[:8]), ksn)
     return _aes_deriva(t, USO_PIN, n_trabalho, ksn[4:12])
+
+
+# --------------------------------------------------------------------
+# MAC e dados com a chave da transacao (etapa 8.9b)
+#
+# TDES (X9.24-1, A.4.1): a chave da transacao, combinada por XOR com uma
+# variante por uso; nas de dados, ainda a funcao de mao unica (cada metade
+# cifrada em 3DES sob a propria chave). O MAC e o retail MAC (ISO 9797-1,
+# algoritmo 3) com preenchimento 1; os dados vao em 3DES-CBC.
+#
+#   uso                bytes com FF     mao unica
+#   MAC de pedido      6 e 14           nao
+#   MAC de resposta    4 e 12           nao
+#   dados de pedido    5 e 13           sim
+#   dados de resposta  3 e 11           sim
+#
+# AES (X9.24-3): a mesma derivacao da chave de PIN, com outro uso:
+#   2000 MAC de pedido, 2001 MAC de resposta (CMAC), 3000 dados de pedido,
+#   3001 dados de resposta (AES-CBC).
+#
+# Pedido e resposta sao do ponto de vista do terminal: ele faz o MAC e cifra
+# o pedido; o HSM do adquirente confere esse MAC e decifra, e faz o MAC e
+# cifra a resposta.
+# --------------------------------------------------------------------
+
+MAC_PEDIDO, MAC_RESPOSTA, DADOS_PEDIDO, DADOS_RESPOSTA = range(4)
+_VARIANTE = {MAC_PEDIDO: (6, 14), MAC_RESPOSTA: (4, 12),
+             DADOS_PEDIDO: (5, 13), DADOS_RESPOSTA: (3, 11)}
+_USO_AES = {MAC_PEDIDO: 0x2000, MAC_RESPOSTA: 0x2001,
+            DADOS_PEDIDO: 0x3000, DADOS_RESPOSTA: 0x3001}
+
+
+def chave_uso(bdk, ksn, uso):
+    """A chave TDES da transacao `ksn` para o `uso` (MAC_PEDIDO...)."""
+    if not ksn_valido(ksn):
+        raise DukptErro("KSN invalido: contador zero ou com mais de 10 bits 1")
+    k = bytearray(chave_transacao(ipek(bdk, ksn), ksn))
+    for i in _VARIANTE[uso]:
+        k[i] ^= 0xFF
+    k = bytes(k)
+    if uso in (DADOS_PEDIDO, DADOS_RESPOSTA):
+        k = _tdes(k, k[:8]) + _tdes(k, k[8:])
+    return k
+
+
+def mac(bdk, ksn, uso, msg, tamanho=8):
+    """O retail MAC (preenchimento 1) da mensagem, sob a chave de `uso`."""
+    import mac_tdes
+    if uso not in (MAC_PEDIDO, MAC_RESPOSTA):
+        raise DukptErro("uso de MAC: MAC_PEDIDO ou MAC_RESPOSTA")
+    return mac_tdes.retail_mac(chave_uso(bdk, ksn, uso), msg, 1, tamanho)
+
+
+def dados(bdk, ksn, uso, iv, d, cifrar):
+    """3DES-CBC sob a chave de dados de `uso`."""
+    import mac_tdes
+    if uso not in (DADOS_PEDIDO, DADOS_RESPOSTA):
+        raise DukptErro("uso de dados: DADOS_PEDIDO ou DADOS_RESPOSTA")
+    return mac_tdes.cbc(chave_uso(bdk, ksn, uso), iv, d, cifrar)
+
+
+def aes_chave_uso(bdk, ksn, uso, n_trabalho):
+    """A chave AES de trabalho de `n_trabalho` bytes para o `uso`."""
+    if not aes_ksn_valido(ksn):
+        raise DukptErro("KSN AES invalido: contador zero ou com mais de 16 bits 1")
+    t = aes_chave_transacao(aes_ik(bdk, ksn[:8]), ksn)
+    return _aes_deriva(t, _USO_AES[uso], n_trabalho, ksn[4:12])
+
+
+def aes_mac(bdk, ksn, uso, n_trabalho, msg):
+    """O CMAC (16 bytes) sob a chave AES de MAC de `uso`."""
+    from cryptography.hazmat.primitives.cmac import CMAC
+    from cryptography.hazmat.primitives.ciphers import algorithms
+    if uso not in (MAC_PEDIDO, MAC_RESPOSTA):
+        raise DukptErro("uso de MAC: MAC_PEDIDO ou MAC_RESPOSTA")
+    c = CMAC(algorithms.AES(aes_chave_uso(bdk, ksn, uso, n_trabalho)))
+    c.update(msg)
+    return c.finalize()
+
+
+def aes_dados(bdk, ksn, uso, n_trabalho, iv, d, cifrar):
+    """AES-CBC sob a chave AES de dados de `uso`; `d` multiplo de 16."""
+    from cryptography.hazmat.primitives.ciphers import algorithms
+    if uso not in (DADOS_PEDIDO, DADOS_RESPOSTA):
+        raise DukptErro("uso de dados: DADOS_PEDIDO ou DADOS_RESPOSTA")
+    if not d or len(d) % 16 or len(iv) != 16:
+        raise DukptErro("AES-CBC: dados multiplos de 16 e IV de 16")
+    c = Cipher(algorithms.AES(aes_chave_uso(bdk, ksn, uso, n_trabalho)), modes.CBC(iv))
+    o = c.encryptor() if cifrar else c.decryptor()
+    return o.update(d) + o.finalize()

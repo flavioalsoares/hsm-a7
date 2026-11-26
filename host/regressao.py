@@ -93,7 +93,7 @@ def main(argv=None):
         ("CVV, CVV2 e iCVV (W0 W2)",
          host + ["cvv-confere", "--lmk", a.lmk, "-n", n(16, 4)], 900,
          ["voltas conferidas"]),
-        ("DUKPT TDES e AES (P2 I0), valores publicados e terminais",
+        ("DUKPT TDES e AES (P2 I0 M4 M6 C4 C6), valores publicados e terminais",
          host + ["dukpt-confere", "--lmk", a.lmk, "-n", n(10, 3)], 900,
          ["anexo A.4", "voltas TDES conferidas", "voltas AES conferidas"]),
         ("ECDSA, vetores do CAVP (E4, E2)",

@@ -103,44 +103,102 @@ futuro; a segunda, não.
 Um HSM com dezesseis slots de chave não guarda dezesseis segredos. Guarda
 **um** — e protege ou deriva todos os outros a partir dele.
 
+Por isso uma chave de trabalho tem dois estados, e a figura separa os dois
+lados da fronteira:
+
+- **Em repouso, ela fica fora do HSM**, como key block cifrado sob a LMK, no
+  banco de dados do host. Quem rouba o banco leva blocos que não abre.
+- **Em uso, ela existe em claro só dentro do HSM.** A aplicação manda o bloco
+  junto com o comando; o HSM o abre, usa a chave e a apaga no fim do comando.
+
 <figure class="fig">
-<svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">
-<rect class="cxd" x="270" y="10" width="140" height="46"/>
-<text x="340" y="30" text-anchor="middle" class="tb">LMK</text>
-<text x="340" y="46" text-anchor="middle" class="ts">nunca sai, nem embrulhada</text>
-<line class="ln" x1="340" y1="56" x2="340" y2="84" marker-end="url(#seta)"/>
-<text x="350" y="76" class="ts">CMAC, por propósito</text>
-<rect class="cx" x="200" y="86" width="120" height="40"/><text x="260" y="104" text-anchor="middle" class="tb">KBEK</text><text x="260" y="118" text-anchor="middle" class="ts">cifra o corpo</text>
-<rect class="cx" x="360" y="86" width="120" height="40"/><text x="420" y="104" text-anchor="middle" class="tb">KBAK</text><text x="420" y="118" text-anchor="middle" class="ts">autentica</text>
-<line class="ln" x1="340" y1="126" x2="340" y2="152" marker-end="url(#seta)"/>
-<text x="350" y="146" class="ts">protegem</text>
-<rect class="cxa" x="20" y="154" width="640" height="30"/>
-<text x="340" y="174" text-anchor="middle">key blocks X9.143, guardados fora do HSM (banco de dados do host)</text>
-<line class="ln" x1="80" y1="184" x2="80" y2="206" marker-end="url(#seta)"/>
-<line class="ln" x1="210" y1="184" x2="210" y2="206" marker-end="url(#seta)"/>
-<line class="ln" x1="340" y1="184" x2="340" y2="206" marker-end="url(#seta)"/>
-<line class="ln" x1="470" y1="184" x2="470" y2="206" marker-end="url(#seta)"/>
-<line class="ln" x1="600" y1="184" x2="600" y2="206" marker-end="url(#seta)"/>
-<rect class="cx" x="20"  y="208" width="120" height="44"/><text x="80"  y="226" text-anchor="middle" class="tb">KEK (K0)</text><text x="80"  y="242" text-anchor="middle" class="ts">troca com outro banco</text>
-<rect class="cx" x="150" y="208" width="120" height="44"/><text x="210" y="226" text-anchor="middle" class="tb">PIN (P0)</text><text x="210" y="242" text-anchor="middle" class="ts">zona, terminal</text>
-<rect class="cx" x="280" y="208" width="120" height="44"/><text x="340" y="226" text-anchor="middle" class="tb">BDK (B0)</text><text x="340" y="242" text-anchor="middle" class="ts">deriva os terminais</text>
-<rect class="cx" x="410" y="208" width="120" height="44"/><text x="470" y="226" text-anchor="middle" class="tb">dados, MAC</text><text x="470" y="242" text-anchor="middle" class="ts">D0, M0..M3</text>
-<rect class="cx" x="540" y="208" width="120" height="44"/><text x="600" y="226" text-anchor="middle" class="tb">CVV, PVV</text><text x="600" y="242" text-anchor="middle" class="ts">C0, V1, V2</text>
-<line class="lnt" x1="80" y1="252" x2="80" y2="278" marker-end="url(#seta-t)"/>
-<text x="90" y="284" class="ts">sob a KEK, a chave viaja até outra instituição</text>
-<line class="lnt" x1="340" y1="252" x2="340" y2="278" marker-end="url(#seta-t)"/>
-<text x="350" y="284" class="ts">IPEK de cada terminal; uma chave por transação</text>
+<svg viewBox="0 0 680 334" xmlns="http://www.w3.org/2000/svg">
+<rect class="fr" x="10" y="10" width="660" height="150"/>
+<text x="22" y="28" text-anchor="start" class="ts tb td">DENTRO DO HSM: a fronteira criptográfica</text>
+<rect class="cxd" x="30" y="50" width="150" height="56"/><text x="105" y="72" text-anchor="middle" class="tb">LMK</text><text x="105" y="88" text-anchor="middle" class="ts">guardada aqui;</text><text x="105" y="100" text-anchor="middle" class="ts">nunca sai, nem embrulhada</text>
+<line class="ln" x1="180" y1="78" x2="228" y2="78" marker-end="url(#seta)"/>
+<text x="204" y="70" text-anchor="middle" class="ts">CMAC</text>
+<rect class="cx" x="230" y="44" width="120" height="34"/><text x="290" y="60" text-anchor="middle" class="tb">KBEK</text><text x="290" y="72" text-anchor="middle" class="ts">cifra o corpo</text>
+<rect class="cx" x="230" y="84" width="120" height="34"/><text x="290" y="100" text-anchor="middle" class="tb">KBAK</text><text x="290" y="112" text-anchor="middle" class="ts">autentica</text>
+<line class="ln" x1="350" y1="80" x2="398" y2="80" marker-end="url(#seta)"/>
+<text x="374" y="72" text-anchor="middle" class="ts">abrem</text>
+<rect class="cxd" x="400" y="40" width="255" height="84"/><text x="527" y="60" text-anchor="middle" class="tb">chave de trabalho em claro</text><text x="527" y="78" text-anchor="middle" class="ts">só enquanto um comando a usa;</text><text x="527" y="92" text-anchor="middle" class="ts">apagada no fim do comando</text><text x="527" y="112" text-anchor="middle" class="ts tm">P0 V2 W2 C0 M0 K4 …</text>
+<text x="340" y="140" text-anchor="middle" class="ts">KBEK e KBAK nascem da LMK a cada bloco e são apagadas depois;</text>
+<text x="340" y="152" text-anchor="middle" class="ts">em claro, só a LMK fica guardada</text>
+<line class="ln" x1="560" y1="206" x2="560" y2="166" marker-end="url(#seta)"/>
+<text x="570" y="182" text-anchor="start" class="ts">vai junto com</text>
+<text x="570" y="194" text-anchor="start" class="ts">cada comando</text>
+<line class="ln" x1="130" y1="166" x2="130" y2="206" marker-end="url(#seta)"/>
+<text x="140" y="182" text-anchor="start" class="ts">K0 gera, K6 importa:</text>
+<text x="140" y="194" text-anchor="start" class="ts">sai como key block sob a LMK</text>
+<rect class="lnt" x="10" y="206" width="660" height="122"/>
+<text x="22" y="224" text-anchor="start" class="ts tb">FORA DO HSM: o banco de dados do host — key blocks X9.143, cifrados sob a LMK</text>
+<rect class="cxa" x="20" y="232" width="120" height="44"/><text x="80" y="250" text-anchor="middle" class="tb">KEK (K0)</text><text x="80" y="266" text-anchor="middle" class="ts">troca com outro banco</text>
+<rect class="cxa" x="150" y="232" width="120" height="44"/><text x="210" y="250" text-anchor="middle" class="tb">PIN (P0)</text><text x="210" y="266" text-anchor="middle" class="ts">zona, terminal</text>
+<rect class="cxa" x="280" y="232" width="120" height="44"/><text x="340" y="250" text-anchor="middle" class="tb">BDK (B0)</text><text x="340" y="266" text-anchor="middle" class="ts">deriva os terminais</text>
+<rect class="cxa" x="410" y="232" width="120" height="44"/><text x="470" y="250" text-anchor="middle" class="tb">dados, MAC</text><text x="470" y="266" text-anchor="middle" class="ts">D0, M0..M8</text>
+<rect class="cxa" x="540" y="232" width="120" height="44"/><text x="600" y="250" text-anchor="middle" class="tb">CVV, PVV</text><text x="600" y="266" text-anchor="middle" class="ts">C0, V1, V2</text>
+<text x="80" y="296" text-anchor="middle" class="ts">sob uma KEK, a chave</text>
+<text x="80" y="308" text-anchor="middle" class="ts">vai a outra instituição</text>
+<text x="340" y="296" text-anchor="middle" class="ts">deriva a IPEK de</text>
+<text x="340" y="308" text-anchor="middle" class="ts">cada terminal</text>
+<text x="535" y="302" text-anchor="middle" class="ts">sem a LMK, cada bloco é inútil</text>
 </svg>
-<figcaption>Figura 6.1 — A hierarquia de chaves. O HSM guarda um segredo, a LMK; todas as outras chaves existem como key blocks sob ela.</figcaption>
+<figcaption>Figura 6.1 — A hierarquia de chaves, dentro e fora do HSM. Dentro, em claro, fica só a LMK. As chaves de trabalho ficam fora, como key blocks sob ela, e entram em claro só durante um comando.</figcaption>
 </figure>
+
+Neste equipamento há uma exceção à figura: as chaves criadas pelo console
+(`gen-key`, `comp-load`) ficam também em slots dentro do HSM, na BRAM, e são
+usadas por handle. Na flash, elas ficam só embrulhadas sob a LMK (seção 27).
+As chaves da porta host seguem a figura.
+
 Três razões, e vale entender cada uma porque elas explicam decisões
 aparentemente arbitrárias mais adiante.
 
 **Backup e migração.** Se cada chave fosse independente, mover o serviço para
 outro HSM significaria mover N segredos, cada um com seu próprio
-procedimento. Com a hierarquia, você move a LMK — por cerimônia, em
-componentes — e todos os key blocks existentes continuam válidos, porque eles
-sempre foram apenas dados cifrados sob ela.
+procedimento. Com a hierarquia, basta que o HSM novo tenha **a mesma LMK**. E
+isso acontece sem que a LMK saia do HSM antigo.
+
+A LMK nunca sai do HSM, nem embrulhada. O que existe fora dele são os
+**componentes**: cada custodiante guarda o seu, em papel ou em cartão, num
+envelope lacrado, num cofre. Nenhum componente sozinho revela nada da LMK
+(seção 7). Para migrar, os mesmos custodiantes fazem no HSM novo a mesma
+cerimônia que fizeram no antigo. O HSM novo junta os mesmos componentes, monta
+a mesma LMK e mostra o mesmo KCV. Os key blocks não mudam: continuam no banco
+de dados, e o HSM novo os abre como o antigo abria, porque eles sempre foram
+apenas dados cifrados sob a LMK.
+
+<figure class="fig">
+<svg viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
+<rect class="fr" x="10" y="30" width="150" height="70"/><text x="85" y="52" text-anchor="middle" class="tb">HSM antigo</text><text x="85" y="70" text-anchor="middle" class="ts td">LMK: nunca sai</text><text x="85" y="86" text-anchor="middle" class="ts tm">KCV 7B1D2F</text>
+<rect class="fr" x="520" y="30" width="150" height="70"/><text x="595" y="52" text-anchor="middle" class="tb">HSM novo</text><text x="595" y="70" text-anchor="middle" class="ts td">a mesma LMK, montada</text><text x="595" y="86" text-anchor="middle" class="ts tm">KCV 7B1D2F</text>
+<rect class="cxd" x="215" y="20" width="250" height="90"/><text x="340" y="38" text-anchor="middle" class="ts tb td">no cofre, um envelope por custodiante</text>
+<rect class="cxa" x="228" y="50" width="70" height="44"/><text x="263" y="70" text-anchor="middle" class="tb">A</text><text x="263" y="86" text-anchor="middle" class="ts">componente</text>
+<rect class="cxa" x="305" y="50" width="70" height="44"/><text x="340" y="70" text-anchor="middle" class="tb">B</text><text x="340" y="86" text-anchor="middle" class="ts">componente</text>
+<rect class="cxa" x="382" y="50" width="70" height="44"/><text x="417" y="70" text-anchor="middle" class="tb">C</text><text x="417" y="86" text-anchor="middle" class="ts">componente</text>
+<line class="lnt" x1="215" y1="65" x2="162" y2="65" marker-end="url(#seta-t)"/>
+<text x="188" y="124" text-anchor="middle" class="ts">1ª cerimônia</text>
+<line class="ln" x1="465" y1="65" x2="518" y2="65" marker-end="url(#seta)"/>
+<text x="492" y="124" text-anchor="middle" class="ts">cerimônia de migração</text>
+<rect class="cxc" x="215" y="160" width="250" height="44"/><text x="340" y="178" text-anchor="middle" class="tb">banco de dados</text><text x="340" y="194" text-anchor="middle" class="ts">os key blocks, sob a LMK: não mudam</text>
+<path class="lnt" d="M85,100 L85,182 L213,182" marker-start="url(#seta-t)"/>
+<path class="ln" d="M465,182 L595,182 L595,102" marker-end="url(#seta)"/>
+<text x="130" y="174" text-anchor="middle" class="ts">abria</text>
+<text x="530" y="174" text-anchor="middle" class="ts">abre igual</text>
+<text x="340" y="236" text-anchor="middle" class="ts">o que viaja são os componentes, separados, cada um com uma pessoa; a LMK inteira não existe fora de um HSM</text>
+</svg>
+<figcaption>Figura 6.2 — Migrar sem tirar a LMK do HSM. Os custodiantes repetem a cerimônia no HSM novo, que monta a mesma LMK; os key blocks continuam válidos.</figcaption>
+</figure>
+
+Em alguns equipamentos o próprio HSM gera a LMK e grava os componentes em
+cartões, um por custodiante. A regra é a mesma: a LMK sai dividida, e nunca
+inteira, nem embrulhada.
+
+Neste equipamento, a LMK de desenvolvimento é montada pela cerimônia do
+console, com os dois botões, e desde a fase 4 fica na flash (seção 27). Uma
+placa nova, com os mesmos componentes, monta a mesma LMK e abre os mesmos key
+blocks.
 
 **Revogação em bloco.** Zeroizar a LMK invalida instantaneamente **todo** key
 block protegido por ela, onde quer que esteja: em backup, em fita, no
@@ -265,6 +323,72 @@ custodiante soltar o botão, ele registrou uma autorização que ninguém deu. O
 mecanismo de autorização precisa refletir **intenção humana**, não estado
 elétrico de contato — e a distância entre as duas coisas é uns 10 ms de
 filtro.
+
+### Guardar os componentes: o único backup da LMK
+
+A LMK nunca sai do HSM, nem embrulhada (seção 6). Por isso **os componentes
+são o único backup dela**. Se o HSM quebrar e os componentes tiverem sido
+perdidos, a LMK deixa de existir em qualquer lugar, e com ela tudo o que
+estava sob ela.
+
+<figure class="fig">
+<svg viewBox="0 0 680 272" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxd" x="10" y="20" width="170" height="46"/><text x="95" y="39" text-anchor="middle" class="tb">HSM quebrou</text><text x="95" y="55" text-anchor="middle" class="ts">ou foi zeroizado</text>
+<rect class="cxd" x="10" y="80" width="170" height="46"/><text x="95" y="99" text-anchor="middle" class="tb">componentes perdidos</text><text x="95" y="115" text-anchor="middle" class="ts">ou incompletos</text>
+<line class="lnd" x1="180" y1="43" x2="258" y2="68" marker-end="url(#seta-d)"/>
+<line class="lnd" x1="180" y1="103" x2="258" y2="84" marker-end="url(#seta-d)"/>
+<text x="219" y="140" text-anchor="middle" class="ts td">os dois juntos</text>
+<rect class="cxc" x="260" y="48" width="160" height="56"/><text x="340" y="68" text-anchor="middle" class="tb">LMK</text><text x="340" y="84" text-anchor="middle" class="ts">não existe mais</text><text x="340" y="97" text-anchor="middle" class="ts">em lugar nenhum</text>
+<line class="ln" x1="420" y1="76" x2="478" y2="76" marker-end="url(#seta)"/>
+<rect class="cxc" x="480" y="48" width="190" height="56"/><text x="575" y="68" text-anchor="middle" class="tb">banco de dados</text><text x="575" y="84" text-anchor="middle" class="ts">key blocks intactos,</text><text x="575" y="97" text-anchor="middle" class="ts">que ninguém mais abre</text>
+<path class="ln" d="M575,104 L575,150 L110,150" fill="none"/>
+<line class="ln" x1="110" y1="150" x2="110" y2="172" marker-end="url(#seta)"/>
+<line class="ln" x1="340" y1="150" x2="340" y2="172" marker-end="url(#seta)"/>
+<line class="ln" x1="575" y1="150" x2="575" y2="172" marker-end="url(#seta)"/>
+<rect class="cxa" x="10" y="174" width="200" height="66"/><text x="110" y="196" text-anchor="middle" class="tb">KEK e chaves de zona</text><text x="110" y="212" text-anchor="middle" class="ts">uma cerimônia nova</text><text x="110" y="225" text-anchor="middle" class="ts">com cada parceiro</text>
+<rect class="cxa" x="240" y="174" width="200" height="66"/><text x="340" y="196" text-anchor="middle" class="tb">BDK</text><text x="340" y="212" text-anchor="middle" class="ts">chave inicial nova</text><text x="340" y="225" text-anchor="middle" class="ts">em todos os terminais</text>
+<rect class="cxd" x="470" y="174" width="200" height="66"/><text x="570" y="192" text-anchor="middle" class="tb">chaves de PVV e de CVV</text><text x="570" y="207" text-anchor="middle" class="ts">reemitir todos os cartões:</text><text x="570" y="220" text-anchor="middle" class="ts">o PVV, o offset e o CVV</text><text x="570" y="233" text-anchor="middle" class="ts">foram feitos com a chave antiga</text>
+<text x="340" y="262" text-anchor="middle" class="ts">o custo de refazer vai de uma cerimônia à reemissão da carteira inteira de cartões</text>
+</svg>
+<figcaption>Figura 7.2 — Sem HSM e sem componentes, a LMK se perde. Os key blocks sobrevivem, mas nenhum HSM os abre mais, e cada chave tem de ser refeita.</figcaption>
+</figure>
+
+| Chave perdida | O que é preciso refazer |
+|---|---|
+| KEK e chaves de zona | uma cerimônia nova com cada instituição parceira |
+| BDK | carregar chave nova em **todos** os terminais |
+| Chave de PVV ou de offset, chave de CVV | **reemitir todos os cartões**: o PVV, o offset e o CVV deles foram calculados com a chave antiga |
+
+Por isso, guardar os componentes é parte da segurança, e não um detalhe
+administrativo. A prática da categoria, que as regras do PCI PIN cobram
+(seção 20):
+
+- cada componente fica num envelope lacrado, com número de série, num cofre;
+- cada componente tem o seu custodiante, e um substituto;
+- todo acesso ao cofre fica registrado;
+- ninguém tem acesso a mais de um componente.
+
+Os componentes não são a única proteção, mas são a raiz de todas:
+
+| Mecanismo | Protege contra | Precisa dos componentes? |
+|---|---|---|
+| Vários HSMs com a mesma LMK, carregados na mesma cerimônia | um HSM quebrar: os outros continuam | não, para continuar operando |
+| Os componentes no cofre | todos os HSMs se perderem; trocar de equipamento | são eles |
+| Exportar chave por chave sob uma KEK (`K4` no antigo, `K6` no novo) | migrar sem a LMK antiga | sim: a KEK nasce de componentes nos dois HSMs; e só sai a chave exportável (seção 8) |
+| Trocar a LMK (rotação) | uma LMK velha demais | sim: o HSM precisa da antiga e da nova ao mesmo tempo, para traduzir cada key block |
+
+O HSM protege a LMK contra **roubo**. Contra a **perda**, quem a protege é o
+processo.
+
+É uma escolha de projeto da categoria. O HSM poderia ter uma função "exporte a
+LMK cifrada", mais cômoda. Mas uma LMK exportável é uma LMK roubável: quem
+conseguisse usar essa função, ou a chave que a protege, levaria tudo. A
+categoria escolheu o contrário: a LMK não sai, e o preço é a disciplina de
+guardar os componentes.
+
+Neste equipamento, a LMK de desenvolvimento é conhecida e está escrita nas
+notas do projeto, e a perda não é problema. Mas o modelo é o mesmo: depois de
+um `zeroize`, só os componentes trazem de volta os key blocks guardados.
 
 ## 8. Key blocks: por que o formato é feio
 
@@ -414,27 +538,180 @@ terceiros, seção 42.1). A KBPK é
 A KBEK é a junção das duas primeiras saídas; a KBAK, a das duas últimas. Só
 o terceiro byte da entrada muda entre elas, e as duas não têm nada em comum.
 
-**O bloco, aberto.** O bloco publicado tem 112 caracteres:
+**O bloco, aberto.** O bloco publicado tem 112 caracteres, em três partes:
+o cabeçalho, em claro; o corpo, cifrado; e o MAC. A figura mostra as três, e
+o corpo depois de decifrado com a KBEK.
 
-```
-    D0112P0AE00E0000                  cabeçalho, 16 caracteres
-    B82679114F470F54 0165EDFBF7E250FC
-    EA43F810D215F8D2 07E2E417C07156A2  corpo cifrado, 32 bytes
-    7E8E31DA05F74255 09593D03A457DC34  MAC, 16 bytes
-```
+<figure class="fig">
+<svg viewBox="0 0 680 372" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="16" text-anchor="start" class="ts tb">O BLOCO, COMO VIAJA: 112 CARACTERES ASCII</text>
+<text x="10" y="46" text-anchor="start" class="ts">cabeçalho (16)</text>
+<rect class="cxa" x="140" y="30" width="118" height="24"/><text x="146" y="46" text-anchor="start" class="tm">D0112P0AE00E0000</text>
+<text x="270" y="46" text-anchor="start" class="ts">em claro: qualquer um lê</text>
+<text x="10" y="76" text-anchor="start" class="ts">corpo cifrado (64)</text>
+<rect class="cx" x="140" y="60" width="436" height="24"/><text x="146" y="76" text-anchor="start" class="tm">B82679114F470F540165EDFBF7E250FCEA43F810D215F8D207E2E417C07156A2</text>
+<text x="10" y="106" text-anchor="start" class="ts">MAC (32)</text>
+<rect class="cxv" x="140" y="90" width="224" height="24"/><text x="146" y="106" text-anchor="start" class="tm">7E8E31DA05F7425509593D03A457DC34</text>
+<text x="376" y="106" text-anchor="start" class="ts">CMAC-AES sob a KBAK, sobre o cabeçalho</text>
+<text x="376" y="118" text-anchor="start" class="ts">e o corpo EM CLARO</text>
+<line class="grade" x1="10" y1="128" x2="670" y2="128"/>
+<text x="10" y="144" text-anchor="start" class="ts tb">O CABEÇALHO, CAMPO A CAMPO (a tabela abaixo explica cada número)</text>
+<rect class="cxa" x="100" y="152" width="30" height="30"/><text x="115" y="173" text-anchor="middle" class="tm" font-size="15">D</text>
+<text x="115" y="198" text-anchor="middle" class="ts tb">1</text>
+<text x="115" y="212" text-anchor="middle" class="ts">versão</text>
+<rect class="cxa" x="130" y="152" width="120" height="30"/><text x="190" y="173" text-anchor="middle" class="tm" font-size="15">0112</text>
+<text x="190" y="198" text-anchor="middle" class="ts tb">2</text>
+<text x="190" y="226" text-anchor="middle" class="ts">tamanho</text>
+<rect class="cxd" x="250" y="152" width="60" height="30"/><text x="280" y="173" text-anchor="middle" class="tm" font-size="15">P0</text>
+<text x="280" y="198" text-anchor="middle" class="ts tb">3</text>
+<text x="280" y="212" text-anchor="middle" class="ts td">uso</text>
+<rect class="cxa" x="310" y="152" width="30" height="30"/><text x="325" y="173" text-anchor="middle" class="tm" font-size="15">A</text>
+<text x="325" y="198" text-anchor="middle" class="ts tb">4</text>
+<text x="325" y="226" text-anchor="middle" class="ts">algoritmo</text>
+<rect class="cxd" x="340" y="152" width="30" height="30"/><text x="355" y="173" text-anchor="middle" class="tm" font-size="15">E</text>
+<text x="355" y="198" text-anchor="middle" class="ts tb">5</text>
+<text x="355" y="212" text-anchor="middle" class="ts td">modo</text>
+<rect class="cxa" x="370" y="152" width="60" height="30"/><text x="400" y="173" text-anchor="middle" class="tm" font-size="15">00</text>
+<text x="400" y="198" text-anchor="middle" class="ts tb">6</text>
+<text x="400" y="226" text-anchor="middle" class="ts">v. da chave</text>
+<rect class="cxd" x="430" y="152" width="30" height="30"/><text x="445" y="173" text-anchor="middle" class="tm" font-size="15">E</text>
+<text x="445" y="198" text-anchor="middle" class="ts tb">7</text>
+<text x="445" y="212" text-anchor="middle" class="ts td">exportab.</text>
+<rect class="cxa" x="460" y="152" width="60" height="30"/><text x="490" y="173" text-anchor="middle" class="tm" font-size="15">00</text>
+<text x="490" y="198" text-anchor="middle" class="ts tb">8</text>
+<text x="490" y="226" text-anchor="middle" class="ts">opcionais</text>
+<rect class="cxa" x="520" y="152" width="60" height="30"/><text x="550" y="173" text-anchor="middle" class="tm" font-size="15">00</text>
+<text x="550" y="198" text-anchor="middle" class="ts tb">9</text>
+<text x="550" y="212" text-anchor="middle" class="ts">reservado</text>
+<line class="grade" x1="10" y1="244" x2="670" y2="244"/>
+<text x="10" y="260" text-anchor="start" class="ts tb">O CORPO, DEPOIS DE DECIFRADO: AES-CBC SOB A KBEK, COM O MAC COMO IV</text>
+<rect class="cxa" x="20" y="270" width="39" height="26"/><text x="26" y="287" text-anchor="start" class="tm">0080</text>
+<rect class="cxd" x="59" y="270" width="224" height="26"/><text x="65" y="287" text-anchor="start" class="tm">3F419E1CB7079442AA37474C2EFBF8B8</text>
+<rect class="cxc" x="283" y="270" width="197" height="26"/><text x="289" y="287" text-anchor="start" class="tm">1C2965473CE206BB855B01533782</text>
+<text x="39" y="312" text-anchor="middle" class="ts">tamanho:</text>
+<text x="39" y="324" text-anchor="middle" class="ts">128 bits</text>
+<text x="171" y="312" text-anchor="middle" class="ts td">a chave, 16 bytes</text>
+<text x="171" y="324" text-anchor="middle" class="ts">(aqui, AES-128)</text>
+<text x="381" y="312" text-anchor="middle" class="ts">enchimento aleatório,</text>
+<text x="381" y="324" text-anchor="middle" class="ts">14 bytes</text>
+<text x="496" y="280" text-anchor="start" class="ts">2 + 16 + 14 = 32 bytes:</text>
+<text x="496" y="293" text-anchor="start" class="ts">dois blocos AES; o</text>
+<text x="496" y="306" text-anchor="start" class="ts">enchimento completa</text>
+<text x="496" y="319" text-anchor="start" class="ts">o último</text>
+<path class="lnt" d="M590,84 L590,138 L660,138 L660,262" marker-end="url(#seta-t)"/>
+<text x="340" y="358" text-anchor="middle" class="ts">o mesmo cabeçalho e a mesma chave, com outro enchimento, dão outro corpo cifrado e outro MAC</text>
+</svg>
+<figcaption>Figura 8.3 — Um key block de verdade: o vetor publicado do KAT, aberto. Em vermelho, os campos que limitam o que a chave pode fazer, e a chave.</figcaption>
+</figure>
 
-Decifrar o corpo com a KBEK em AES-CBC, com o MAC como IV, dá:
+Os campos do cabeçalho, pelos números da figura:
 
-```
-    0080  3F419E1CB7079442AA37474C2EFBF8B8  1C2965473CE206BB855B01533782
-    bits  a chave, 16 bytes                 enchimento aleatório, 14 bytes
-```
+| Nº | Campo | Posição | Valor | O que diz |
+|--|--------|-----|----|----------------------------------------|
+| 1 | Versão | 1 | `D` | A versão do formato. `D` é a do AES: KBEK e KBAK derivadas por CMAC-AES, MAC de 16 bytes. A versão `B` é a do 3DES (seção 39.9). Quem abre o bloco escolhe a versão; o bloco não a escolhe |
+| 2 | Tamanho | 2–5 | `0112` | O comprimento do bloco inteiro, em caracteres, com o cabeçalho |
+| 3 | Uso | 6–7 | `P0` | Para que a chave serve. `P0` é chave de cifra de PIN. Outros: `K0` (KEK), `D0` (dados), `M0`–`M8` (MAC), `B0` (BDK), `C0` (CVV), `V1`/`V2` (verificação de PIN) |
+| 4 | Algoritmo | 8 | `A` | `A` é AES; `T` é 3DES |
+| 5 | Modo | 9 | `E` | O que se pode fazer com a chave. `E` só cifra; `D` só decifra; `B` faz os dois. Para MAC: `G` gera, `V` verifica, `C` os dois. `X` só deriva outras chaves |
+| 6 | Versão da chave | 10–11 | `00` | `00`: a chave não tem controle de versão |
+| 7 | Exportabilidade | 12 | `E` | Se a chave pode sair do HSM. `E`: só em key block, sob uma chave de confiança. `N`: nunca sai. `S`: sai também em formatos antigos |
+| 8 | Blocos opcionais | 13–14 | `00` | Quantos blocos opcionais vêm depois do cabeçalho; aqui, nenhum. Este equipamento recusa bloco com opcionais |
+| 9 | Reservado | 15–16 | `00` | Sem uso; sempre `00` |
+
+Os campos 3, 5 e 7 são os que um atacante quer trocar: com `P0` mudado para
+`D0`, a chave de PIN cifraria e decifraria dados, e o PIN sairia por um
+comando de dados (seção 15). O MAC cobre o cabeçalho; por isso qualquer
+caractere trocado faz o bloco inteiro ser recusado.
+
+O corpo em claro tem três partes: o tamanho da chave **em bits** (`0080` é
+128), a chave, e um enchimento aleatório. O enchimento completa o corpo
+até um múltiplo do bloco AES. A norma também permite um enchimento maior,
+para esconder o tamanho da chave de quem só vê o bloco. Como o enchimento é aleatório, embrulhar a mesma chave duas
+vezes dá dois blocos diferentes: é por isso que o embrulho não tem KAT
+(seção 41), só a abertura.
 
 O CMAC-AES com a KBAK sobre o cabeçalho e esse corpo em claro dá
 `7E8E31DA05F7425509593D03A457DC34`, o MAC do bloco: ele é íntegro. O
 corpo tem 2 + 16 + 14 = 32 bytes, múltiplo de 16, e o bloco tem
 16 + 2 × 32 + 2 × 16 = 112 caracteres. Os valores foram conferidos com a
 biblioteca `cryptography` e com `host/tr31.py`.
+
+### Exportabilidade: quando a chave pode ir para outra instituição
+
+Uma chave 3DES é exportável? Uma chave AES é? A resposta não depende do
+algoritmo. Depende do campo 7 do cabeçalho, a **exportabilidade**:
+
+| Valor | O que significa | Neste equipamento |
+|---|---|---|
+| `E` | sai, mas só em key block, sob uma KEK | o `K4` exporta |
+| `N` | nunca sai; pode ser usada normalmente | o `K4` recusa, com `12` |
+| `S` | sai também em formatos antigos, fora de key block | igual ao `E`, porque aqui só existe key block |
+
+Quem escolhe o valor é quem cria a chave: o `K0` e o `comp-load` o recebem no
+pedido. Depois, ninguém o muda: o campo está sob o MAC, e trocar `N` por `E`
+faz o bloco inteiro ser recusado (Figura 8.1).
+
+"Sair do HSM" tem dois sentidos, e a exportabilidade controla só um deles:
+
+1. **Sob a LMK.** Toda chave de trabalho "sai" o tempo todo: o `K0` devolve o
+   key block, e ele fica no banco de dados (seção 24.14). Isso não é
+   exportar. Só um HSM com a mesma LMK abre o bloco, e a chave continua no
+   domínio do HSM.
+2. **Sob uma KEK** (`K4`). É a exportação de verdade: a chave vai para outra
+   instituição, que tem a mesma KEK.
+
+<figure class="fig">
+<svg viewBox="0 0 680 304" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="16" text-anchor="start" class="ts tb">1. SOB A LMK: NÃO É EXPORTAR</text>
+<rect class="fr" x="10" y="28" width="140" height="62"/><text x="80" y="52" text-anchor="middle" class="tb">HSM</text><text x="80" y="70" text-anchor="middle" class="ts">K0 gera</text>
+<rect class="cxc" x="240" y="36" width="170" height="46"/><text x="325" y="55" text-anchor="middle" class="tb">banco de dados</text><text x="325" y="71" text-anchor="middle" class="ts">key block sob a LMK</text>
+<line class="ln" x1="150" y1="50" x2="238" y2="50" marker-end="url(#seta)"/>
+<line class="ln" x1="238" y1="70" x2="150" y2="70" marker-end="url(#seta)"/>
+<text x="194" y="44" text-anchor="middle" class="ts">guarda</text>
+<text x="194" y="84" text-anchor="middle" class="ts">volta a cada uso</text>
+<text x="436" y="50" text-anchor="start" class="ts">só um HSM com a mesma LMK abre</text>
+<text x="436" y="64" text-anchor="start" class="ts">o bloco: a chave continua no</text>
+<text x="436" y="78" text-anchor="start" class="ts">domínio do HSM, qualquer que seja</text>
+<text x="436" y="92" text-anchor="start" class="ts">a exportabilidade</text>
+<line class="grade" x1="10" y1="108" x2="670" y2="108"/>
+<text x="10" y="126" text-anchor="start" class="ts tb">2. SOB UMA KEK: EXPORTAR (K4 NUM HSM, K6 NO OUTRO)</text>
+<rect class="fr" x="10" y="140" width="130" height="60"/><text x="75" y="164" text-anchor="middle" class="tb">HSM A</text><text x="75" y="182" text-anchor="middle" class="ts tm">K4</text>
+<rect class="cxd" x="185" y="142" width="155" height="56"/><text x="262" y="161" text-anchor="middle" class="tb">exportabilidade?</text><text x="262" y="177" text-anchor="middle" class="ts">E ou S: segue</text><text x="262" y="190" text-anchor="middle" class="ts">N: recusa (12)</text>
+<rect class="cxd" x="380" y="142" width="140" height="56"/><text x="450" y="161" text-anchor="middle" class="tb">força da KEK?</text><text x="450" y="177" text-anchor="middle" class="ts">a mesma ou maior: sai</text><text x="450" y="190" text-anchor="middle" class="ts">menor: recusa (13)</text>
+<rect class="fr" x="560" y="140" width="110" height="60"/><text x="615" y="164" text-anchor="middle" class="tb">HSM B</text><text x="615" y="182" text-anchor="middle" class="ts tm">K6</text>
+<line class="ln" x1="140" y1="170" x2="183" y2="170" marker-end="url(#seta)"/>
+<line class="ln" x1="340" y1="170" x2="378" y2="170" marker-end="url(#seta)"/>
+<line class="ln" x1="520" y1="170" x2="558" y2="170" marker-end="url(#seta)"/>
+<text x="340" y="222" text-anchor="middle" class="ts">o bloco sob a KEK: versão D com KEK AES, versão B com KEK 3DES</text>
+<rect class="cxv" x="10" y="240" width="660" height="50"/>
+<text x="340" y="260" text-anchor="middle" class="tb">N não impede usar: impede sair</text>
+<text x="340" y="278" text-anchor="middle" class="ts">uma chave N cifra, traduz PIN e faz MAC normalmente; só o K4 a recusa</text>
+</svg>
+<figcaption>Figura 8.4 — Os dois sentidos de "sair". Sob a LMK, a chave vai para o banco de dados e continua do HSM; sob uma KEK, ela passa por duas checagens antes de ir para outra instituição.</figcaption>
+</figure>
+
+A segunda checagem da figura é a **regra de força**: uma chave nunca sai
+embrulhada por outra mais fraca (seção 39.9). Para uma chave 3DES:
+
+| KEK de destino | Leva chave 3DES dupla | Leva chave 3DES tripla | Formato do bloco |
+|---|---|---|---|
+| AES | sim | sim | versão D |
+| 3DES tripla | sim | sim | versão B |
+| 3DES dupla | sim | **não** (`13`) | versão B |
+
+Exemplos neste equipamento:
+
+- Uma chave de PIN 3DES dupla, criada com `E`, sai pelo `K4` sob uma KEK AES
+  ou 3DES. É o caso da chave de zona trocada com a bandeira.
+- A mesma chave, criada com `N`, cifra e traduz PIN normalmente, mas o `K4` a
+  recusa.
+- A IPEK que o `I0` entrega sai **uma vez**, sob a KEK do injetor, já marcada
+  com `N`: quem a recebe não pode reexportá-la (seção 37).
+- A BDK não tem comando de saída. Ela só deriva chaves (modo `X`).
+
+A regra é a mesma da LMK, só que configurável. A LMK é `N` por natureza, sem
+exceção (seção 7). Uma chave de trabalho é `N` ou `E` conforme a decisão de
+quem a criou, e o key block garante que essa decisão não muda depois.
 
 ### Por que escrever o parser duas vezes
 

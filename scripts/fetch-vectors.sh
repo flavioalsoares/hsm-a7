@@ -124,6 +124,15 @@ RMAC_PSEC_SHA="d5c36aa09db80492434d4021d544c17304b017c3e7cc4fc19936b824eacfb518"
 RMAC_RUST_URL="https://raw.githubusercontent.com/RustCrypto/MACs/753c4b6c040989f3f68672991fe7c87cf528f564/retail-mac/README.md"
 RMAC_RUST_SHA="9209750f7280b7c164b46ed7e111758064083ee9c75d817a1e557d34ed84fac7"
 
+# DUKPT, MAC e dados (etapa 8.9b). Duas fontes: os mesmos arquivos do openemv/dukpt
+# (acima) e o moov-io/dukpt (Apache-2.0). As respostas (dados TDES, CMAC e dados
+# AES de uso 2001/3001) so o moov-io traz: fonte unica, decisao do usuario
+# (2026-11-23).
+DUKPT_MOOV_DES_URL="https://raw.githubusercontent.com/moov-io/dukpt/f7749173f1b84d51be6dfc140b8be006d66a56a9/pkg/des/des_test.go"
+DUKPT_MOOV_DES_SHA="885221afbf2c97bdfa9c80a467c78127c1fdc6f13c946b0ad364e2bd3df46285"
+DUKPT_MOOV_AES_URL="https://raw.githubusercontent.com/moov-io/dukpt/f7749173f1b84d51be6dfc140b8be006d66a56a9/pkg/aes/aes_test.go"
+DUKPT_MOOV_AES_SHA="1efb54a00a385ca8e0bc5aa24c63ab4a5bfa35fa1a6179a9b2aed633831b4979"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -184,6 +193,8 @@ fetch "$DUKPT_AES128_URL" "$DUKPT_AES128_SHA" "$TMP/openemv_dukpt_aes128_test.c"
 fetch "$DUKPT_AES256_URL" "$DUKPT_AES256_SHA" "$TMP/openemv_dukpt_aes256_test.c"
 fetch "$RMAC_PSEC_URL" "$RMAC_PSEC_SHA" "$TMP/psec_test_mac.py"
 fetch "$RMAC_RUST_URL" "$RMAC_RUST_SHA" "$TMP/rustcrypto_retail_mac_README.md"
+fetch "$DUKPT_MOOV_DES_URL" "$DUKPT_MOOV_DES_SHA" "$TMP/moov_des_test.go"
+fetch "$DUKPT_MOOV_AES_URL" "$DUKPT_MOOV_AES_SHA" "$TMP/moov_aes_test.go"
 fetch "$TDES_KAT_URL" "$TDES_KAT_SHA" "$TMP/KAT_TDES.zip"
 fetch "$TDES_MMT_URL" "$TDES_MMT_SHA" "$TMP/tdesmmt.zip"
 fetch "$RSA_URL" "$RSA_SHA" "$TMP/186-3rsatestvectors.zip"
@@ -266,6 +277,9 @@ python3 "$ROOT/scripts/_extrai_dukpt_aes.py" \
         "$TMP/openemv_dukpt_aes128_test.c" "$VEC/dukpt/x924_3_aes128.rsp" 128
 python3 "$ROOT/scripts/_extrai_dukpt_aes.py" \
         "$TMP/openemv_dukpt_aes256_test.c" "$VEC/dukpt/x924_3_aes256.rsp" 256
+
+# DUKPT, MAC e dados: 63 transacoes de 2 fontes, copiadas literalmente.
+python3 "$ROOT/scripts/_extrai_dukpt_mac.py" "$TMP" "$VEC/dukpt/dukpt_mac_dados.rsp"
 
 # Retail MAC: 6 valores de 2 fontes, copiados literalmente. A extracao falha se
 # alguma fonte nao tiver exatamente a quantidade esperada.

@@ -286,6 +286,8 @@ Quem faz isso é a **tradução de PIN block**. O comando:
 4. devolve o novo PIN block.
 
 O PIN existe em claro por microssegundos, dentro do módulo, e nunca sai.
+O caminho inteiro, com a aplicação de cada instituição entre a rede e o
+HSM, está na seção 24.14.
 
 
 <figure class="fig">
@@ -1306,6 +1308,125 @@ posição). A soma sobre os tamanhos dá 6,0 × 10⁻⁸. E o PAN não abre o
 oráculo do formato 0: no formato 4 ele entra numa camada de AES, não por XOR
 direto no PIN (seção 34.3).
 
+### 37.4 MAC e dados com DUKPT
+
+O PIN não é a única coisa que o terminal protege. A mensagem da transação
+leva um **MAC**, e alguns campos (a trilha do cartão, por exemplo) vão
+**cifrados**. Com DUKPT, as duas proteções usam chaves da mesma transação, e
+cada chave serve a um uso só.
+
+**Pedido e resposta.** O terminal manda um **pedido** e recebe uma
+**resposta**. Cada sentido tem a sua chave de MAC e a sua chave de dados. Os
+nomes são do ponto de vista do terminal: ele faz o MAC e cifra o pedido; o
+HSM do adquirente confere esse MAC e decifra, e faz o MAC e cifra a
+resposta.
+
+<figure class="fig">
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="60" width="130" height="90"/><text x="75" y="84" text-anchor="middle" class="tb">terminal</text><text x="75" y="102" text-anchor="middle" class="ts">MAC de pedido</text><text x="75" y="116" text-anchor="middle" class="ts">cifra o pedido</text><text x="75" y="136" text-anchor="middle" class="ts">confere a resposta</text>
+<rect class="fr" x="470" y="40" width="200" height="140"/>
+<text x="570" y="60" text-anchor="middle" class="tb">HSM do adquirente</text>
+<rect class="cx" x="485" y="72" width="170" height="24"/><text x="570" y="89" text-anchor="middle" class="ts">M4: confere o MAC de pedido</text>
+<rect class="cx" x="485" y="100" width="170" height="24"/><text x="570" y="117" text-anchor="middle" class="ts">C4: decifra o pedido</text>
+<rect class="cx" x="485" y="128" width="170" height="24"/><text x="570" y="145" text-anchor="middle" class="ts">M6: faz o MAC de resposta</text>
+<rect class="cx" x="485" y="156" width="170" height="20"/><text x="570" y="171" text-anchor="middle" class="ts">C6: cifra a resposta</text>
+<line class="ln" x1="140" y1="85" x2="468" y2="85" marker-end="url(#seta)"/>
+<text x="300" y="78" text-anchor="middle" class="ts">pedido + MAC + KSN</text>
+<line class="ln" x1="468" y1="140" x2="140" y2="140" marker-end="url(#seta)"/>
+<text x="300" y="133" text-anchor="middle" class="ts">resposta + MAC</text>
+<text x="340" y="210" text-anchor="middle" class="ts">gerar um MAC de pedido ou decifrar uma resposta é papel do terminal: o HSM não oferece</text>
+</svg>
+<figcaption>Figura 37.5 — Os quatro usos de MAC e de dados numa transação DUKPT, e o comando do HSM para cada um.</figcaption>
+</figure>
+
+**No DUKPT TDES**, cada uso tem a sua variante: um XOR de `FF` em dois bytes
+da chave da transação, como na chave de PIN. Nas chaves de dados, a norma
+acrescenta uma **função de mão única**: cada metade da chave com a variante
+é cifrada em 3DES sob ela mesma. Quem tem a chave de dados não volta à
+chave da transação.
+
+```
+    uso                 bytes com FF     depois
+    PIN                 7 e 15           nada
+    MAC de pedido       6 e 14           nada
+    MAC de resposta     4 e 12           nada
+    dados de pedido     5 e 13           função de mão única
+    dados de resposta   3 e 11           função de mão única
+```
+
+O MAC é o **retail MAC** da seção 39.10, com o preenchimento 1. Os dados vão
+em 3DES-CBC.
+
+**Exemplo, com o anexo A.4 da X9.24-1** (valores de terceiros, de duas
+fontes; conferido por programa, `host/dukpt.py`). Contador 1, a mensagem
+publicada `4012345678909D987`:
+
+```
+    chave da transação     042666B49184CFA3 68DE9628D0397BC9
+
+    MAC de pedido          042666B4918430A3 68DE9628D03984C9     bytes 6 e 14
+    MAC de resposta        042666B46E84CFA3 68DE96282F397BC9     bytes 4 e 12
+    dados de pedido        042666B4917BCFA3 68DE9628D0C67BC9     bytes 5 e 13
+      mão única            448D3F076D830403 6A55A3D7E0055A78
+
+    MAC do pedido          9CCC78173FC4FB64     (o terminal manda 9CCC7817)
+    MAC da resposta        20364223C1FF00FA
+```
+
+**No DUKPT AES**, a separação já está na derivação: a chave de MAC e a de
+dados são derivações da chave da transação com outro campo de uso (seção
+37.3). O MAC é o **CMAC** com AES, e os dados vão em AES-CBC.
+
+```
+    uso                     campo de uso     chave, BDK AES-128, contador 1
+    MAC de pedido           2000             A2DC23DE6FDE0824A2BC321E08E4B8B7
+    MAC de resposta         2001             DBB463945B286C07CD3AD82EE96FD9C9
+    dados de pedido         3000             A35C412EFD41FDB98B69797C02DCD08F
+    dados de resposta       3001             16292C6EA8F64C5420A0584BFBC577BE
+
+    CMAC do pedido          A2EB5C1C35809E58404E873C3C411E31
+```
+
+**Os comandos.** A BDK é a mesma do `P2`, e o algoritmo dela escolhe a
+variante:
+
+| Comando | Faz | BDK 3DES | BDK AES |
+|---|---|---|---|
+| `M4` | confere o MAC de pedido | retail MAC de 4 ou 8 bytes | CMAC de 16 bytes |
+| `M6` | faz o MAC de resposta | idem | idem |
+| `C4` | decifra os dados de pedido | 3DES-CBC, IV de 8 bytes | AES-CBC, IV de 16 bytes |
+| `C6` | cifra os dados de resposta | idem | idem |
+
+```
+    pedido      M4  <BDK>  KSN  [trabalho]  [tamanho]  MAC  dados
+                M6  <BDK>  KSN  [trabalho]  [tamanho]  dados
+                C4  <BDK>  KSN  [trabalho]  IV  dados
+                C6  <BDK>  KSN  [trabalho]  IV  dados
+
+    trabalho    só com BDK AES: 2 = AES-128, 4 = AES-256
+    tamanho     só com BDK 3DES: 4 ou 8 bytes de MAC
+```
+
+As regras:
+
+- **Só o lado do adquirente.** Não há comando para fazer o MAC de um pedido
+  nem para cifrar um pedido: isso é o terminal. Um HSM que fizesse os dois
+  lados permitiria forjar mensagens de terminal.
+- **O `M4` devolve um bit**, e compara em tempo constante: `00` confere, `01`
+  não confere. O MAC calculado não sai.
+- **O KSN é conferido antes da conta**, como no `P2`: contador zero, ou com
+  bits 1 demais, responde `16`.
+- **A chave de uso, o MAC e os dados são calculados duas vezes**, com a
+  derivação refeita, e comparados. Uma discordância responde `91`.
+- **Mensagem vazia**, ou dados fora do múltiplo do bloco, respondem `15`.
+- **O autoteste** do DUKPT TDES passou a conferir um MAC de pedido publicado,
+  e o do DUKPT AES, as chaves de MAC e de dados publicadas.
+
+⚠ **Fonte única em três valores.** Os dados de resposta TDES e o CMAC e os
+dados de resposta AES só têm valores publicados numa fonte (`moov-io/dukpt`).
+A conta é a dos valores de pedido, que têm duas fontes, com outra constante
+da norma. A decisão de aceitar está registrada (seção 38.3).
+
 ---
 
 ## 38. O que este projeto pode e o que não pode ensinar
@@ -1324,6 +1445,7 @@ de vetor de teste**.
 | CVV, CVV2 e iCVV | **feito** (seção 36) | inerentemente 3DES; não há variante AES em uso |
 | PVV | **feito** (seção 35.2) | idem |
 | DUKPT TDES (X9.24-1) | **feito** (seção 37.2) | 3DES, com vetores de terceiros do anexo A.4 |
+| MAC e dados com DUKPT, TDES e AES | **feito** (seção 37.4) | duas fontes, e uma só nas respostas, por decisão |
 | MAC de mensagem e dados com 3DES | **feito** (seção 39.10) | retail MAC da ISO 9797-1 e 3DES-CBC, com vetores de duas fontes e do NIST |
 | Criptogramas EMV, emissão de PIN | fora, por enquanto | são funções de emissor, maiores que as demais |
 
@@ -1428,7 +1550,8 @@ quais.
 <text x="534" y="170" class="ts" transform="rotate(-90 534 170)" text-anchor="middle">mais confiança</text>
 <text x="548" y="48"  class="ts">AES, SHA, HMAC, CMAC,</text>
 <text x="548" y="61"  class="ts">DRBG, RSA, ECDSA, 3DES</text>
-<text x="548" y="170" class="ts">CVV, retail MAC</text>
+<text x="548" y="170" class="ts">CVV, retail MAC,</text>
+<text x="548" y="183" class="ts">DUKPT MAC (pedido)</text>
 <text x="548" y="232" class="ts">key block, PIN block,</text>
 <text x="548" y="245" class="ts">PVV, DUKPT, offset</text>
 <text x="548" y="294" class="ts">casos que nenhuma</text>
@@ -1499,7 +1622,7 @@ melhor que se consegue sem a norma.
 1. Onde há vetor oficial, ele é obrigatório.
 2. Onde não há, desde a etapa 8.9, um valor de terceiros precisa de **duas
    fontes independentes**. Com uma só, a decisão volta ao usuário, caso a
-   caso.
+   caso (aconteceu na 8.9b, com as respostas do DUKPT, seção 37.4).
 3. Toda fonte é fixada por commit e por hash em `vectors/MANIFEST.txt`, que
    diz o que ela cobre e o que não cobre.
 4. O que nenhuma fonte cobre é conferido entre o C e o Python, e o manual diz
@@ -1510,7 +1633,7 @@ comportar como um HSM real se comporta. A certificação de cada número fica
 para quem fabrica. A Figura 38.3 mostra onde cada função está.
 
 <figure class="fig">
-<svg viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 680 370" xmlns="http://www.w3.org/2000/svg">
 <text x="345" y="28" text-anchor="middle" class="ts">oficial</text>
 <text x="425" y="28" text-anchor="middle" class="ts">duas ou mais</text>
 <text x="505" y="28" text-anchor="middle" class="ts">uma fonte</text>
@@ -1527,12 +1650,14 @@ para quem fabrica. A Figura 38.3 mostra onde cada função está.
 <text x="20" y="226">CVV, CVV2 e iCVV</text><circle cx="425" cy="222" r="7" fill="#2d4f73"/><text x="440" y="226" class="ts">3</text>
 <text x="20" y="250">DUKPT TDES e AES: chaves e PIN</text><circle cx="505" cy="246" r="7" fill="#555"/>
 <text x="20" y="274">Retail MAC (ISO 9797-1, alg. 3)</text><circle cx="425" cy="270" r="7" fill="#2d4f73"/><text x="440" y="274" class="ts">2</text>
-<text x="20" y="298">AES-128 (só o DUKPT)</text><circle cx="345" cy="294" r="7" fill="#2f5f2f"/>
+<text x="20" y="298">DUKPT: MAC e dados de pedido</text><circle cx="425" cy="294" r="7" fill="#2d4f73"/><text x="440" y="298" class="ts">2</text>
+<text x="20" y="322">DUKPT: MAC e dados de resposta</text><circle cx="505" cy="318" r="7" fill="#555"/>
+<text x="20" y="346">AES-128 (só o DUKPT)</text><circle cx="345" cy="342" r="7" fill="#2f5f2f"/>
 </g>
-<line class="grade" x1="305" y1="36" x2="305" y2="308"/>
-<line class="grade" x1="385" y1="36" x2="385" y2="308"/>
-<line class="grade" x1="465" y1="36" x2="465" y2="308"/>
-<line class="grade" x1="545" y1="36" x2="545" y2="308"/>
+<line class="grade" x1="305" y1="36" x2="305" y2="356"/>
+<line class="grade" x1="385" y1="36" x2="385" y2="356"/>
+<line class="grade" x1="465" y1="36" x2="465" y2="356"/>
+<line class="grade" x1="545" y1="36" x2="545" y2="356"/>
 </svg>
 <figcaption>Figura 38.3 — De onde vem a resposta conhecida de cada função. O número ao lado do ponto é a quantidade de fontes independentes.</figcaption>
 </figure>

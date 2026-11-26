@@ -1266,6 +1266,201 @@ fim:
 }
 
 /* ------------------------------------------------------------------ */
+/* MAC e dados com DUKPT (etapa 8.9b)                                  */
+/* ------------------------------------------------------------------ */
+
+/* Confere a BDK e o KSN como o P2: devolve o tipo (DUKPT_TDES ou DUKPT_AES),
+ * -1 se a chave, o tamanho do KSN ou o da chave de trabalho nao servem, ou
+ * -5 se o KSN e invalido. */
+static int dukpt_confere_pedido(int i, const uint8_t *ksn, uint32_t ksn_n,
+                                uint32_t n_trab)
+{
+    int tipo = bdk_tipo(i);
+
+    if (tipo == DUKPT_TDES) {
+        if (ksn_n != DUKPT_KSN_LEN) {
+            return -1;
+        }
+        return dukpt_ksn_valido(ksn) ? tipo : -5;
+    }
+    if (tipo == DUKPT_AES) {
+        if ((ksn_n != DUKPT_AES_KSN_LEN) ||
+            ((n_trab != DUKPT_AES128) && (n_trab != DUKPT_AES256))) {
+            return -1;
+        }
+        return dukpt_aes_ksn_valido(ksn) ? tipo : -5;
+    }
+    return -1;
+}
+
+/* Um MAC da transacao: deriva a chave de `uso` e calcula. TDES: retail MAC,
+ * preenchimento 1, 8 bytes. AES: CMAC, 16 bytes. FRONTEIRA: dentro; a chave
+ * sai apagada. */
+static int dukpt_mac_um(int i, int tipo, const uint8_t *ksn, uint32_t n_trab,
+                        uint8_t uso, const uint8_t *msg, uint32_t n,
+                        uint8_t mac[16])
+{
+    uint8_t chave[DUKPT_AES256];
+    int     r = -3;
+
+    if (tipo == DUKPT_TDES) {
+        if ((dukpt_tdes_chave_uso(g_slots[i].chave, ksn, uso, chave) == 0) &&
+            (retail_mac(chave, 1u, msg, n, mac) == 0)) {
+            r = 0;
+        }
+    } else {
+        if ((dukpt_aes_chave_uso(g_slots[i].chave, g_slots[i].key_len, ksn,
+                                 uso, n_trab, chave) == 0) &&
+            (dukpt_aes_cmac(chave, n_trab, msg, n, mac) == 0)) {
+            r = 0;
+        }
+    }
+    wipe(chave, sizeof chave);
+    return r;
+}
+
+/* FRONTEIRA: dentro. Gerar e o MAC de RESPOSTA; verificar e o de PEDIDO,
+ * que o terminal fez. A chave e derivada e o MAC calculado duas vezes; o
+ * veredito tambem. Na verificacao o MAC calculado nao sai. */
+int keystore_dukpt_mac(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
+                       uint32_t n_trab, int gerar, const uint8_t *msg,
+                       uint32_t n, uint8_t *mac, uint32_t mac_n)
+{
+    int      i = indice(h);
+    uint8_t  ma[16], mb[16];
+    uint32_t j, tam_ok;
+    uint8_t  dif = 0u, da = 0u, db = 0u;
+    int      tipo, r;
+
+    if ((i < 0) || (ksn == 0) || (msg == 0) || (mac == 0) || (n == 0u)) {
+        return -3;
+    }
+    tipo = dukpt_confere_pedido(i, ksn, ksn_n, n_trab);
+    if (tipo < 0) {
+        return tipo;
+    }
+    tam_ok = (tipo == DUKPT_TDES) ? ((mac_n == 4u) || (mac_n == 8u))
+                                  : (mac_n == 16u);
+    if (!tam_ok) {
+        return -1;
+    }
+    if ((dukpt_mac_um(i, tipo, ksn, n_trab,
+                      gerar ? DUKPT_USO_MAC_RESPOSTA : DUKPT_USO_MAC_PEDIDO,
+                      msg, n, ma) != 0) ||
+        (dukpt_mac_um(i, tipo, ksn, n_trab,
+                      gerar ? DUKPT_USO_MAC_RESPOSTA : DUKPT_USO_MAC_PEDIDO,
+                      msg, n, mb) != 0)) {
+        r = -3;
+    } else {
+        g_slots[i].contador_uso++;
+        for (j = 0u; j < mac_n; j++) {
+            dif |= (uint8_t)(ma[j] ^ mb[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        } else if (gerar) {
+            for (j = 0u; j < mac_n; j++) {
+                mac[j] = ma[j];
+            }
+            r = 0;
+        } else {
+            for (j = 0u; j < mac_n; j++) {
+                da |= (uint8_t)(ma[j] ^ mac[j]);
+                db |= (uint8_t)(mb[j] ^ mac[j]);
+            }
+            if ((da == 0u) != (db == 0u)) {
+                erro_grave_marca();
+                r = -2;
+            } else {
+                r = (da == 0u) ? 0 : 1;
+            }
+        }
+    }
+    wipe(ma, sizeof ma);
+    wipe(mb, sizeof mb);
+    return r;
+}
+
+/* Os dados da transacao, uma vez: TDES-CBC (IV de 8) ou AES-CBC (IV de 16).
+ * FRONTEIRA: dentro; a chave sai apagada. */
+static int dukpt_dados_um(int i, int tipo, const uint8_t *ksn, uint32_t n_trab,
+                          uint8_t uso, const uint8_t *iv, const uint8_t *ent,
+                          uint8_t *sai, uint32_t n, int cifrar)
+{
+    tdes_ctx_t *ctx = tdes_ctx_comum();
+    uint8_t     chave[DUKPT_AES256];
+    int         r = -3;
+
+    if (tipo == DUKPT_TDES) {
+        if ((dukpt_tdes_chave_uso(g_slots[i].chave, ksn, uso, chave) == 0) &&
+            (tdes_prepara(ctx, chave, DUKPT_TDES_CHAVE) == 0) &&
+            (tdes_cbc(ctx, iv, ent, sai, n, cifrar) == 0)) {
+            r = 0;
+        }
+        tdes_apaga(ctx);
+    } else {
+        if ((dukpt_aes_chave_uso(g_slots[i].chave, g_slots[i].key_len, ksn,
+                                 uso, n_trab, chave) == 0) &&
+            (dukpt_aes_cbc(chave, n_trab, iv, ent, sai, n, cifrar) == 0)) {
+            r = 0;
+        }
+    }
+    wipe(chave, sizeof chave);
+    return r;
+}
+
+/* FRONTEIRA: dentro. Decifrar e o PEDIDO, que o terminal cifrou; cifrar e a
+ * RESPOSTA. As duas execucoes derivam a chave cada uma, e as saidas sao
+ * comparadas antes de sair. */
+int keystore_dukpt_dados(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
+                         uint32_t n_trab, int cifrar, const uint8_t *iv,
+                         const uint8_t *entrada, uint8_t *saida, uint32_t n)
+{
+    static uint8_t segunda[KS_CONFERE_MAX];
+    int      i = indice(h);
+    uint32_t j, bloco;
+    uint8_t  dif = 0u, uso;
+    int      tipo, r;
+
+    if ((i < 0) || (ksn == 0) || (iv == 0) || (entrada == 0) || (saida == 0) ||
+        (n == 0u) || (n > KS_CONFERE_MAX)) {
+        return -3;
+    }
+    tipo = dukpt_confere_pedido(i, ksn, ksn_n, n_trab);
+    if (tipo < 0) {
+        return tipo;
+    }
+    bloco = (tipo == DUKPT_TDES) ? DES_BLOCO : 16u;
+    if ((n % bloco) != 0u) {
+        return -3;
+    }
+    uso = cifrar ? DUKPT_USO_DADOS_RESPOSTA : DUKPT_USO_DADOS_PEDIDO;
+    if ((dukpt_dados_um(i, tipo, ksn, n_trab, uso, iv, entrada, saida, n,
+                        cifrar) != 0) ||
+        (dukpt_dados_um(i, tipo, ksn, n_trab, uso, iv, entrada, segunda, n,
+                        cifrar) != 0)) {
+        r = -3;
+    } else {
+        g_slots[i].contador_uso++;
+        for (j = 0u; j < n; j++) {
+            dif |= (uint8_t)(saida[j] ^ segunda[j]);
+        }
+        if (dif != 0u) {
+            erro_grave_marca();
+            r = -2;
+        } else {
+            r = 0;
+        }
+    }
+    wipe(segunda, sizeof segunda);
+    if (r != 0) {
+        wipe(saida, n);
+    }
+    return r;
+}
+
+/* ------------------------------------------------------------------ */
 /* Verificacao de PIN: offset e PVV (fase 8, etapa 8.5)                */
 /* ------------------------------------------------------------------ */
 

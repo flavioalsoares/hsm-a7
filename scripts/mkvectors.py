@@ -811,6 +811,65 @@ def mac3_tb():
     escreve("mac3_n", ["%02x" % n], 2)
 
 
+def dukpt_mac_tb():
+    """Vetores do tb_dukpt_mac (etapa 8.9b): M4, M6, C4 e C6.
+
+    Tudo de TERCEIROS (vectors/dukpt/dukpt_mac_dados.rsp, duas fontes; ver o
+    MANIFEST): a BDK do anexo A.4 e a BDK AES-128 do suplemento, a primeira
+    transacao de cada (KSN ...E00001 e ...00000001). TDES: o MAC de pedido de
+    4 bytes e os dados de pedido do openemv; o MAC de resposta de 8 bytes e os
+    dados de resposta do moov-io. AES: o CMAC e os dados de pedido e de
+    resposta do moov-io. A chave de zona e conta do Python, so para uma
+    recusa.
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import des
+    import tr31
+
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    ench = bytes(range(16))
+
+    def sob_lmk(chave, uso, alg, modo):
+        b = tr31.embrulha(lmk, chave, uso=uso, algoritmo=alg, modo=modo,
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != 112:
+            raise SystemExit("tb_dukpt_mac: bloco de %d caracteres" % len(b))
+        return b
+
+    txt = (VEC / "dukpt" / "dukpt_mac_dados.rsp").read_text()
+    msg = bytes.fromhex(re.search(r"^MSG = ([0-9A-F]+)$", txt, re.M).group(1))
+    sec = {}
+    for nome, corpo in re.findall(r"^\[([^\]]+)\]\n(.*?)(?=^\[|\Z)", txt, re.M | re.S):
+        regs = []
+        for bloco in corpo.strip().split("\n\n"):
+            regs.append(dict(re.findall(r"^(\w+) = ([0-9A-F]+)$", bloco, re.M)))
+        sec[nome] = regs
+    ot, mt, ma = sec["openemv TDES"][0], sec["moov-io TDES"][0], sec["moov-io AES BDK128"][0]
+    if not (ot["KSN"] == mt["KSN"] == "FFFF9876543210E00001" and
+            ma["KSN"] == "123456789012345600000001" and msg == b"4012345678909D987"):
+        raise SystemExit("tb_dukpt_mac: transacoes inesperadas")
+    bdk_t = bytes.fromhex(re.search(r"^BDK = ([0-9A-F]+)$",
+                                    (VEC / "dukpt" / "x924_1_tdes.rsp").read_text(), re.M).group(1))
+    bdk_a = bytes.fromhex(re.search(r"^BDK = ([0-9A-F]+)$",
+                                    (VEC / "dukpt" / "x924_3_aes128.rsp").read_text(), re.M).group(1))
+    zona = des.paridade_impar(hashlib.sha256(b"tb_dukpt_mac: zona").digest()[:16])
+    t112 = (sob_lmk(bdk_t, "B0", "T", "X")       # 0: BDK do anexo A.4
+            + sob_lmk(bdk_a, "B0", "A", "X")     # 1: BDK AES-128 do suplemento
+            + sob_lmk(zona, "P0", "T", "E"))     # 2: chave de zona (recusa)
+    escreve("dukpt_mac_b112", ["%02x" % ord(c) for c in t112], 2)
+    p24 = msg + bytes(24 - len(msg))
+    p32 = msg + bytes(32 - len(msg))
+    pedido = (ot["KSN"] + ot["REQMAC"] + mt["RESMAC"] + ot["REQDATA"] + mt["RESDATA"]
+              + msg.hex().upper() + p24.hex().upper()
+              + ma["KSN"] + ma["CMACREQ"] + ma["CMACRES"] + ma["REQDATA"] + ma["RESDATA"]
+              + p32.hex().upper())
+    # 20 + 8 + 16 + 48 + 48 + 34 + 48 + 24 + 32 + 32 + 64 + 64 + 64 = 502
+    if len(pedido) != 502:
+        raise SystemExit("tb_dukpt_mac: dados de %d caracteres" % len(pedido))
+    escreve("dukpt_mac_dados", ["%02x" % ord(c) for c in pedido], 2)
+
+
 def rsa_r2(prefixo):
     """R2: a primeira chave de 2048 bits do KeyGen do CAVP (p, q e d oficiais),
     embrulhada sob a LMK que o tb_rsa monta na cerimonia.
@@ -869,6 +928,7 @@ def main():
     dukpt_tb()
     dukpt_aes_tb()
     mac3_tb()
+    dukpt_mac_tb()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.

@@ -107,6 +107,16 @@ os componentes passam pelo host.
 > contra **observá-la** sendo carregada. Quem protege contra observar é a
 > separação de portas.
 
+*Ideias registradas em 2026-11-25, a pedido do usuário; não implementadas:*
+
+- *Porta host em Ethernet, com TCP/IP na placa (o PHY RTL8211EG está na
+  daughterboard, sem uso). Fecharia este desvio: host na rede, console sozinho
+  na UART. O limite é a BRAM. Candidata mais forte a uma fase 9. Análise em
+  `doc/ideia-ethernet.md`.*
+- *Cartão EMV de teste num Java Card, com o leitor PC/SC do usuário, para o
+  ARQC de ponta a ponta num chip de verdade. Depende da 8.10. Análise em
+  `doc/ideia-cartao-emv.md`.*
+
 ⚠ **Limite de fidelidade, e ele é deliberado.** Mnemônicos, códigos de erro
 e esquemas de LMK de fabricante **não** entram — nem de memória, nem de
 manual proprietário (ver `THIRD-PARTY.md` e a seção acima). Onde a fidelidade
@@ -444,6 +454,14 @@ sequer que são de duas pessoas. É a mais fraca das quatro.
    informado no primeiro componente; o caminho seria o mesmo para o
    `0x20`, inclusive o total gravado no registro persistente.
 
+6. **Componentes da LMK em smartcards, como na categoria** — *ideia
+   registrada em 2026-11-25, a pedido do usuário; não implementada.* Cada
+   custodiante com um cartão (Java Card) que guarda o seu componente atrás de
+   um PIN; e, à parte, cartões de autorização no lugar dos dois botões. A
+   pergunta que decide é onde fica o leitor: no PC, melhora só o
+   armazenamento; na placa (ISO 7816, item 3), fecha também o caminho.
+   Análise em `doc/ideia-lmk-em-cartao.md`.
+
 ⚠ **O bloqueio real não é o cartão.** É que a LMK **não sobrevive ao
 desligamento** (BRAM, como manda a regra 2), então toda sessão de bancada
 refaz a cerimônia digitando 3×64 caracteres em hexadecimal. A **Fase 4**
@@ -623,7 +641,7 @@ trabalha". As decisões:*
 | 8.6 | CVV: gerar e verificar | validada na placa em 2026-11-21 |
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | validada na placa em 2026-11-22 |
 | 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | validada na placa em 2026-11-23 |
-| 8.9 | MAC de mensagem e cifra de dados com 3DES | 8.9a (3DES) validada na placa em 2026-11-25; 8.9b (DUKPT) a fazer |
+| 8.9 | MAC de mensagem e cifra de dados com 3DES | validada na placa em 2026-11-25 (8.9a, 3DES) e 2026-11-26 (8.9b, DUKPT) |
 | 8.10 | ARQC: chave do cartão derivada da chave mestra do emissor, gerar e verificar o ARQC, gerar o ARPC | a fazer |
 
 *Decisões do usuário para a 8.8 (2026-11-22): o DUKPT AES aceita BDK AES-128 ou

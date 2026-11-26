@@ -569,6 +569,25 @@ def dukpt_tdes():
             "epb": bytes.fromhex(esc[0][1])}
 
 
+def dukpt_mac_kat():
+    """Etapa 8.9b: os valores de MAC e de dados do autoteste do DUKPT, de
+    vectors/dukpt/dukpt_mac_dados.rsp (valores de terceiros; ver o MANIFEST),
+    nas mesmas transacoes do autoteste da 8.8: o MAC de pedido (4 bytes, do
+    openemv) do KSN ...EFF800 sobre a mensagem publicada, e as chaves AES-128 de
+    MAC (uso 2000) e de dados (uso 3000) da transacao 7 com a BDK AES-128."""
+    txt = (VEC / "dukpt" / "dukpt_mac_dados.rsp").read_text()
+    msg = re.search(r"^MSG = ([0-9A-F]+)$", txt, re.M).group(1)
+    secoes = dict(re.findall(r"^\[([^\]]+)\]\n(.*?)(?=^\[|\Z)", txt, re.M | re.S))
+    t = re.search(r"^KSN = FFFF9876543210EFF800\nREQMAC = ([0-9A-F]{8})$",
+                  secoes["openemv TDES"], re.M)
+    a = re.search(r"^KSN = 123456789012345600000007\nMACKEY128 = ([0-9A-F]{32})\n"
+                  r"DATAKEY128 = ([0-9A-F]{32})$", secoes["openemv AES BDK128"], re.M)
+    if not t or not a or bytes.fromhex(msg) != b"4012345678909D987":
+        raise SystemExit("DUKPT MAC: valores do autoteste nao achados")
+    return {"msg": bytes.fromhex(msg), "reqmac": bytes.fromhex(t.group(1)),
+            "mackey": bytes.fromhex(a.group(1)), "datakey": bytes.fromhex(a.group(2))}
+
+
 def aes128_vetores():
     """Etapa 8.8b: o motor AES-128 em C (so do DUKPT AES). Um vetor de cifra
     (ECBKeySbox128, COUNT 0) e um de decifra (ECBVarTxt128, a secao DECRYPT,
@@ -838,6 +857,13 @@ def main():
     L.append(carr("kat_dukpt_ipek", dk["ipek"]))
     L.append(carr("kat_dukpt_claro", dk["claro"]))
     L.append(carr("kat_dukpt_epb", dk["epb"]))
+    dm = dukpt_mac_kat()
+    L.append("/* Etapa 8.9b: MAC e dados com DUKPT (dukpt_mac_dados.rsp). */")
+    L.append(carr("kat_dukpt_msg", dm["msg"]))
+    L.append(f"#define KAT_DUKPT_MSG_LEN {len(dm['msg'])}u")
+    L.append(carr("kat_dukpt_reqmac", dm["reqmac"]))
+    L.append(carr("kat_dukpt_aes_mackey", dm["mackey"]))
+    L.append(carr("kat_dukpt_aes_datakey", dm["datakey"]))
     (ce, cc, cx), (de, dc, dx) = aes128_vetores()
     L.append(carr("kat_aes128_cifra_chave", ce))
     L.append(carr("kat_aes128_cifra_claro", cc))

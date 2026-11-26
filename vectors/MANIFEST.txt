@@ -153,6 +153,54 @@ uso    fase 8, etapa 8.9a — MAC com chave 3DES. Baixado em 2026-11-23.
        (o MAC vira um CBC-MAC de DES simples). Esses casos são conferidos
        entre o C e o Python.
 
+[DUKPT, MAC e dados — X9.24-1 A.4 e suplemento da X9.24-3]  valores de TERCEIROS, de duas fontes
+url    https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_tdes_test.c
+sha256 469cbcb0bfb2b20023adf063b15af488c47fd21e9b8dc31b738f89800b05b2a3
+url    https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_aes128_test.c
+sha256 c23f8d711cd7c7bf1fa9397ae7cc7e6ba4f39222c6e6961d685161e417c71d2f
+url    https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_aes256_test.c
+sha256 f8ba32d73aa16e2b5c20a50a27ff3538fb71b23e9e5fa27dd13b1c4af6fcea04
+url    https://raw.githubusercontent.com/moov-io/dukpt/f7749173f1b84d51be6dfc140b8be006d66a56a9/pkg/des/des_test.go
+sha256 885221afbf2c97bdfa9c80a467c78127c1fdc6f13c946b0ad364e2bd3df46285
+url    https://raw.githubusercontent.com/moov-io/dukpt/f7749173f1b84d51be6dfc140b8be006d66a56a9/pkg/aes/aes_test.go
+sha256 1efb54a00a385ca8e0bc5aa24c63ab4a5bfa35fa1a6179a9b2aed633831b4979
+extrai 63 transações, pelo scripts/_extrai_dukpt_mac.py
+uso    fase 8, etapa 8.9b — MAC e dados com chave DUKPT. Baixado em 2026-11-23.
+
+       ⚠ PROCEDÊNCIA: FONTE SECUNDÁRIA. As normas são pagas. Duas fontes
+       independentes, em linguagens diferentes: o `openemv/dukpt` (LGPL-2.1,
+       C; os mesmos arquivos da 8.8) e o `moov-io/dukpt` (Apache-2.0, Go).
+       A mensagem das duas é a mesma, "4012345678909D987", e o extrator a
+       exige.
+
+       De cada fonte:
+         openemv TDES   34 transações (A.4.2 e A.4.3): MAC de pedido e de
+                        resposta, 4 bytes; dados de pedido cifrados. Os
+                        CMACs do arquivo ficam fora ("hand crafted").
+         openemv AES    8 transações por BDK: as chaves de MAC (uso 2000) e
+                        de dados (uso 3000), AES-128 e, com BDK AES-256,
+                        também AES-256.
+         moov-io TDES   5 transações: MAC de pedido e de resposta de 8
+                        bytes; dados de pedido e de resposta cifrados.
+         moov-io AES    8 transações, BDK AES-128: CMAC de pedido (2000) e
+                        de resposta (2001); dados de pedido (3000) e de
+                        resposta (3001); chave de trabalho AES-128.
+
+       Onde as duas se cruzam (MAC de pedido e de resposta TDES, dados de
+       pedido TDES, a chave 2000 e a 3000 do AES com o CMAC e os dados
+       do moov-io), elas concordam.
+
+       ⚠ FONTE ÚNICA, por decisão do usuário (2026-11-23): os dados de
+       resposta TDES e o CMAC e os dados de resposta AES (usos 2001 e 3001)
+       só existem no moov-io. A conta é a mesma dos de pedido, com outra
+       constante da norma; o código do openemv (não os vetores) usa as
+       mesmas constantes. Esses casos são conferidos também entre o C e o
+       Python.
+
+       O que NÃO cobrem: chave de trabalho AES-256 com MAC e dados (só a
+       chave, do openemv), HMAC (fora do escopo) e mensagem de outro
+       tamanho. Esses casos são conferidos entre o C e o Python.
+
 [DUKPT AES — suplemento de vetores da ANSI X9.24-3:2017]  valores de TERCEIROS
 url    https://raw.githubusercontent.com/openemv/dukpt/0a1ac4f66106af2b25dafeebf7c2d6b4dcb92b2a/test/dukpt_aes128_test.c
 sha256 c23f8d711cd7c7bf1fa9397ae7cc7e6ba4f39222c6e6961d685161e417c71d2f
@@ -383,6 +431,7 @@ e354b7b0b2fdc6f296ba0560cc55ec82de4cf37a2d3e32383657088235da191e  dukpt/x924_1_t
 f61f2c1689df68370d20d86fea66c977c2696eb77df166a174874a86332cdee9  mac/retail_mac.rsp
 d2a4a17a97d66dc1dc45b4fc340c710d226227404f3d7eb1356f4cbd47401f95  dukpt/x924_3_aes128.rsp
 35214a649b86e6a653f336f7ee38452afcf4767d25e3ba409f7f74275eec575d  dukpt/x924_3_aes256.rsp
+710ffc71f65ae4746bdf030257112475986079c3498a2015352f30946fa5ef11  dukpt/dukpt_mac_dados.rsp
 62f17126e870b9700234cc5b592b5bb50b295320b9844f341ee58a33eae735e6  aes/ECBGFSbox128.rsp
 f23ae1259a894fcabe955c42904e0d09394dceb17b8a3dc150767fa2a6482aa7  aes/ECBKeySbox128.rsp
 81ce3d0f80b57c4cfcacdde88e2ff9bc609050a1d80a0beb92fda30acdd98598  aes/ECBVarKey128.rsp

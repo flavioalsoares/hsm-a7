@@ -317,6 +317,30 @@ int keystore_dukpt_ipek(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
                         char *saida, uint32_t *saida_n,
                         uint8_t kcv[KS_KCV_LEN]);
 
+/* MAC e dados com DUKPT (etapa 8.9b). A chave do slot e a BDK (uso B0, modo
+ * X), e o algoritmo dela diz qual DUKPT: TDES (KSN de 10, `n_trab`
+ * ignorado) ou AES (KSN de 12, `n_trab` 16 ou 32). O lado do adquirente:
+ *
+ *   keystore_dukpt_mac():  gerar = 1 faz o MAC de RESPOSTA; gerar = 0
+ *     confere o MAC de PEDIDO, que o terminal fez, em tempo constante, e o
+ *     MAC calculado nao sai. TDES: retail MAC (preenchimento 1), `mac_n` 4 ou
+ *     8. AES: CMAC, `mac_n` 16. Mensagem nao vazia.
+ *   keystore_dukpt_dados(): cifrar = 0 decifra o PEDIDO; cifrar = 1 cifra a
+ *     RESPOSTA. TDES-CBC com IV de 8 ou AES-CBC com IV de 16; `n` multiplo do
+ *     bloco, ate KS_CONFERE_MAX.
+ *
+ * A chave de uso e derivada, e a conta feita, duas vezes. Devolvem 0
+ * (gerado, ou conferiu); 1 (MAC nao conferiu); -1 se a chave, o tamanho do
+ * KSN, da chave de trabalho ou do MAC nao servem; -5 se o KSN e invalido;
+ * -2 se duas execucoes discordaram (erro grave marcado); -3 em erro interno
+ * ou dados de tamanho invalido. */
+int keystore_dukpt_mac(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
+                       uint32_t n_trab, int gerar, const uint8_t *msg,
+                       uint32_t n, uint8_t *mac, uint32_t mac_n);
+int keystore_dukpt_dados(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
+                         uint32_t n_trab, int cifrar, const uint8_t *iv,
+                         const uint8_t *entrada, uint8_t *saida, uint32_t n);
+
 /* Verificacao de PIN (fase 8, etapa 8.5) -- sobre o PIN que
  * `keystore_pin_abre()` deixou aberto. As duas apagam o PIN ao sair, em todo
  * caminho.
