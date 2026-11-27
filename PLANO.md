@@ -642,7 +642,7 @@ trabalha". As decisões:*
 | 8.7 | Troca de chaves 3DES: chave de troca 3DES e key block para 3DES | validada na placa em 2026-11-22 |
 | 8.8 | DUKPT TDES e AES, e a tradução de PIN de terminal para chave de zona | validada na placa em 2026-11-23 |
 | 8.9 | MAC de mensagem e cifra de dados com 3DES | validada na placa em 2026-11-25 (8.9a, 3DES) e 2026-11-26 (8.9b, DUKPT) |
-| 8.10 | ARQC: chave do cartão derivada da chave mestra do emissor, gerar e verificar o ARQC, gerar o ARPC | a fazer |
+| 8.10 | ARQC: chave do cartão derivada da chave mestra do emissor, verificar o ARQC (o chip o gera), gerar o ARPC | validada na placa em 2026-11-26 |
 
 *Decisões do usuário para a 8.8 (2026-11-22): o DUKPT AES aceita BDK AES-128 ou
 AES-256, e chave de trabalho AES-128 ou AES-256, como o mercado usa. O coprocessador
@@ -690,6 +690,26 @@ mensagem a 3072 bytes e a memória de dados a 32 KB.*
   ele é hoje o controle principal, à frente do CVV da tarja.*
 - *O `program.sh` continua sem examinar a saída do gravador. Depois de gravar,
   quem confere é o `hsmtool build`.*
+
+*Decisões do usuário para a 8.10 (2026-11-26):*
+
+- *Chave do cartão (MK) derivada da IMK pela Opção A do EMV (PAN de até 16
+  dígitos). Só 3DES: a variante AES do EMV fica de fora.*
+- *Conferir o ARQC com a chave de sessão comum do EMV (CSK, EMV Book 2 A1.3) e
+  com o método antigo sem chave de sessão (CVN 10, a MK direto).*
+- *ARPC pelos métodos 1 (ARQC XOR código de resposta, cifrado, 8 bytes) e 2 (MAC
+  sobre ARQC e CSU, 4 bytes).*
+- *Função de emissão: derivar a MK de um cartão e entregá-la só em key block sob
+  KEK, para a personalização, na forma do `I0`.*
+- *Vetores de pelo menos duas fontes independentes, como desde a 8.9.*
+- *O HSM não gera ARQC: quem gera é o chip. Nos testes, o chip é `host/emv.py`.
+  Um HSM que gerasse ARQC sob a IMK forjaria transações de qualquer cartão. É a
+  regra da 8.9b, "só o lado que o HSM faz".*
+- *Um comando confere o ARQC e, se conferir, gera o ARPC (método 0, 1 ou 2).
+  Não conferiu: `01` e nenhum ARPC.*
+- *A IMK é uso `E0`, modo `X`. A MK de um cartão sai sob KEK com `E0`, modo
+  `X`, exportabilidade `N`, como a IPEK sai com `B1`/`X`/`N`.*
+- *PAN com mais de 16 dígitos é recusado: a Opção B ficou fora.*
 
 *Pedido do usuário para o manual da 8.10 (2026-11-25), a escrever junto com a
 etapa: a seção do ARQC traz, **como casos de uso** e com figura, onde mora cada

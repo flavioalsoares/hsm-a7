@@ -19,6 +19,7 @@
 #include "pkcs8.h"
 #include "kat.h"
 #include "dukpt.h"
+#include "emv.h"
 #include "aes128.h"
 #include "mac_tdes.h"
 #include "wipe.h"
@@ -1456,6 +1457,230 @@ int keystore_dukpt_dados(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
     wipe(segunda, sizeof segunda);
     if (r != 0) {
         wipe(saida, n);
+    }
+    return r;
+}
+
+/* ------------------------------------------------------------------
+ * ARQC e ARPC do EMV (etapa 8.10)
+ *
+ * A IMK e uma chave de slot como as outras (uso E0, modo 'X', 3DES duplo) e
+ * chega ao slot efemero pelo key block do host. O que se deriva dela -- a
+ * MK de um cartao, a chave de sessao de uma transacao -- nunca entra em
+ * slot: existe em variavel local, durante a conta, e sai apagado.
+ * ------------------------------------------------------------------ */
+
+/* 1 se o slot e uma IMK que pode derivar: uso E0, modo 'X', 3DES duplo. Uma
+ * IMK nao cifra nem faz MAC, e uma chave de outro uso nao deriva MK. */
+static int imk_ok(int i)
+{
+    return (g_slots[i].uso[0] == (uint8_t)KS_USO_IMK[0]) &&
+           (g_slots[i].uso[1] == (uint8_t)KS_USO_IMK[1]) &&
+           (g_slots[i].modo == KS_MODO_DERIVA) &&
+           (g_slots[i].algoritmo == KS_ALG_TDES) &&
+           (g_slots[i].key_len == EMV_CHAVE);
+}
+
+/* A Opcao A da especificacao e para PAN de ate 16 digitos; a Opcao B, para
+ * os maiores, ficou fora (decisao do usuario, 2026-11-26). */
+static int pan_opcao_a(uint32_t pan_n)
+{
+    return (pan_n >= 1u) && (pan_n <= 16u);
+}
+
+/* Uma passada: a chave do esquema, o criptograma e, se pedido, o ARPC (sobre
+ * o ARQC RECEBIDO, que e o que o chip vai conferir).
+ * FRONTEIRA: dentro; a chave sai apagada. */
+static int emv_uma(int i, const uint8_t *pan, uint32_t pan_n,
+                   const uint8_t psn[2], const uint8_t atc[2], int esquema,
+                   uint8_t pad, const uint8_t *dados, uint32_t n,
+                   const uint8_t arqc[EMV_AC_LEN], int metodo,
+                   const uint8_t *arg, const uint8_t *pad_aut,
+                   uint32_t pad_aut_n, uint8_t ac[EMV_AC_LEN],
+                   uint8_t arpc[EMV_ARPC1_LEN])
+{
+    uint8_t k[EMV_CHAVE];
+    int     r = -3;
+
+    if ((emv_chave_ac(g_slots[i].chave, pan, pan_n, psn, atc, esquema, k) == 0) &&
+        (emv_criptograma(k, dados, n, pad, ac) == 0)) {
+        if (metodo == 0) {
+            r = 0;
+        } else if (metodo == 1) {
+            r = (emv_arpc1(k, arqc, arg, arpc) == 0) ? 0 : -3;
+        } else {
+            r = (emv_arpc2(k, arqc, arg, pad_aut, pad_aut_n, arpc) == 0) ? 0 : -3;
+        }
+    }
+    wipe(k, sizeof k);
+    return r;
+}
+
+/* FRONTEIRA: dentro. A MK, a chave de sessao, o ARQC e o ARPC sao
+ * calculados duas vezes, com a derivacao refeita, e comparados; o veredito
+ * tambem. O ARQC calculado nao sai, e o ARPC so sai se o ARQC conferiu: um
+ * ARPC para um ARQC falso ajudaria quem o forjou. */
+int keystore_emv_arqc(ks_handle_t h, const uint8_t *pan, uint32_t pan_n,
+                      const uint8_t psn[2], const uint8_t atc[2], int esquema,
+                      uint8_t pad, const uint8_t *dados, uint32_t n,
+                      const uint8_t arqc[EMV_AC_LEN], int metodo,
+                      const uint8_t *arg, const uint8_t *pad_aut,
+                      uint32_t pad_aut_n, uint8_t *arpc)
+{
+    int      i = indice(h);
+    uint8_t  aa[EMV_AC_LEN], ab[EMV_AC_LEN];
+    uint8_t  pa[EMV_ARPC1_LEN], pb[EMV_ARPC1_LEN];
+    uint32_t j, m;
+    uint8_t  dif = 0u, da = 0u, db = 0u;
+    int      r;
+
+    if ((i < 0) || (pan == 0) || (psn == 0) || (atc == 0) || (dados == 0) ||
+        (arqc == 0) || (n == 0u) || (n > KS_CONFERE_MAX)) {
+        return -3;
+    }
+    if (!imk_ok(i)) {
+        return -1;
+    }
+    if (!pan_opcao_a(pan_n)) {
+        return -4;
+    }
+    /* Esquema, preenchimento e metodo. O CVN 10 (esquema MK) responde so
+     * pelo metodo 1; a chave de sessao comum, pelo 1 ou pelo 2. */
+    if (((esquema != EMV_ESQ_MK) && (esquema != EMV_ESQ_CSK)) ||
+        ((pad != 1u) && (pad != 2u)) ||
+        (metodo < 0) || (metodo > 2) ||
+        ((esquema == EMV_ESQ_MK) && (metodo == 2)) ||
+        ((metodo != 0) && ((arg == 0) || (arpc == 0))) ||
+        (pad_aut_n > EMV_PAD_AUT_MAX) ||
+        ((metodo != 2) && (pad_aut_n != 0u))) {
+        return -5;
+    }
+    m = (metodo == 1) ? EMV_ARPC1_LEN : EMV_ARPC2_LEN;
+    if ((emv_uma(i, pan, pan_n, psn, atc, esquema, pad, dados, n, arqc, metodo,
+                 arg, pad_aut, pad_aut_n, aa, pa) != 0) ||
+        (emv_uma(i, pan, pan_n, psn, atc, esquema, pad, dados, n, arqc, metodo,
+                 arg, pad_aut, pad_aut_n, ab, pb) != 0)) {
+        r = -3;
+        goto fim;
+    }
+    g_slots[i].contador_uso++;
+    for (j = 0u; j < EMV_AC_LEN; j++) {
+        dif |= (uint8_t)(aa[j] ^ ab[j]);
+    }
+    if (metodo != 0) {
+        for (j = 0u; j < m; j++) {
+            dif |= (uint8_t)(pa[j] ^ pb[j]);
+        }
+    }
+    if (dif != 0u) {
+        erro_grave_marca();
+        r = -2;
+        goto fim;
+    }
+    for (j = 0u; j < EMV_AC_LEN; j++) {
+        da |= (uint8_t)(aa[j] ^ arqc[j]);
+        db |= (uint8_t)(ab[j] ^ arqc[j]);
+    }
+    if ((da == 0u) != (db == 0u)) {
+        erro_grave_marca();
+        r = -2;
+        goto fim;
+    }
+    if (da != 0u) {
+        r = 1;
+        goto fim;
+    }
+    if (metodo != 0) {
+        for (j = 0u; j < m; j++) {
+            arpc[j] = pa[j];
+        }
+    }
+    r = 0;
+fim:
+    wipe(aa, sizeof aa);
+    wipe(ab, sizeof ab);
+    wipe(pa, sizeof pa);
+    wipe(pb, sizeof pb);
+    return r;
+}
+
+/* FRONTEIRA: dentro. A MK do cartao, para a personalizacao: derivada duas
+ * vezes e comparada, embrulhada sob a KEK e apagada. Sai com uso E0, modo
+ * 'X' e exportabilidade 'N' (decisao do usuario, 2026-11-26): o destino e o
+ * chip, e de la ela nao sai mais. */
+int keystore_emv_mk(ks_handle_t h, const uint8_t *pan, uint32_t pan_n,
+                    const uint8_t psn[2],
+                    const uint8_t kbek[KS_KEY_MAX],
+                    const uint8_t kbak[KS_KEY_MAX], uint8_t n,
+                    char *saida, uint32_t *saida_n,
+                    uint8_t kcv[KS_KCV_LEN])
+{
+    int        i = indice(h);
+    uint8_t    mk[EMV_CHAVE], outra[EMV_CHAVE];
+    uint8_t    ench[TR31_BLOCO];
+    tr31_cab_t cab;
+    uint32_t   j;
+    uint8_t    dif = 0u;
+    int        r = -1;
+
+    if ((i < 0) || (pan == 0) || (psn == 0) || (kbek == 0) || (kbak == 0) ||
+        (saida == 0) || (saida_n == 0) || (kcv == 0)) {
+        return -1;
+    }
+    if (!imk_ok(i)) {
+        return -4;
+    }
+    if (!pan_opcao_a(pan_n)) {
+        return -5;
+    }
+    /* A MK e 3DES dupla: qualquer KEK deste equipamento a leva. A regra de
+     * forca do K4 vale aqui do mesmo jeito. */
+    if (!keystore_kek_transporta(n, KS_ALG_TDES, (uint8_t)EMV_CHAVE)) {
+        return -3;
+    }
+    if ((emv_mk_opcao_a(g_slots[i].chave, pan, pan_n, psn, mk) != 0) ||
+        (emv_mk_opcao_a(g_slots[i].chave, pan, pan_n, psn, outra) != 0)) {
+        r = -1;
+        goto fim;
+    }
+    for (j = 0u; j < EMV_CHAVE; j++) {
+        dif |= (uint8_t)(mk[j] ^ outra[j]);
+    }
+    if (dif != 0u) {
+        erro_grave_marca();
+        r = -2;
+        goto fim;
+    }
+    cab.uso[0]          = (uint8_t)KS_USO_IMK[0];
+    cab.uso[1]          = (uint8_t)KS_USO_IMK[1];
+    cab.algoritmo       = KS_ALG_TDES;
+    cab.modo            = KS_MODO_DERIVA;
+    cab.versao_chave[0] = (uint8_t)'0';
+    cab.versao_chave[1] = (uint8_t)'0';
+    cab.exportabilidade = KS_EXP_NAO;
+    if ((kcv_tdes(mk, (uint8_t)EMV_CHAVE, kcv) != 0) ||
+        (drbg_dispositivo_bytes(ench, sizeof ench) != 0)) {
+        r = -1;
+        goto fim;
+    }
+    if (n == KS_KEY_MAX) {
+        r = tr31_embrulha(kbek, kbak, &cab, mk, (uint8_t)EMV_CHAVE, ench,
+                          (uint8_t)TR31_BLOCO, saida, saida_n);
+    } else {
+        r = tr31b_embrulha(kbek, kbak, n, &cab, mk, (uint8_t)EMV_CHAVE, ench,
+                           (uint8_t)TR31B_BLOCO, saida, saida_n);
+    }
+    if (r == 0) {
+        g_slots[i].contador_uso++;
+    } else {
+        r = -1;
+    }
+fim:
+    wipe(mk, sizeof mk);
+    wipe(outra, sizeof outra);
+    wipe(ench, sizeof ench);
+    if (r != 0) {
+        wipe(kcv, KS_KCV_LEN);
     }
     return r;
 }

@@ -133,6 +133,17 @@ DUKPT_MOOV_DES_SHA="885221afbf2c97bdfa9c80a467c78127c1fdc6f13c946b0ad364e2bd3df4
 DUKPT_MOOV_AES_URL="https://raw.githubusercontent.com/moov-io/dukpt/f7749173f1b84d51be6dfc140b8be006d66a56a9/pkg/aes/aes_test.go"
 DUKPT_MOOV_AES_SHA="1efb54a00a385ca8e0bc5aa24c63ab4a5bfa35fa1a6179a9b2aed633831b4979"
 
+# ARQC e ARPC (etapa 8.10). Duas fontes: o pyemv (MIT) e o jPOS (AGPL-3.0); so os
+# valores, nenhum codigo.
+EMV_PYEMV_AC_URL="https://raw.githubusercontent.com/knovichikhin/pyemv/cf6b82d7a1e1b57c87d18a2caae2115f8b3e4309/tests/test_ac_hsm.py"
+EMV_PYEMV_AC_SHA="a3e8008cfb536031bd9f37543dcc6c9f073bd9e3498fd4fe6e42e7b95acd30a7"
+EMV_PYEMV_KD_URL="https://raw.githubusercontent.com/knovichikhin/pyemv/cf6b82d7a1e1b57c87d18a2caae2115f8b3e4309/tests/test_kd_hsm.py"
+EMV_PYEMV_KD_SHA="1a6d312e03a0ecb5ece28d26c25445ea652672d778defb451fde99ec92ce11dc"
+EMV_PYEMV_CVN_URL="https://raw.githubusercontent.com/knovichikhin/pyemv/cf6b82d7a1e1b57c87d18a2caae2115f8b3e4309/tests/test_cvn_hsm.py"
+EMV_PYEMV_CVN_SHA="40d120f7f601d0417c4002252013ef9299f12987315bcea333fc168799886c0d"
+EMV_JPOS_URL="https://raw.githubusercontent.com/jpos/jPOS/71a6ccbd006432010e3c61ec8e1583c2c0eebca5/jpos/src/test/java/org/jpos/security/jceadapter/JCESecurityModuleTest.java"
+EMV_JPOS_SHA="697bca950f02b1f3561d149c87dc253296ca2b0951affe9fbc1f4590ab686fe6"
+
 # ---------------------------------------------------------------------
 
 check_repo() {
@@ -284,6 +295,14 @@ python3 "$ROOT/scripts/_extrai_dukpt_mac.py" "$TMP" "$VEC/dukpt/dukpt_mac_dados.
 # Retail MAC: 6 valores de 2 fontes, copiados literalmente. A extracao falha se
 # alguma fonte nao tiver exatamente a quantidade esperada.
 python3 "$ROOT/scripts/_extrai_retail_mac.py" "$TMP" "$VEC/mac/retail_mac.rsp"
+
+# ARQC e ARPC: 18 casos de 2 fontes, copiados literalmente.
+mkdir -p "$TMP/emv"
+fetch "$EMV_PYEMV_AC_URL" "$EMV_PYEMV_AC_SHA" "$TMP/emv/test_ac_hsm.py"
+fetch "$EMV_PYEMV_KD_URL" "$EMV_PYEMV_KD_SHA" "$TMP/emv/test_kd_hsm.py"
+fetch "$EMV_PYEMV_CVN_URL" "$EMV_PYEMV_CVN_SHA" "$TMP/emv/test_cvn_hsm.py"
+fetch "$EMV_JPOS_URL" "$EMV_JPOS_SHA" "$TMP/emv/JCESecurityModuleTest.java"
+python3 "$ROOT/scripts/_extrai_emv.py" "$TMP/emv" "$VEC/emv/arqc.rsp"
 
 # CTR_DRBG vem num zip dentro do zip, e o arquivo completo tem 785 KB com
 # 3DES e AES-128/192 que este projeto nao usa. Filtra para [AES-256 ...].

@@ -9,7 +9,7 @@ ele **não** prova, e a conta que sustenta a conclusão. As medidas de cada
 rodada (tempos, datas, contagens por fase) estão nas notas de fase, em
 `doc/faseN-notas.md`.
 
-## 40. O que um teste pode provar
+## 41. O que um teste pode provar
 
 Três ideias organizam tudo o que vem depois.
 
@@ -59,7 +59,7 @@ as bordas, e sorteio para o resto.
 <text x="355" y="230" text-anchor="middle" class="ts">n, entradas sorteadas</text>
 <text x="20" y="105" class="ts" transform="rotate(-90 20 105)" text-anchor="middle">chance de o defeito escapar</text>
 </svg>
-<figcaption>Figura 40.1 — (1 − f)ⁿ: a chance de um defeito que afeta a fração f das entradas escapar de n sorteios. Erro raro pede caso escolhido.</figcaption>
+<figcaption>Figura 41.1 — (1 − f)ⁿ: a chance de um defeito que afeta a fração f das entradas escapar de n sorteios. Erro raro pede caso escolhido.</figcaption>
 </figure>
 
 **Zero falhas em `n` tentativas é uma medida, e não uma garantia.** Se a
@@ -73,7 +73,7 @@ seria `(1 − p)^n`. Com 95% de confiança, a taxa real é menor que
 Dez mil comandos sem erro dizem que a taxa de erro é menor que 3 em 10 000.
 Não dizem que é zero.
 
-### 40.1 A regra que protege os testes
+### 41.1 A regra que protege os testes
 
 A regra nº 5 do projeto diz: se um teste de resposta conhecida falha, o erro
 está no código, e não no vetor. Ninguém ajusta o vetor, relaxa a comparação
@@ -88,7 +88,7 @@ A regra só se sustenta com disciplina de procedência:
 - Onde não existe vetor oficial público, o projeto diz isso, e marca a fonte
   como secundária (seção 38.3).
 
-### 40.2 Os quatro lugares onde se testa
+### 41.2 Os quatro lugares onde se testa
 
 | Lugar | O que roda | Velocidade | O que só ele vê |
 |---|---|---|---|
@@ -121,10 +121,10 @@ aparece com todos os sinais à vista.
 <text x="595" y="130" text-anchor="middle" class="ts">esta placa,</text><text x="595" y="144" text-anchor="middle" class="ts">agora</text>
 <text x="340" y="178" text-anchor="middle" class="ts">o que só aquele lugar vê; um erro achado mais à esquerda custa menos para achar a causa</text>
 </svg>
-<figcaption>Figura 40.2 — Os quatro lugares onde se testa. Cada um cobre o que os outros não alcançam.</figcaption>
+<figcaption>Figura 41.2 — Os quatro lugares onde se testa. Cada um cobre o que os outros não alcançam.</figcaption>
 </figure>
 
-## 41. Testes de resposta conhecida
+## 42. Testes de resposta conhecida
 
 Um **KAT** (*Known Answer Test*) dá uma entrada e cobra a saída exata.
 Para uma função determinística, é o teste mais forte que existe: a saída de
@@ -135,7 +135,7 @@ A força de um conjunto de KATs está na escolha dos vetores. Os conjuntos do
 NIST são desenhados para que cada parte do algoritmo seja exercitada por
 algum vetor.
 
-### 41.1 AES-256
+### 42.1 AES-256
 
 1620 vetores: 405 em cada combinação de modo (ECB, CBC) e direção. São
 quatro famílias, e cada uma procura um tipo de erro:
@@ -156,7 +156,7 @@ através do mapa de registradores do coprocessador. O segundo nível pega um
 erro que o primeiro não vê: um núcleo certo atrás de um barramento com a
 ordem das palavras invertida dá resultados perfeitamente errados.
 
-### 41.2 SHA-256, HMAC, CMAC e o gerador determinístico
+### 42.2 SHA-256, HMAC, CMAC e o gerador determinístico
 
 - **SHA-256:** 65 mensagens, de 0 a 512 bits. O ponto delicado do SHA é o
   **enchimento**: a mensagem recebe um bit 1, zeros, e o tamanho em 64 bits.
@@ -175,13 +175,13 @@ ordem das palavras invertida dá resultados perfeitamente errados.
   dão todas as tags. Uma lacuna, registrada: os vetores de chave **dupla**
   só trazem tag truncada (5 e 7 bytes), e nenhum vetor oficial confere o
   último byte da tag com chave dupla. Quem confere são os key blocks versão
-  B da seção 42.7, cujo MAC de 8 bytes vem de uma KBPK dupla.
+  B da seção 43.7, cujo MAC de 8 bytes vem de uma KBPK dupla.
 - **CTR_DRBG:** o gerador determinístico é uma função: mesma semente, mesma
   saída. O vetor dá a entropia, o nonce e os bytes esperados depois de duas
   chamadas. Isso testa o algoritmo do gerador, e não a qualidade da
-  entropia, que é assunto da seção 43.
+  entropia, que é assunto da seção 44.
 
-### 41.3 DES e 3DES
+### 42.3 DES e 3DES
 
 O DES é feito de tabelas: duas permutações, uma expansão, oito caixas S e o
 escalonamento de chave (seção 39.2). Um número errado numa tabela dá uma
@@ -202,7 +202,7 @@ O autoteste do equipamento leva 25 deles: os 19 de substituição, porque uma
 caixa S errada é o defeito mais provável de uma tabela copiada, e seis
 mensagens.
 
-### 41.4 RSA
+### 42.4 RSA
 
 **Verificar.** O vetor dá `n`, `e`, a mensagem e a assinatura `S`. O teste
 calcula `S^e mod n` e exige o bloco PKCS#1 v1.5 inteiro (seção 30). Um
@@ -230,7 +230,7 @@ testado sozinho contra inteiros do Python, com os casos de borda: 0, 1,
 `n − 1`, e `R mod n`. São os valores em que a subtração final decide o
 resultado.
 
-### 41.5 ECDSA
+### 42.5 ECDSA
 
 **Verificar.** Os vetores do CAVP vêm com o veredito: válido, ou inválido
 com a causa (mensagem, `r`, `s` ou chave pública alterados). O teste exige o
@@ -255,7 +255,7 @@ exceção da soma de pontos (pontos iguais, pontos opostos, escalar zero).
 da curva e coordenadas fora da faixa. O equipamento tem de recusá-los antes
 de qualquer conta.
 
-### 41.6 Primalidade
+### 42.6 Primalidade
 
 O teste de Miller-Rabin (seção 30) tem resposta conhecida: o CAVP dá
 números primos e números compostos escolhidos. O firmware tem de aceitar o
@@ -270,13 +270,13 @@ composto que engana 5 rodadas é menor que `2⁻¹¹²` (Damgård, Landrock e
 Pomerance, 1993). A garantia é sobre a média dos candidatos, e só vale
 porque o candidato vem de um gerador aleatório aprovado.
 
-## 42. Testes de formato e de protocolo
+## 43. Testes de formato e de protocolo
 
 Um formato não é uma função matemática: é um acordo sobre a posição dos
 bytes. Não existe "resposta certa" calculável, só a norma. Os testes de
-formato usam as outras três referências da seção 40.
+formato usam as outras três referências da seção 41.
 
-### 42.1 O key block
+### 43.1 O key block
 
 - **O vetor de terceiros** prova o caminho de **abrir**: derivar as
   subchaves, decifrar e conferir o MAC, contra um bloco que este projeto não
@@ -305,7 +305,7 @@ de `2⁻¹²⁸` por tentativa.
 <rect class="cxv" x="300" y="142" width="14" height="14"/><text x="320" y="154" class="ts">MAC (32)</text>
 <text x="420" y="154" class="ts td">✗ = o equipamento tem de recusar</text>
 </svg>
-<figcaption>Figura 42.1 — O teste de um caractere trocado. Uma implementação que deixa o cabeçalho fora do MAC passa nos outros testes e falha nas 16 primeiras casas.</figcaption>
+<figcaption>Figura 43.1 — O teste de um caractere trocado. Uma implementação que deixa o cabeçalho fora do MAC passa nos outros testes e falha nas 16 primeiras casas.</figcaption>
 </figure>
 
 **O acordo entre as duas implementações.** O formato está escrito em C e em
@@ -313,7 +313,7 @@ Python. Um teste gera 100 chaves no equipamento, exporta, abre no Python, e
 faz o caminho inverso. Se uma das duas leu a norma errado, as duas discordam
 no primeiro bloco: a discordância num formato é sistemática, e não rara.
 
-### 42.2 O PIN block
+### 43.2 O PIN block
 
 - Os três valores de terceiros cobrem o campo do PIN, o campo do PAN e um
   bloco cifrado completo.
@@ -324,7 +324,7 @@ no primeiro bloco: a discordância num formato é sistemática, e não rara.
 - **Formato 0.** Onze valores de terceiros cobrem o bloco em claro, isto é,
   o campo do PIN já combinado com o campo do PAN: seis blocos bem formados e
   cinco malformados. A cifra do formato 0 é um bloco de 3DES, que tem vetor
-  oficial (seção 41.3). O C e o Python são comparados no campo do PAN, na
+  oficial (seção 42.3). O C e o Python são comparados no campo do PAN, na
   conferência do campo e nas duas conversões entre a forma do formato 0 e a
   do formato 4.
 - **O formato 0 não tem aleatório, e o teste usa isso.** O bloco traduzido é
@@ -372,7 +372,7 @@ conhecido do formato, e não um defeito do equipamento. Ele existe para o
 número do manual sair de um programa, e para acusar se uma mudança no código
 alterar o que o veredito revela.
 
-### 42.3 A verificação de PIN
+### 43.3 A verificação de PIN
 
 O método do offset e o PVV estão em norma paga e em documentação de
 bandeira. A referência é de terceiros: 24 valores de uma biblioteca aberta,
@@ -427,14 +427,14 @@ placa, o `pinv-confere` repete o terceiro caso a cada volta, com uma chave
 `V1` nova, e confere que a mesma tabela funciona com a chave certa.
 
 **O veredito duplo** não tem teste que o dispare: provocar a discordância
-pede uma falha de hardware no meio da conta. A seção 45.2 explica como a
+pede uma falha de hardware no meio da conta. A seção 46.2 explica como a
 dupla execução é testada nos comandos da fase 6.
 
 **O que o teste não refaz.** A conta do ataque de decimalização (15 pedidos
 em média) é do relatório de Bond e Zieliński, citado na seção 35.3. O
 equipamento é testado pela defesa: tabela sem MAC não entra.
 
-### 42.4 O CVV
+### 43.4 O CVV
 
 O método está em documentação de bandeira, sem vetor oficial público. A
 referência é de terceiros: 7 valores de **três** bibliotecas abertas e
@@ -495,9 +495,9 @@ liga o CVV ao MAC de 3DES da etapa 8.9.
 
 **O que o teste não prova.** A busca de 1 000 valores não é refeita: a conta
 é simples (500 pedidos em média), e o controle é de fora do equipamento.
-O veredito duplo, como na seção 42.3, não tem teste que o dispare.
+O veredito duplo, como na seção 43.3, não tem teste que o dispare.
 
-### 42.5 O PKCS#8
+### 43.5 O PKCS#8
 
 A codificação da chave privada é conferida contra uma biblioteca
 independente, nos dois sentidos, e byte a byte: o que o firmware monta tem
@@ -513,12 +513,12 @@ Um byte alterado dentro do **valor** de um inteiro não é recusado, e não
 tem como ser: o resultado é outra chave, bem formada. Quem protege o valor é
 o MAC do key block, que cobre o PKCS#8 inteiro.
 
-### 42.6 O enquadramento da serial
+### 43.6 O enquadramento da serial
 
 Cada mensagem do console leva um CRC-32. Um CRC de 32 bits detecta toda
 rajada de erros de até 32 bits, e deixa passar um erro aleatório com chance
 de `2⁻³²`. Ele protege contra **ruído**, e não contra **ataque**: quem
-altera a mensagem recalcula o CRC. O teste de ataque por falha (seção 45.3)
+altera a mensagem recalcula o CRC. O teste de ataque por falha (seção 46.3)
 mostrou exatamente isso: respostas erradas com CRC válido.
 
 Os testes do protocolo cobrem o que acontece fora do caminho feliz: CRC
@@ -526,9 +526,9 @@ errado, opcode desconhecido, mensagem maior que o limite, mensagem que para
 no meio. Depois de cada um, um `PING` tem de responder: o equipamento se
 recupera, e não trava.
 
-### 42.7 O key block versão B (KEK 3DES)
+### 43.7 O key block versão B (KEK 3DES)
 
-A versão B é o formato da seção 42.1 com 3DES no lugar do AES (seção
+A versão B é o formato da seção 43.1 com 3DES no lugar do AES (seção
 39.9). Os testes repetem os da versão D, com números próprios.
 
 **Os valores de terceiros.** A biblioteca `psec` publica seis blocos versão
@@ -574,7 +574,7 @@ viajar sob uma KEK 3DES.
 
 **A regra de força, no firmware.** O `tb_kek3` pede ao `K4` uma chave AES e
 uma 3DES tripla sob a KEK dupla, e exige `13` nas duas. Uma tripla sob uma
-KEK tripla sai, em bloco B. O `tdes-confere` (seção 47.1) faz o mesmo na
+KEK tripla sai, em bloco B. O `tdes-confere` (seção 48.1) faz o mesmo na
 placa, nos dois sentidos, com blocos fechados pelo Python.
 
 **A KEK que volta da flash.** O `tb_kek3` religa o equipamento depois de
@@ -587,7 +587,7 @@ conversa com o equipamento de um parceiro real: a referência é uma
 biblioteca aberta, e não a norma, que é paga. E as versões A e C, que o
 equipamento não faz.
 
-### 42.8 O DUKPT TDES
+### 43.8 O DUKPT TDES
 
 O DUKPT da seção 37.2 é uma conta determinística: a BDK e o KSN dão sempre
 a mesma chave. Por isso há valor esperado para cada passo, e os testes
@@ -648,12 +648,12 @@ faz o mesmo a cada volta.
 **O que estes testes não provam.** Que a conta é a da norma, e não a do
 `openemv/dukpt`: se a transcrição estiver errada, os três lados concordam
 no erro. Que o equipamento conversa com um terminal real. Os MACs e a
-cifra de dados com chave DUKPT estão na seção 42.11.
+cifra de dados com chave DUKPT estão na seção 43.11.
 
-### 42.9 O DUKPT AES
+### 43.9 O DUKPT AES
 
 O DUKPT AES da seção 37.3 também é uma conta determinística, e os testes
-seguem o molde da seção 42.8.
+seguem o molde da seção 43.8.
 
 **Os valores de terceiros.** O suplemento de vetores da X9.24-3 traz, para
 uma BDK AES-128 e uma AES-256, a chave inicial (IK) e 15 transações. Vêm do
@@ -706,11 +706,11 @@ primeiro uso de uma chave AES-128 ou de uma BDK AES. Ele confere o motor nas
 duas direções, a chave de PIN AES-128 da transação 7 com o PIN block
 publicado refeito sob ela, e a chave de PIN AES-256 da mesma transação.
 
-**O que estes testes não provam.** Os mesmos limites da seção 42.8: que a
+**O que estes testes não provam.** Os mesmos limites da seção 43.8: que a
 conta é a da norma, e não a da transcrição; que o equipamento conversa com
-um terminal real. O MAC e os dados com DUKPT estão na seção 42.11.
+um terminal real. O MAC e os dados com DUKPT estão na seção 43.11.
 
-### 42.10 O retail MAC e os dados com 3DES
+### 43.10 O retail MAC e os dados com 3DES
 
 O retail MAC da seção 39.10 não tem vetor oficial público: a ISO/IEC 9797-1
 e a X9.19 são pagas. Desde a etapa 8.9, um valor de terceiros só entra com
@@ -740,7 +740,7 @@ bordas de bloco. Uma em vinte chaves tem `K = K'`, o caso em que o MAC vira um
 CBC-MAC de DES simples. Mensagem vazia e preenchimento 0 ou 3 têm de ser
 recusados nos dois.
 
-**O 3DES-CBC** tem vetor oficial, os MMT do NIST (seção 41.3), e o teste o
+**O 3DES-CBC** tem vetor oficial, os MMT do NIST (seção 42.3), e o teste o
 confere no Python nas duas direções.
 
 **No firmware real.** O `tb_mac3` leva ao equipamento as chaves publicadas,
@@ -761,10 +761,10 @@ embrulhadas sob a LMK, e pede:
 duas fontes: as duas podem ter lido a norma do mesmo jeito errado. Duas
 fontes independentes tornam isso menos provável, e não impossível.
 
-### 42.11 O MAC e os dados com DUKPT
+### 43.11 O MAC e os dados com DUKPT
 
 Os valores de terceiros vêm de **duas fontes**, fixadas por commit e por
-hash: o `openemv/dukpt` (as mesmas transações da seção 42.8) e o
+hash: o `openemv/dukpt` (as mesmas transações da seção 43.8) e o
 `moov-io/dukpt`, uma biblioteca em Go. A mensagem das duas é a mesma,
 `4012345678909D987`.
 
@@ -797,7 +797,44 @@ cifra a resposta. Um CMAC com um caractere trocado tem de dar `01`. E quatro
 recusas: contador zero (`16`), chave de trabalho `3` (`16`), chave de zona no
 lugar da BDK (`11`) e dados que não são múltiplos de 8 (`15`).
 
-## 43. Testes do gerador aleatório
+### 43.12 O ARQC e o ARPC
+
+Os valores de terceiros vêm de **duas fontes**, fixadas por commit e por
+hash: o `pyemv`, uma biblioteca em Python, e o jPOS, em Java. As duas **não
+têm entradas em comum**: cada uma confere a implementação em separado.
+
+| | `pyemv` | jPOS |
+|---|---|---|
+| IMK | `0123…3210`, KCV publicado | "4 times 12345678", conferida pelo KCV do construtor |
+| MK do cartão, Opção A | KCV publicado (2 bytes) | — |
+| chave de sessão comum | KCV publicado, com o ATC e com um R livre | — |
+| ARQC | CVN 10, CVN 18, e cinco casos de R livre, preenchimento 00 e 80 | VSDC (a MK direto) e EMV_CSKD, preenchimento 00 e 80 |
+| ARPC | método 1 e método 2, com e sem dado próprio | método 1 e método 2 |
+
+Três casos do `pyemv` calculam o ARPC método 1 com a MK sobre um ARQC da
+chave de sessão. A especificação usa a chave do ARQC, como o jPOS e outro
+teste do próprio `pyemv`. Esses ARPCs ficam fora; o ARQC deles entra.
+
+**Duas implementações.** O `host/test_emv.py` confere o Python e o C do
+firmware contra os 18 casos, e os compara em 500 casos ao acaso: PAN de 12
+a 19 dígitos, os dois esquemas, os dois preenchimentos, dados de 1 a 64
+bytes e dado próprio de 0 a 8 bytes no método 2. O DES do C é o do firmware;
+o do Python é o da biblioteca `cryptography`.
+
+**No firmware real.** O `tb_arqc` leva a IMK de cada fonte para dentro de um
+key block e pede, com o `A0`, o ARQC e o ARPC publicados: o VSDC e o EMV_CSKD
+do jPOS, o CVN 10 e o CVN 18 do `pyemv`. Um ARQC com um caractere trocado
+tem de dar `01` e nenhum ARPC. O `A2` entrega a MK do cartão do `pyemv` sob
+uma KEK 3DES, com o cabeçalho `E0`, `T`, `X`, `N`, e o KCV dela começa pelo
+publicado (`BAB0`). E três recusas: PAN de 17 dígitos (`15`), esquema `0`
+com método 2 (`16`) e uma KEK no lugar da IMK (`11`).
+
+**Na placa.** O `hsmhost.py arqc-confere` faz o papel do chip: com a IMK
+aberta pela LMK de desenvolvimento, calcula o ARQC em Python, e o HSM confere
+e devolve o ARPC. Ele também leva ao equipamento os casos das duas fontes que
+trazem o ATC.
+
+## 44. Testes do gerador aleatório
 
 Não existe KAT para aleatoriedade. Um gerador que devolve sempre a mesma
 sequência "aleatória" passaria. O teste aqui é estatístico, e a SP 800-90B
@@ -809,7 +846,7 @@ probabilidade de no máximo `p = 2^(−H)`. O projeto adota `H = 0,5`, e por
 isso `p = 0,707`. Os dois testes usam a mesma taxa de alarme falso,
 `α = 2⁻²⁰`.
 
-### 43.1 Teste de repetição (RCT)
+### 44.1 Teste de repetição (RCT)
 
 Pega uma fonte **travada**: o mesmo valor repetido. A chance de ver o mesmo
 valor `C` vezes seguidas, numa fonte sã, é no máximo `p^(C−1)`. O limite `C`
@@ -824,7 +861,7 @@ circuito cobra a **borda exata**: 40 repetições passam, e a 41ª reprova. Um
 teste que dispara uma amostra antes desliga um equipamento são, e um que
 dispara uma depois deixa passar entropia degradada.
 
-### 43.2 Teste de proporção (APT)
+### 44.2 Teste de proporção (APT)
 
 Pega uma fonte **viciada**, que não trava mas favorece um valor. Numa janela
 de `W = 1024` amostras, o teste conta quantas vezes a primeira amostra da
@@ -854,7 +891,7 @@ repete 41 vezes seguidas, e reprova aqui.
 <text x="350" y="230" text-anchor="middle" class="ts">quantas vezes a primeira amostra reaparece numa janela de 1024</text>
 <text x="389.2" y="170" class="ts">à direita: alarme falso 2⁻²⁰</text>
 </svg>
-<figcaption>Figura 43.1 — O teste de proporção. A fonte sã quase nunca passa de 793; a viciada quase sempre passa.</figcaption>
+<figcaption>Figura 44.1 — O teste de proporção. A fonte sã quase nunca passa de 793; a viciada quase sempre passa.</figcaption>
 </figure>
 
 | H (bits por amostra) | Limite do RCT | Limite do APT |
@@ -868,7 +905,7 @@ repete 41 vezes seguidas, e reprova aqui.
 validação de verdade estima `H` a partir de um milhão de amostras reais da
 fonte, com os estimadores da norma.
 
-### 43.3 Onde cada teste roda
+### 44.3 Onde cada teste roda
 
 A fonte produz uma amostra por ciclo de 100 MHz. O processador veria uma em
 mil. Por isso os testes contínuos estão no **circuito**, que vê todas. O
@@ -880,7 +917,7 @@ Um teste do sistema inteiro trava a fonte na simulação e segue a corrente
 até o fim: o circuito acusa, o POST reprova, o equipamento vai para
 `TAMPERED` e recusa comando.
 
-### 43.4 O que a estatística de saída não prova
+### 44.4 O que a estatística de saída não prova
 
 O projeto tem um programa que mede a saída do gerador: frequência de bits,
 de bytes, correlação. Ele está marcado como **sanidade**, e não como
@@ -889,13 +926,13 @@ em AES. Uma semente fixa, sem entropia nenhuma, produz uma saída que passa
 em qualquer teste estatístico. Testar a saída testa o AES. Quem diz algo
 sobre a entropia são os testes sobre as amostras **brutas** da fonte.
 
-## 44. Testes de propriedade de segurança
+## 45. Testes de propriedade de segurança
 
 Aqui a pergunta não é "calculou certo?", e sim "a regra vale?". Não há
 vetor. O teste constrói a situação em que a regra seria violada, e exige a
 recusa.
 
-### 44.1 Zeroização: provar que apagou
+### 45.1 Zeroização: provar que apagou
 
 "Chamei a função de apagar" não é "apagou". O compilador pode eliminar um
 laço que zera memória que ninguém lê depois. A prova tem duas camadas, e a
@@ -912,7 +949,7 @@ chaves diferentes têm o mesmo KCV com chance de `2⁻²⁴`. Ele é fraco como
 prova de igualdade num caso isolado, e forte o bastante para acusar uma
 chave errada.
 
-### 44.2 Separação de chaves
+### 45.2 Separação de chaves
 
 Cada restrição do cabeçalho do key block tem um teste que tenta violá-la:
 
@@ -931,7 +968,7 @@ Cada restrição do cabeçalho do key block tem um teste que tenta violá-la:
 O teste confere também o **código** da recusa. Uma recusa pelo motivo
 errado indica que a checagem que barrou não foi a que deveria.
 
-### 44.3 Dual control
+### 45.3 Dual control
 
 O teste cobra o gesto, e não só o nível dos botões:
 
@@ -941,7 +978,7 @@ O teste cobra o gesto, e não só o nível dos botões:
   autorização exige um aperto novo;
 - um trem de ressaltos elétricos no botão não conta como aperto.
 
-### 44.4 Estado e persistência
+### 45.4 Estado e persistência
 
 - Antes da cerimônia, todo comando que usa chave responde "estado não
   permite".
@@ -951,16 +988,16 @@ O teste cobra o gesto, e não só o nível dos botões:
 - O modelo da memória flash conta as escritas abaixo do limite de 4 MB,
   onde mora o bitstream. A contagem tem de ser zero.
 
-### 44.5 Silêncio
+### 45.5 Silêncio
 
 O equipamento não fala sem ser perguntado. Um teste observa a linha de
 transmissão durante o boot inteiro e exige que ela não se mexa. A janela de
 observação é pouco maior que o tempo do autoteste, de propósito: se o boot
 ficar mais lento, o teste reprova e alguém tem de olhar.
 
-## 45. Testes de canal lateral e de falha
+## 46. Testes de canal lateral e de falha
 
-### 45.1 Tempo constante
+### 46.1 Tempo constante
 
 O multiplicador modular tem de levar o mesmo número de ciclos para
 quaisquer operandos (seção 30). O teste conta os ciclos de cada produto e
@@ -975,7 +1012,7 @@ reprovou não provou que consegue reprovar.
 Isso mede ciclos, e não corrente. O consumo de energia ao longo do tempo
 também vaza, e este projeto não o mede.
 
-### 45.2 Dupla execução
+### 46.2 Dupla execução
 
 Todo resultado que sai ao host é calculado duas vezes, e só sai se as duas
 contas concordarem. Uma falha provocada num cálculo não se repete igual no
@@ -991,19 +1028,19 @@ Com a chave carregada uma vez só para as duas, uma falha na expansão da
 chave erra as duas do mesmo jeito, e elas concordam. Isso foi medido na
 placa, e a chave passou a ser carregada antes de cada conta.
 
-### 45.3 A campanha de falha na placa
+### 46.3 A campanha de falha na placa
 
 Um injetor encurta um ciclo de clock num instante escolhido. O resultado de
 cada tentativa cai numa classe: resposta certa, sem resposta, recusa, erro
 detectado, ou **resposta errada entregue**. Só a última é uma quebra.
 
 Com a chave carregada a cada execução, foram 13 506 tentativas e nenhuma
-resposta errada entregue. Pela regra de três da seção 40, a taxa de quebra
+resposta errada entregue. Pela regra de três da seção 41, a taxa de quebra
 é menor que `3 / 13 506 = 2,2 × 10⁻⁴` por tentativa, com 95% de confiança,
 para **este** injetor, **nestes** instantes. Outro tipo de falha (tensão,
 laser, campo eletromagnético) é outra medida.
 
-### 45.4 Resposta a violação
+### 46.4 Resposta a violação
 
 Os sensores de temperatura e de tensão têm limites, e o teste cobra a
 borda dos dois lados: um valor logo dentro da faixa não dispara, e um logo
@@ -1014,9 +1051,9 @@ O teste do sistema sobe a temperatura na simulação, sem comando e sem
 botão, e exige a corrente inteira: o equipamento apaga as chaves sozinho,
 vai para `TAMPERED`, recusa comando, e a causa fica no log.
 
-## 46. O autoteste do próprio equipamento
+## 47. O autoteste do próprio equipamento
 
-Os testes das seções 41 a 45 rodam no laboratório. O autoteste roda no
+Os testes das seções 43 a 46 rodam no laboratório. O autoteste roda no
 equipamento, a cada vez que ele liga, e responde a outra pergunta: **este**
 exemplar, **agora**, ainda calcula certo? Uma célula de memória que falhou
 ontem não aparece em teste de laboratório nenhum.
@@ -1024,8 +1061,8 @@ ontem não aparece em teste de laboratório nenhum.
 | Teste | Quando | Tipo |
 |---|---|---|
 | AES-256, SHA-256, HMAC, CMAC, gerador determinístico | boot | resposta conhecida |
-| Fonte de entropia | boot | os dois testes da seção 43, sobre 1024 amostras |
-| Key store | boot | função crítica: as regras da seção 44.2, e a zeroização |
+| Fonte de entropia | boot | os dois testes da seção 44, sobre 1024 amostras |
+| Key store | boot | função crítica: as regras da seção 45.2, e a zeroização |
 | Key block | boot | função crítica: abrir o vetor, recusar o adulterado |
 | RSA, verificação | boot | resposta conhecida, e a recusa da adulterada |
 | RSA, assinatura | primeiro uso | resposta conhecida |
@@ -1057,7 +1094,7 @@ boot, para sempre. Os três testes de primeiro uso são os mais caros.
 <text x="340" y="166" text-anchor="middle" class="ts">cada KAT de primeiro uso roda uma vez por boot, antes do primeiro comando que usa o algoritmo</text>
 <text x="340" y="184" text-anchor="middle" class="ts td">reprovou: apaga as chaves, TAMPERED, e o comando responde 91</text>
 </svg>
-<figcaption>Figura 46.1 — O autoteste no tempo. O que custa pouco roda no boot; o que custa muito, antes do primeiro uso.</figcaption>
+<figcaption>Figura 47.1 — O autoteste no tempo. O que custa pouco roda no boot; o que custa muito, antes do primeiro uso.</figcaption>
 </figure>
 
 **O que acontece se reprovar.** O equipamento apaga as chaves e vai para
@@ -1073,13 +1110,13 @@ caso.
 equipamento informa o hash da memória de código (apêndice E.1), mas não o
 compara, no boot, com uma referência autenticada.
 
-## 47. Testes na placa
+## 48. Testes na placa
 
 A placa é o único lugar onde o silício entra no teste. Ela roda em tempo
 real, e isso muda o que se pode perguntar: geração de chave RSA de ponta a
 ponta, centenas de voltas, o gerador aleatório de verdade.
 
-### 47.1 Os testes de conferência
+### 48.1 Os testes de conferência
 
 Cada um segue o mesmo desenho: o equipamento faz uma operação, e uma
 implementação independente no PC a refaz ou a desfaz.
@@ -1116,7 +1153,7 @@ mestra, e a conferência independente é feita por um segundo HSM.
 <text x="340" y="148" text-anchor="middle" class="ts">o caminho inverso: bloco do Python</text>
 <text x="340" y="188" text-anchor="middle" class="ts">cem voltas por teste; uma discordância de formato aparece na primeira volta</text>
 </svg>
-<figcaption>Figura 47.1 — O teste de conferência. O equipamento faz; uma implementação independente refaz ou desfaz.</figcaption>
+<figcaption>Figura 48.1 — O teste de conferência. O equipamento faz; uma implementação independente refaz ou desfaz.</figcaption>
 </figure>
 
 **O `r` não se repete.** No teste de ECDSA, cada assinatura tem o `r`
@@ -1125,9 +1162,9 @@ e a chave privada exposta (seção 30). Com `k` de 256 bits, uma repetição
 honesta em algumas centenas de assinaturas tem chance desprezível: se
 aparecer, o gerador está quebrado.
 
-### 47.2 O que os números da placa dizem
+### 48.2 O que os números da placa dizem
 
-- **"100 de 100 voltas"** diz, pela conta da seção 40, que um defeito que
+- **"100 de 100 voltas"** diz, pela conta da seção 41, que um defeito que
   afete 5% das entradas teria aparecido com 99,4% de certeza. Não diz nada
   sobre um defeito de borda, que é coberto pelos vetores escolhidos.
 - **"10 000 comandos sem erro"** diz que a taxa de erro do enlace é menor
@@ -1135,7 +1172,7 @@ aparecer, o gerador está quebrado.
 - **Tempos** são medidos na placa, porque a simulação mede ciclos e a placa
   mede o sistema inteiro, serial incluída.
 
-### 47.3 A regressão
+### 48.3 A regressão
 
 Um script roda todos os testes de conferência em sequência e dá um
 veredito. O primeiro passo dele é perguntar ao equipamento o hash do
@@ -1145,7 +1182,7 @@ conferem, o resto testaria outro firmware, e o script para.
 Ele não substitui a simulação. Não provoca falhas, não vê sinais internos e
 não aperta botões.
 
-## 48. O que não é testado
+## 49. O que não é testado
 
 Uma lista honesta do que fica fora vale tanto quanto a lista do que está
 dentro.

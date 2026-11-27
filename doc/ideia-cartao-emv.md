@@ -1,7 +1,7 @@
 # Ideia: cartão EMV de teste num Java Card
 
 *Ideia registrada em 2026-11-25, a pedido do usuário. **Não implementada.**
-Depende da etapa 8.10 (ARQC), que ainda não existe.*
+Depende da etapa 8.10 (ARQC e ARPC: `A0`, `A2`; manual, seção 40).*
 
 ## A pergunta
 
@@ -28,7 +28,7 @@ ver `PLANO.md`, decisões da 8.10.)
 |---|---|
 | Applet EMV | programa que responde como cartão de pagamento (SELECT, GET PROCESSING OPTIONS, GENERATE AC). Há applets abertos, de pesquisa e ensino: escolher um com licença compatível e conferir que variantes de ARQC ele faz |
 | Ferramenta de carga | programa no PC que instala o applet pelo leitor PC/SC (o GlobalPlatformPro, por exemplo) |
-| Personalização | o PAN `999999…`, a validade, e a MK do cartão, derivada pelo nosso HSM de uma IMK de teste: o papel de uma bureau de personalização |
+| Personalização | o PAN `999999…`, a validade, e a MK do cartão, derivada pelo nosso HSM de uma IMK de teste (o `A2` a entrega sob KEK): o papel de um bureau de personalização |
 
 ## O ciclo
 
@@ -49,7 +49,8 @@ ver `PLANO.md`, decisões da 8.10.)
 
 ## Custo
 
-Java Cards de desenvolvimento custam poucos dólares cada. Esforço de 1 a 2
+Um Java Card de desenvolvimento (JCOP 4, "unfused") custava cerca de R$ 53 em
+novembro de 2026, no anúncio que o usuário viu. Esforço de 1 a 2
 semanas além da 8.10: escolher e entender o applet, personalizar, e escrever
 o script de terminal com as recusas.
 

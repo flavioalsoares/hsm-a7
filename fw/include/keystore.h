@@ -80,6 +80,7 @@ typedef uint8_t ks_handle_t;
 #define KS_USO_PVK_OFFSET "V1" /* verificacao de PIN, metodo do offset */
 #define KS_USO_PVK_PVV    "V2" /* verificacao de PIN, PVV              */
 #define KS_USO_CVK      "C0"   /* verificacao de cartao: CVV -- etapa 8.6 */
+#define KS_USO_IMK      "E0"   /* chave mestra do emissor (EMV): ARQC -- etapa 8.10 */
 #define KS_USO_ASSINA   "S0"   /* par assimetrico de assinatura -- fase 7 */
 
 #define KS_ALG_AES      'A'
@@ -340,6 +341,39 @@ int keystore_dukpt_mac(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
 int keystore_dukpt_dados(ks_handle_t h, const uint8_t *ksn, uint32_t ksn_n,
                          uint32_t n_trab, int cifrar, const uint8_t *iv,
                          const uint8_t *entrada, uint8_t *saida, uint32_t n);
+
+/* ARQC e ARPC do EMV (etapa 8.10). `h` e a IMK: uso E0, modo 'X', 3DES
+ * duplo. O lado do emissor; o chip gera o ARQC, e nao ha funcao para isso.
+ *
+ *   keystore_emv_arqc(): refaz a MK do cartao pela Opcao A (`pan_n` de 1 a
+ *     16 digitos ASCII, `psn` 2) e a chave do esquema (EMV_ESQ_MK, CVN 10;
+ *     EMV_ESQ_CSK, sessao comum com o `atc`), e confere o `arqc` sobre os
+ *     `dados` (preenchimento `pad` 1 ou 2), em tempo constante. Se conferir
+ *     e `metodo` for 1 ou 2, o ARPC sai em `arpc` (8 ou 4 bytes): `arg` e o
+ *     ARC (2 bytes) no metodo 1, o CSU (4) no 2, com `pad_aut` de 0 a 8
+ *     bytes. O esquema MK so aceita o metodo 1. O ARQC calculado nunca sai.
+ *     Devolve 0 (conferiu); 1 (nao conferiu, e nenhum ARPC); -1 (nao e IMK);
+ *     -4 (PAN fora da Opcao A); -5 (esquema, preenchimento, metodo ou dado
+ *     proprio invalido); -2 (as duas contas discordaram: erro grave); -3
+ *     (erro interno ou dados de tamanho invalido).
+ *
+ *   keystore_emv_mk(): a MK do cartao, para a personalizacao, embrulhada sob
+ *     as subchaves de uma KEK de `n` bytes (versao D se 32, B se 16 ou 24),
+ *     com uso E0, modo 'X' e exportabilidade 'N', e o KCV dela. Devolve 0;
+ *     -1 (erro); -2 (as duas contas discordaram); -3 (KEK mais fraca); -4
+ *     (nao e IMK); -5 (PAN fora da Opcao A). */
+int keystore_emv_arqc(ks_handle_t h, const uint8_t *pan, uint32_t pan_n,
+                      const uint8_t psn[2], const uint8_t atc[2], int esquema,
+                      uint8_t pad, const uint8_t *dados, uint32_t n,
+                      const uint8_t arqc[8], int metodo,
+                      const uint8_t *arg, const uint8_t *pad_aut,
+                      uint32_t pad_aut_n, uint8_t *arpc);
+int keystore_emv_mk(ks_handle_t h, const uint8_t *pan, uint32_t pan_n,
+                    const uint8_t psn[2],
+                    const uint8_t kbek[KS_KEY_MAX],
+                    const uint8_t kbak[KS_KEY_MAX], uint8_t n,
+                    char *saida, uint32_t *saida_n,
+                    uint8_t kcv[KS_KCV_LEN]);
 
 /* Verificacao de PIN (fase 8, etapa 8.5) -- sobre o PIN que
  * `keystore_pin_abre()` deixou aberto. As duas apagam o PIN ao sair, em todo

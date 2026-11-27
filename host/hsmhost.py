@@ -348,6 +348,31 @@ class Host:
         n = int(c[1:5])
         return c[:n].decode(), c[n:n + 6].decode()
 
+    # -- ARQC e ARPC (fase 8, etapa 8.10) -----------------------------
+    def arqc(self, imk, esquema, pad, pan, psn, atc, arqc, d, metodo="0",
+             arg=b"", pad_aut=b""):
+        """A0: confere o ARQC e, se conferir, gera o ARPC. `esquema` '0' (MK,
+        CVN 10) ou '1' (chave de sessao comum); `pad` '1' ou '2'; `metodo`
+        '0', '1' (arg = ARC, 2 bytes) ou '2' (arg = CSU, 4 bytes, e o dado
+        proprio, de 0 a 8). Devolve (conferiu, ARPC); o ARPC e vazio se o
+        metodo e '0' ou se nao conferiu."""
+        campos = (imk + esquema + pad + "%02d" % len(pan) + pan + psn
+                  + atc.hex().upper() + arqc.hex().upper() + metodo)
+        if metodo == "1":
+            campos += arg.hex().upper()
+        elif metodo == "2":
+            campos += arg.hex().upper() + str(len(pad_aut)) + pad_aut.hex().upper()
+        erro, c = self.pede("A0", campos.encode() + dados(d), aceita=(0, 1))
+        return erro == 0, bytes.fromhex(c.decode())
+
+    def emv_mk(self, kek, imk, pan, psn):
+        """A2: a MK do cartao, sob a KEK, para a personalizacao. Devolve
+        (bloco, KCV)."""
+        _, c = self.pede("A2", (kek + imk + "%02d" % len(pan) + pan
+                                + psn).encode())
+        n = int(c[1:5])
+        return c[:n].decode(), c[n:n + 6].decode()
+
     # -- verificacao de PIN (fase 8, etapa 8.5) -----------------------
     @staticmethod
     def _pin_comum(kpin, pvk, formato, pan, bloco):
@@ -1191,6 +1216,154 @@ def cvv_confere(h, lmk, n):
     return 0
 
 
+def arqc_confere(h, lmk, n):
+    """ARQC e ARPC (A0) e a MK do cartao sob KEK (A2), conferidos com o
+    emv.py. O Python faz o papel do CHIP de teste: tem a MK, derivada da IMK
+    em claro (aberta com a LMK de desenvolvimento), e calcula o ARQC. O HSM
+    so confere e responde com o ARPC.
+
+    Tambem leva as IMKs das duas fontes de terceiros (vectors/emv/arqc.rsp)
+    para dentro do equipamento, por K6, e exige o veredito e o ARPC
+    publicados.
+
+    ⚠ PRECISA DA LMK, como o `confere`.
+    ⚠ Os PANs das voltas sao inventados (prefixo 999999); os das fontes sao
+    padrao de teste. Nenhum PAN real, nunca."""
+    import emv
+    import tr31
+    from hsmtool import _kcv_local
+
+    d = h.diag()
+    if d["kcv_lmk"] != _kcv_local(lmk).hex().upper():
+        print("KCV da LMK nao confere: dispositivo %s, informada %s"
+              % (d["kcv_lmk"], _kcv_local(lmk).hex().upper()))
+        return 1
+
+    def recusa(codigo, fn, *args, **kw):
+        try:
+            fn(*args, **kw)
+        except HostErro as e:
+            assert e.codigo == codigo, "%s: %d, esperado %d" % (
+                fn.__name__, e.codigo, codigo)
+        else:
+            raise AssertionError("%s aceito, esperado %d"
+                                 % (fn.__name__, codigo))
+
+    def digitos(k):
+        return "".join(str(b % 10) for b in os.urandom(k))
+
+    # 1. os casos publicados que trazem o ATC (os de R livre nao cabem no A0)
+    kek_i, _ = h.gen("K0", "D", "E")
+    kek_i_c, _ = tr31.desembrulha(lmk, kek_i)
+    casos = emv.le_rsp(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "..", "vectors", "emv", "arqc.rsp"))
+    usados = 0
+    for c in casos:
+        if "ATC" not in c:
+            continue
+        imk_b, kcv = h.importa(kek_i, tr31.embrulha(
+            kek_i_c, bytes.fromhex(c["IMK"]), "E0", "T", "X", "E"))
+        if "IMKKCV" in c:
+            assert kcv == c["IMKKCV"], "KCV da IMK %s" % c["FONTE"]
+        esq = "0" if c["ESQUEMA"] == "MK" else "1"
+        metodo, arg, pa = "0", b"", b""
+        if "ARPC1" in c:
+            metodo, arg = "1", bytes.fromhex(c["ARC"])
+        elif "ARPC2" in c:
+            metodo, arg, pa = "2", bytes.fromhex(c["CSU"]), bytes.fromhex(c["PAD_AUT"])
+        ok, arpc = h.arqc(imk_b, esq, c["PAD"], c["PAN"], c["PSN"],
+                          bytes.fromhex(c["ATC"]), bytes.fromhex(c["ARQC"]),
+                          bytes.fromhex(c["DADOS"]), metodo, arg, pa)
+        assert ok, "A0 recusou o ARQC publicado: %s" % c["FONTE"]
+        if metodo != "0":
+            assert arpc.hex().upper() == c["ARPC" + metodo], \
+                "A0: ARPC publicado %s" % c["FONTE"]
+        usados += 1
+    print("valores publicados: %d casos conferidos (pyemv e jPOS)" % usados)
+
+    # 2. voltas: IMK gerada no HSM, o chip de teste em Python
+    kek_a, _ = h.gen("K0", "E", "E")
+    kek_t, _ = h.gen("K0", "E", "E", "T2")
+    kek_a_c, _ = tr31.desembrulha(lmk, kek_a)
+    kek_t_c, _ = tr31.desembrulha(lmk, kek_t)
+    for volta in range(n):
+        imk_b, _ = h.gen("E0", "X", "E", "T2")
+        imk, _ = tr31.desembrulha(lmk, imk_b)
+        pan = "999999" + digitos(6 + volta % 5)          # 12 a 16 digitos
+        psn = "%02d" % (volta % 100)
+        atc = os.urandom(2)
+        dados_t = os.urandom(1 + (os.urandom(1)[0] % 64))
+        for esq in ("0", "1"):
+            for pad in ("1", "2"):
+                arqc = emv.gera_arqc(imk, pan, psn, atc, esq, dados_t, int(pad))
+                k = emv.chave_ac(imk, pan, psn, atc, esq)
+                arc = os.urandom(2)
+                ok, arpc = h.arqc(imk_b, esq, pad, pan, psn, atc, arqc, dados_t,
+                                  "1", arc)
+                assert ok and arpc == emv.arpc1(k, arqc, arc), "A0 metodo 1"
+                ok, _ = h.arqc(imk_b, esq, pad, pan, psn, atc, arqc, dados_t)
+                assert ok, "A0 metodo 0"
+                if esq == "1":
+                    csu = os.urandom(4)
+                    pa = os.urandom(volta % 9)
+                    ok, arpc = h.arqc(imk_b, esq, pad, pan, psn, atc, arqc,
+                                      dados_t, "2", csu, pa)
+                    assert ok and arpc == emv.arpc2(k, arqc, csu, pa), "A0 metodo 2"
+                # um bit trocado no ARQC, no ATC ou nos dados: 01, sem ARPC
+                ruim = bytes([arqc[0] ^ 0x01]) + arqc[1:]
+                ok, arpc = h.arqc(imk_b, esq, pad, pan, psn, atc, ruim, dados_t,
+                                  "1", arc)
+                assert not ok and arpc == b"", "A0 aceitou ARQC errado"
+                ok, _ = h.arqc(imk_b, esq, pad, pan, psn,
+                               bytes([atc[0], atc[1] ^ 1]), arqc, dados_t)
+                assert ok == (esq == "0"), "A0: o ATC so conta na CSK"
+                ok, _ = h.arqc(imk_b, esq, pad, pan, psn, atc, arqc,
+                               dados_t + b"\x00" if pad == "2" else dados_t + b"\x01")
+                assert not ok, "A0 aceitou dados alterados"
+        # A2: a MK sob as duas KEKs, conferida com o Python
+        mk = emv.mk_opcao_a(imk, pan, psn)
+        for kek, kek_c in ((kek_a, kek_a_c), (kek_t, kek_t_c)):
+            b, kcv = h.emv_mk(kek, imk_b, pan, psn)
+            mk_c, cab = tr31.desembrulha(kek_c, b)
+            assert mk_c == mk, "A2: MK"
+            assert (cab["uso"], cab["algoritmo"], cab["modo"],
+                    cab["exportabilidade"]) == ("E0", "T", "X", "N"), \
+                "A2: cabecalho %r" % cab
+            assert kcv == _kcv3(mk), "A2: KCV"
+        print("volta %d: A0 (2 esquemas, 2 preenchimentos, metodos 0 1 2) e A2 "
+              "conferidos (PAN de %d)" % (volta + 1, len(pan)))
+
+    # 3. recusas
+    imk_b, _ = h.gen("E0", "X", "E", "T2")
+    imk, _ = tr31.desembrulha(lmk, imk_b)
+    pan, psn, atc, dd = "9999990000000001", "00", b"\x00\x01", b"\x11" * 16
+    arqc = emv.gera_arqc(imk, pan, psn, atc, "1", dd, 2)
+    recusa(15, h.arqc, imk_b, "1", "2", pan + "2", psn, atc, arqc, dd)     # PAN de 17
+    recusa(15, h.emv_mk, kek_a, imk_b, pan + "2", psn)
+    recusa(16, h.arqc, imk_b, "0", "2", pan, psn, atc, arqc, dd, "2",
+           b"\0" * 4)                                                     # MK + metodo 2
+    recusa(16, h.arqc, imk_b, "2", "2", pan, psn, atc, arqc, dd)          # esquema 2
+    recusa(16, h.arqc, imk_b, "1", "3", pan, psn, atc, arqc, dd)          # preench. 3
+    recusa(16, h.arqc, imk_b, "1", "2", pan, psn, atc, arqc, dd, "3")     # metodo 3
+    recusa(15, h.arqc, imk_b, "1", "2", pan, psn, atc, arqc, b"")         # dados vazios
+    bdk, _ = h.gen("B0", "X", "E", "T2")
+    recusa(11, h.arqc, bdk, "1", "2", pan, psn, atc, arqc, dd)            # nao e IMK
+    so_g, _ = h.gen("E0", "G", "E", "T2")
+    recusa(11, h.arqc, so_g, "1", "2", pan, psn, atc, arqc, dd)           # modo errado
+    aes, _ = h.gen("E0", "X", "E")
+    recusa(11, h.arqc, aes, "1", "2", pan, psn, atc, arqc, dd)            # AES
+    recusa(11, h.emv_mk, kek_a, bdk, pan, psn)
+    print("recusas conferidas")
+    print("%d de %d voltas conferidas" % (n, n))
+    return 0
+
+
+def _kcv3(chave):
+    """KCV de uma chave 3DES: 3DES de zeros, 3 bytes, em hex."""
+    from des import kcv
+    return kcv(chave).hex().upper()
+
+
 def _dukpt_anexo():
     """O cabecalho e as transacoes de vectors/dukpt/x924_1_tdes.rsp."""
     cab, txs, atual = {}, [], {}
@@ -1731,6 +1904,9 @@ def main(argv=None):
     p = sub.add_parser("dukpt-confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
+    p = sub.add_parser("arqc-confere")
+    p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
+    p.add_argument("-n", type=int, default=10)
     p = sub.add_parser("cvv-confere")
     p.add_argument("--lmk", required=True, help="LMK em hex (brinquedo)")
     p.add_argument("-n", type=int, default=10)
@@ -1819,6 +1995,8 @@ def main(argv=None):
             return pin_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "dukpt-confere":
             return dukpt_confere(h, bytes.fromhex(a.lmk), a.n)
+        elif a.cmd == "arqc-confere":
+            return arqc_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "cvv-confere":
             return cvv_confere(h, bytes.fromhex(a.lmk), a.n)
         elif a.cmd == "pinv-confere":

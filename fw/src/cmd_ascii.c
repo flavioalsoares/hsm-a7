@@ -34,6 +34,7 @@
 #include "cvv.h"
 #include "des.h"
 #include "dukpt.h"
+#include "emv.h"
 #include "kat.h"
 #include "tr31.h"
 #include "wipe.h"
@@ -1908,6 +1909,176 @@ static uint8_t h_w0(leitor_t *in, escritor_t *out) { return cvv_cmd(in, out, 1);
 static uint8_t h_w2(leitor_t *in, escritor_t *out) { return cvv_cmd(in, out, 0); }
 
 /* ------------------------------------------------------------------ */
+/* ARQC e ARPC do EMV -- etapa 8.10                                    */
+/* ------------------------------------------------------------------ */
+
+/* PAN (2 digitos de tamanho, de 1 a 19, e os digitos) e PSN (2 digitos).
+ * Mais de 16 digitos passa aqui e e recusado pelo key store (15): a Opcao B
+ * ficou fora. */
+static uint8_t le_pan_psn(leitor_t *in, uint8_t pan[EMV_PAN_MAX],
+                          uint32_t *pan_n, uint8_t psn[2])
+{
+    int32_t pn = le_dec(in, 2u);
+    uint8_t r;
+
+    if (pn == -1)                                       { return ASCII_MALFORMADA; }
+    if ((pn < 1) || (pn > (int32_t)EMV_PAN_MAX))        { return ASCII_PARAM; }
+    if ((r = le_digitos(in, pan, (uint32_t)pn)) != ASCII_OK) { return r; }
+    *pan_n = (uint32_t)pn;
+    return le_digitos(in, psn, 2u);
+}
+
+/* Um caractere entre '0' e `max`; -1 se falta, -2 se fora. */
+static int le_opcao(leitor_t *in, uint8_t max)
+{
+    uint8_t c;
+
+    if ((uint32_t)in->pos + 1u > in->n) {
+        return -1;
+    }
+    c = in->p[in->pos];
+    if ((c < (uint8_t)'0') || (c > max)) {
+        return -2;
+    }
+    in->pos = (uint16_t)(in->pos + 1u);
+    return (int)(c - (uint8_t)'0');
+}
+
+/* A0 -- conferir o ARQC e, se conferir, gerar o ARPC (lado do emissor):
+ *       bloco da IMK . esquema(1) . preenchimento(1) . PAN(2 + n) . PSN(2) .
+ *       ATC(4) . ARQC(16) . metodo(1) . [ARC(4)] . [CSU(8) . dado proprio
+ *       (1 + 2k)] . dados(4 + hex)
+ *       -> 00 . [ARPC: 16 caracteres no metodo 1, 8 no 2]; 01 nao conferiu
+ *
+ * Esquema '0': o criptograma sai da MK do cartao (CVN 10). '1': da chave de
+ * sessao comum do ATC. Preenchimento '1' (zeros) ou '2' (80 e zeros).
+ * Metodo '0' (so conferir), '1' (ARC) ou '2' (CSU e dado proprio de 0 a 8
+ * bytes); o esquema '0' aceita so o '0' e o '1'.
+ *
+ * Checklist: OPERATIONAL; sem dual control. O HSM nao gera ARQC: isso e do
+ * chip, e um HSM que o fizesse forjaria transacoes de qualquer cartao. O A0
+ * devolve um bit sobre o ARQC, comparado em tempo constante; o ARQC
+ * calculado nao sai, e o ARPC so sai se o ARQC conferiu. Em laco, o A0 e um
+ * oraculo de ARPC para ARQCs verdadeiros, que e o servico. Nenhuma chave
+ * sai. Entra no log. */
+static uint8_t h_a0(leitor_t *in, escritor_t *out)
+{
+    const uint8_t *kb = 0;
+    uint16_t       kbn = 0u;
+    uint8_t        pan[EMV_PAN_MAX], psn[2], atc[2], arqc[EMV_AC_LEN];
+    uint8_t        arg[EMV_CSU_LEN], pad_aut[EMV_PAD_AUT_MAX];
+    uint8_t        arpc[EMV_ARPC1_LEN];
+    uint32_t       pan_n = 0u, pad_aut_n = 0u, n = 0u;
+    ks_info_t      info;
+    int            esq, pad, metodo, v;
+    int32_t        pa;
+    uint8_t        r;
+
+    if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK)      { return r; }
+    if ((esq = le_opcao(in, (uint8_t)'1')) == -1)       { return ASCII_MALFORMADA; }
+    if (esq < 0)                                        { return ASCII_PARAM; }
+    if ((pad = le_opcao(in, (uint8_t)'2')) == -1)       { return ASCII_MALFORMADA; }
+    if (pad < 1)                                        { return ASCII_PARAM; }
+    if ((r = le_pan_psn(in, pan, &pan_n, psn)) != ASCII_OK) { return r; }
+    if ((r = le_hex(in, atc, 2u)) != ASCII_OK)          { return r; }
+    if ((r = le_hex(in, arqc, EMV_AC_LEN)) != ASCII_OK) { return r; }
+    if ((metodo = le_opcao(in, (uint8_t)'2')) == -1)    { return ASCII_MALFORMADA; }
+    if (metodo < 0)                                     { return ASCII_PARAM; }
+    if (metodo == 1) {
+        if ((r = le_hex(in, arg, EMV_ARC_LEN)) != ASCII_OK) { return r; }
+    } else if (metodo == 2) {
+        if ((r = le_hex(in, arg, EMV_CSU_LEN)) != ASCII_OK) { return r; }
+        pa = le_dec(in, 1u);
+        if (pa == -1)                                   { return ASCII_MALFORMADA; }
+        if ((pa < 0) || (pa > (int32_t)EMV_PAD_AUT_MAX)) { return ASCII_PARAM; }
+        pad_aut_n = (uint32_t)pa;
+        if ((r = le_hex(in, pad_aut, pad_aut_n)) != ASCII_OK) { return r; }
+    }
+    if ((r = le_dados(in, g_dados, ASCII_DADOS_MAX, &n)) != ASCII_OK) {
+        return r;
+    }
+    if ((r = fim(in)) != ASCII_OK)                      { return r; }
+    if (n == 0u)                                        { return ASCII_DADOS; }
+    if ((r = abre_bloco(kb, kbn, &info)) != ASCII_OK)   { return r; }
+
+    v = keystore_emv_arqc(KS_HANDLE_EFEMERA, pan, pan_n, psn, atc, esq,
+                          (uint8_t)pad, g_dados, n, arqc, metodo, arg,
+                          pad_aut, pad_aut_n, arpc);
+    if (v == 0) {
+        if (metodo != 0) {
+            poe_hex(out, arpc, (metodo == 1) ? EMV_ARPC1_LEN : EMV_ARPC2_LEN);
+        }
+        r = ASCII_OK;
+    } else {
+        r = (v == 1)  ? ASCII_VERIF_FALHOU
+          : (v == -1) ? ASCII_MODO
+          : (v == -4) ? ASCII_DADOS
+          : (v == -5) ? ASCII_PARAM
+          : (v == -2) ? ASCII_ERRO_GRAVE : ASCII_INTERNO;
+    }
+    wipe(arpc, sizeof arpc);
+    return r;
+}
+
+/* A2 -- a MK de um cartao, para a personalizacao (funcao de emissao):
+ *       bloco da KEK . bloco da IMK . PAN(2 + n) . PSN(2)
+ *       -> bloco da MK sob a KEK . KCV(6)
+ *
+ * A MK sai com uso E0, modo 'X' e exportabilidade 'N', como a IPEK do I0.
+ *
+ * Checklist: OPERATIONAL; sem dual control, como o I0. E uma funcao de
+ * emissao: quem tem a IMK e uma KEK obtem a MK de qualquer cartao, sob a
+ * KEK. O controle e o log e a posse da KEK; a MK nunca sai em claro. Uma MK
+ * importada de volta tem o cabecalho de uma IMK, e o A0 a usaria como tal:
+ * ela deriva, mas nao revela nada (decisao do usuario, 2026-11-26). Entra
+ * no log. */
+static uint8_t h_a2(leitor_t *in, escritor_t *out)
+{
+    const uint8_t *kb = 0, *ib = 0;
+    uint16_t       kbn = 0u, ibn = 0u;
+    uint8_t        kbek[KS_KEY_MAX], kbak[KS_KEY_MAX];
+    uint8_t        pan[EMV_PAN_MAX], psn[2], kcv[KS_KCV_LEN];
+    char           bloco[TR31_ASCII_MAX];
+    uint32_t       bn = 0u, i, pan_n = 0u;
+    ks_info_t      info;
+    uint8_t        r, n = 0u;
+    int            v;
+
+    if ((r = le_bloco(in, &kb, &kbn)) != ASCII_OK)      { return r; }
+    if ((r = le_bloco(in, &ib, &ibn)) != ASCII_OK)      { return r; }
+    if ((r = le_pan_psn(in, pan, &pan_n, psn)) != ASCII_OK) { return r; }
+    if ((r = fim(in)) != ASCII_OK)                      { return r; }
+
+    if ((r = kek_subchaves(kb, kbn, KS_MODO_CIFRA, kbek, kbak, &n))
+        != ASCII_OK) {
+        goto sai;
+    }
+    if ((r = abre_bloco(ib, ibn, &info)) != ASCII_OK) {
+        goto sai;
+    }
+    v = keystore_emv_mk(KS_HANDLE_EFEMERA, pan, pan_n, psn, kbek, kbak, n,
+                        bloco, &bn, kcv);
+    if (v != 0) {
+        r = (v == -4) ? ASCII_MODO
+          : (v == -5) ? ASCII_DADOS
+          : (v == -3) ? ASCII_NAO_KEK
+          : (v == -2) ? ASCII_ERRO_GRAVE : ASCII_INTERNO;
+        goto sai;
+    }
+    for (i = 0u; i < bn; i++) {
+        poe(out, (uint8_t)bloco[i]);
+    }
+    poe_hex(out, kcv, KS_KCV_LEN);
+    r = ASCII_OK;
+sai:
+    wipe(kbek, sizeof kbek);
+    wipe(kbak, sizeof kbak);
+    wipe(bloco, sizeof bloco);
+    wipe(kcv, sizeof kcv);
+    return r;
+}
+
+/* ------------------------------------------------------------------ */
 /* Tabela                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -1947,6 +2118,8 @@ static const ascii_entry_t g_ascii[] = {
     { 'V', '6', ST_OPER,   h_v6, L },
     { 'W', '0', ST_OPER,   h_w0, L },
     { 'W', '2', ST_OPER,   h_w2, L },
+    { 'A', '0', ST_OPER,   h_a0, L },
+    { 'A', '2', ST_OPER,   h_a2, L },
     { 'R', '0', ST_OPER,   h_r0, L },
     { 'R', '2', ST_OPER,   h_r2, L },
     { 'R', '4', ST_OPER,   h_r4, L },

@@ -569,6 +569,40 @@ def dukpt_tdes():
             "epb": bytes.fromhex(esc[0][1])}
 
 
+def emv_kat():
+    """Etapa 8.10: dois casos de ARQC e ARPC de vectors/emv/arqc.rsp, de
+    fontes diferentes (valores de terceiros; ver o MANIFEST): o CVN 10 do
+    jPOS (MK direto, preenchimento 1, ARPC metodo 1) e o CVN 18 do pyemv
+    (chave de sessao comum com o ATC, preenchimento 2, ARPC metodo 2)."""
+    casos, atual = {}, None
+    for linha in (VEC / "emv" / "arqc.rsp").read_text().splitlines():
+        if linha.startswith("["):
+            atual = {}
+            casos[linha[1:-1]] = atual
+        elif " = " in linha and atual is not None:
+            k, v = linha.split(" = ", 1)
+            atual[k] = v
+        elif linha.endswith(" =") and atual is not None:
+            atual[linha[:-2]] = ""
+    sai = []
+    for nome, esq, metodo in (
+            ("jPOS JCESecurityModuleTest.java testVerifyARQCGenerateARPCImpl_VSDC_P00_M1", "MK", 1),
+            ("pyemv test_cvn_hsm.py test_visa_cvn18", "CSK", 2)):
+        c = casos.get(nome)
+        if (not c or c["ESQUEMA"] != esq or "ATC" not in c or
+                ("ARPC%d" % metodo) not in c or c.get("PAD_AUT", "") != ""):
+            raise SystemExit("EMV: caso do autoteste nao achado: " + nome)
+        sai.append({
+            "imk": bytes.fromhex(c["IMK"]), "pan": c["PAN"].encode(),
+            "psn": c["PSN"].encode(), "atc": bytes.fromhex(c["ATC"]),
+            "esq": 0 if esq == "MK" else 1, "pad": int(c["PAD"]),
+            "dados": bytes.fromhex(c["DADOS"]), "arqc": bytes.fromhex(c["ARQC"]),
+            "metodo": metodo,
+            "arg": bytes.fromhex(c["ARC"] if metodo == 1 else c["CSU"]),
+            "arpc": bytes.fromhex(c["ARPC%d" % metodo])})
+    return sai
+
+
 def dukpt_mac_kat():
     """Etapa 8.9b: os valores de MAC e de dados do autoteste do DUKPT, de
     vectors/dukpt/dukpt_mac_dados.rsp (valores de terceiros; ver o MANIFEST),
@@ -864,6 +898,21 @@ def main():
     L.append(carr("kat_dukpt_reqmac", dm["reqmac"]))
     L.append(carr("kat_dukpt_aes_mackey", dm["mackey"]))
     L.append(carr("kat_dukpt_aes_datakey", dm["datakey"]))
+    L.append("/* Etapa 8.10: ARQC e ARPC (arqc.rsp), um caso de cada fonte. */")
+    for i, e in enumerate(emv_kat(), 1):
+        L.append(carr("kat_emv%d_imk" % i, e["imk"]))
+        L.append(carr("kat_emv%d_pan" % i, e["pan"]))
+        L.append(f"#define KAT_EMV{i}_PAN_LEN {len(e['pan'])}u")
+        L.append(carr("kat_emv%d_psn" % i, e["psn"]))
+        L.append(carr("kat_emv%d_atc" % i, e["atc"]))
+        L.append(f"#define KAT_EMV{i}_ESQ {e['esq']}")
+        L.append(f"#define KAT_EMV{i}_PAD {e['pad']}u")
+        L.append(carr("kat_emv%d_dados" % i, e["dados"]))
+        L.append(f"#define KAT_EMV{i}_DADOS_LEN {len(e['dados'])}u")
+        L.append(carr("kat_emv%d_arqc" % i, e["arqc"]))
+        L.append(f"#define KAT_EMV{i}_METODO {e['metodo']}")
+        L.append(carr("kat_emv%d_arg" % i, e["arg"]))
+        L.append(carr("kat_emv%d_arpc" % i, e["arpc"]))
     (ce, cc, cx), (de, dc, dx) = aes128_vetores()
     L.append(carr("kat_aes128_cifra_chave", ce))
     L.append(carr("kat_aes128_cifra_claro", cc))

@@ -9,7 +9,7 @@ O equipamento implementa uma parte do que está aqui: os PIN blocks formato
 0 e 4 e a tradução de PIN (seções 33 e 34), a verificação de PIN (seção 35),
 o CVV (seção 36), o DUKPT (seção 37), as chaves 3DES (seção 39), a troca de
 chaves 3DES com outra instituição (seção 39.9) e o MAC e a cifra de dados com
-3DES (seção 39.10). A seção 38 explica o que é
+3DES (seção 39.10), e o ARQC e o ARPC do EMV (seção 40). A seção 38 explica o que é
 implementável, o que não é, e por quê. O resto do material é para entender
 o domínio.
 
@@ -262,7 +262,7 @@ O enchimento `A` não é dígito decimal. Quem abre o bloco confere o controle,
 o tamanho, os dígitos e o enchimento. Um bloco aberto com a chave errada, ou
 com o PAN errado, é um bloco ao acaso, e passa nessa conferência uma vez em
 cerca de 2²⁴, ou 17 milhões. Quem domina a conta é o PIN de 12 dígitos, que
-só deixa dois nibbles de enchimento para conferir. A seção 42.2 faz a conta.
+só deixa dois nibbles de enchimento para conferir. A seção 43.2 faz a conta.
 
 ⚠ **A ISO 9564-1 é paga, e não há vetor oficial público do formato 4.** O
 equipamento foi conferido contra valores publicados por uma implementação
@@ -673,7 +673,7 @@ cauda de uma binomial:
 ```
 
 Por isso o teste de PC não espera o acaso: ele constrói blocos com toda
-quantidade de decimais, de 0 a 16 (seção 42.3).
+quantidade de decimais, de 0 a 16 (seção 43.3).
 
 **O PVV não determina o PIN.** Há 10 000 PINs de 4 dígitos e 10 000 PVVs,
 e a cifra espalha uns sobre os outros ao acaso. Para um PIN qualquer, a
@@ -782,7 +782,7 @@ não lembra o que já autorizou.
 **Cada veredito é calculado duas vezes.** A conferência do MAC da tabela, a
 cifra e a comparação final do `V2` e do `V6` rodam duas vezes, cada uma a
 partir da sua própria conta. Se discordam, nada sai, a resposta é `91` e o
-erro grave fica marcado (seção 45.2). Um veredito é o que uma falha
+erro grave fica marcado (seção 46.2). Um veredito é o que uma falha
 provocada quer inverter: um `01` que vira `00`, ou uma tabela recusada que
 passa.
 
@@ -909,7 +909,7 @@ dígitos:
 ```
 
 Nenhum dos valores publicados por terceiros cai nesse caso. O teste de PC
-constrói os blocos (seção 42.4).
+constrói os blocos (seção 43.4).
 
 **Três dígitos são pouco.** São 1 000 valores. Quem pode pedir a verificação
 acha o código em 500 pedidos, em média, e em 1 000 no pior caso. A defesa não
@@ -2108,7 +2108,7 @@ para uma tripla, três. Os 8 bytes de entrada são:
 ```
 
 Um exemplo com números, do bloco publicado pela biblioteca `psec` (valor de
-terceiros, seção 42.1). A KBPK é `DD7515F2BFC17F85CE48F3CA25CB21F6`, dupla:
+terceiros, seção 43.1). A KBPK é `DD7515F2BFC17F85CE48F3CA25CB21F6`, dupla:
 
 ```
     KBEK, 1a chamada   CMAC(KBPK, 0100000000000080) = 698832F8778A7CFC
@@ -2355,3 +2355,271 @@ As regras do equipamento:
   uma discordância responde `91`.
 - **O autoteste do 3DES** (seção 39.8) passou a incluir dois valores
   publicados de retail MAC, um de cada preenchimento.
+
+## 40. ARQC — o criptograma do chip
+
+Numa compra com o cartão de chip, a prova de que o cartão é verdadeiro não é
+um número impresso. É uma **conta que o chip faz** a cada transação, com uma
+chave que nunca sai dele. O resultado é o **ARQC** (*Authorization Request
+Cryptogram*): 8 bytes, calculados sobre os dados da transação. O emissor
+refaz a conta no HSM dele e compara. Hoje, numa compra com o cartão
+presente, o ARQC é o controle principal, à frente do CVV da tarja (seção 36).
+
+A resposta do emissor também é autenticada: o **ARPC** (*Authorization
+Response Cryptogram*). O chip confere o ARPC, e assim sabe que a resposta veio
+do emissor dele, e não de um terminal adulterado.
+
+As contas estão na especificação EMV, que é pública (EMV Book 2, anexo A1).
+O que cada bandeira escolhe, entre as opções da especificação, se chama
+**CVN** (*Cryptogram Version Number*). Este capítulo usa dois exemplos de
+CVN: o CVN 10, que calcula o ARQC com a chave do cartão direto, e o CVN 18,
+que usa uma chave de sessão.
+
+### 40.1 As três chaves
+
+<figure class="fig">
+<svg viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
+<rect class="fr" x="10" y="30" width="170" height="80"/>
+<text x="95" y="50" text-anchor="middle" class="tb">HSM do emissor</text>
+<text x="95" y="70" text-anchor="middle" class="ts">IMK, chave mestra</text>
+<text x="95" y="84" text-anchor="middle" class="ts">do emissor</text>
+<text x="95" y="100" text-anchor="middle" class="ts tm">sob a LMK</text>
+<line class="ln" x1="180" y1="70" x2="248" y2="70" marker-end="url(#seta)"/>
+<text x="214" y="62" text-anchor="middle" class="ts">PAN, PSN</text>
+<rect class="cx" x="250" y="40" width="170" height="60"/>
+<text x="335" y="62" text-anchor="middle" class="tb">MK do cartão</text>
+<text x="335" y="80" text-anchor="middle" class="ts">uma por cartão</text>
+<line class="ln" x1="420" y1="70" x2="488" y2="70" marker-end="url(#seta)"/>
+<text x="454" y="62" text-anchor="middle" class="ts">ATC</text>
+<rect class="cx" x="490" y="40" width="180" height="60"/>
+<text x="580" y="62" text-anchor="middle" class="tb">chave de sessão</text>
+<text x="580" y="80" text-anchor="middle" class="ts">uma por transação</text>
+<line class="lnt" x1="335" y1="100" x2="335" y2="140"/>
+<rect class="cxa" x="250" y="140" width="170" height="60"/>
+<text x="335" y="162" text-anchor="middle" class="tb">chip do cartão</text>
+<text x="335" y="180" text-anchor="middle" class="ts">guarda a MK, gravada</text>
+<text x="335" y="193" text-anchor="middle" class="ts">na personalização</text>
+<text x="95" y="160" text-anchor="middle" class="ts">o emissor REFAZ a MK</text>
+<text x="95" y="174" text-anchor="middle" class="ts">a cada transação;</text>
+<text x="95" y="188" text-anchor="middle" class="ts">não guarda uma por cartão</text>
+<text x="580" y="160" text-anchor="middle" class="ts">o chip e o HSM derivam</text>
+<text x="580" y="174" text-anchor="middle" class="ts">a mesma chave de sessão,</text>
+<text x="580" y="188" text-anchor="middle" class="ts">cada um do seu lado</text>
+<text x="340" y="236" text-anchor="middle" class="ts">nenhuma das três atravessa a rede</text>
+</svg>
+<figcaption>Figura 40.1 — A IMK gera a MK de cada cartão, e a MK gera uma chave por transação. O chip guarda só a MK dele; o emissor guarda só a IMK.</figcaption>
+</figure>
+
+- **IMK** (*Issuer Master Key*): a chave mestra do emissor. Existe só nos
+  HSMs do emissor, embrulhada sob a LMK deles. Uma IMK serve a todos os
+  cartões de um programa.
+- **MK do cartão**: derivada da IMK com o PAN e o **PSN** (*PAN Sequence
+  Number*, que distingue duas vias do mesmo número). É gravada no chip na
+  personalização, e o emissor não a guarda: refaz a conta quando precisa.
+- **Chave de sessão**: derivada da MK com o **ATC** (*Application
+  Transaction Counter*), o contador de transações do chip. Uma chave
+  diferente a cada compra.
+
+É a mesma ideia do DUKPT (seção 37): uma chave mestra que só deriva, e uma
+chave de uso que muda a cada transação. A diferença é quem guarda o quê. No
+DUKPT, o terminal tem a chave; no EMV, o cartão.
+
+### 40.2 As contas
+
+**A MK do cartão, pela Opção A.** Tome os 16 dígitos da direita de PAN ‖ PSN
+e escreva-os como 8 bytes (BCD). Cifre esse bloco, `Y`, sob a IMK com 3DES:
+é a metade esquerda. Cifre `Y` com todos os bits invertidos: é a metade da
+direita. Acerte a paridade.
+
+```
+    MK = paridade( 3DES_IMK(Y) ‖ 3DES_IMK(Y ⊕ FF…FF) )
+```
+
+A Opção A vale para PAN de até 16 dígitos. Para PAN maiores, a especificação
+manda a Opção B, que passa por um SHA-1; este equipamento não a faz.
+
+**A chave de sessão comum (CSK).** Com `R` = ATC ‖ 000000000000, troque o
+terceiro byte de `R` por `F0` e cifre sob a MK: é a metade esquerda. Troque
+por `0F`: é a da direita.
+
+```
+    SK = paridade( 3DES_MK(ATC ‖ F0 ‖ 0000000000) ‖ 3DES_MK(ATC ‖ 0F ‖ 0000000000) )
+```
+
+**O ARQC** é o retail MAC (seção 39.10) dos dados da transação, sob a chave
+de sessão (CVN 18) ou sob a própria MK (CVN 10). Os dados são campos que o
+terminal e o chip conhecem: valor, moeda, data, país, um número imprevisível
+do terminal, o ATC, e dados do próprio chip. A lista e a ordem são do CVN.
+O preenchimento é `00` no CVN 10 e `80` no CVN 18.
+
+**O ARPC** tem dois métodos, e cada um usa a mesma chave que calculou o ARQC:
+
+```
+    método 1   ARPC = 3DES_K( ARQC ⊕ (ARC ‖ 000000000000) )          8 bytes
+    método 2   ARPC = retail MAC_K( ARQC ‖ CSU ‖ dado próprio )       4 bytes
+```
+
+O **ARC** (*Authorization Response Code*, 2 bytes) diz ao chip se a compra
+foi aprovada. O **CSU** (*Card Status Update*, 4 bytes) leva, além disso,
+instruções ao chip. O CVN 10 responde pelo método 1; o CVN 18, pelo 2.
+
+**Exemplo, CVN 18** (valores de terceiros, do `pyemv`; as chaves
+intermediárias, conferidas por programa contra os KCVs publicados):
+
+```
+    IMK                  0123456789ABCDEFFEDCBA9876543210      KCV 08D7B4
+    PAN, PSN             1234567890123456, 00
+    Y                    3456789012345600
+    MK                   154F349D8585CB7F 6B0798E9839B10C1     KCV BAB02F
+    ATC                  001C
+    chave de sessão      436B942AD637E085 64B532B0EC97CB26     KCV 22C810
+    dados                0000000040000000000000000124 800004800001 241911
+                         05 01 52BF4585 1800 001C 06011203A0B800
+    ARQC                 7A788EA6B8A3E733
+    CSU                  00000000
+    ARPC (método 2)      9AF514C1
+```
+
+Com a mesma IMK e o mesmo cartão, o CVN 10 calcula o ARQC sob a MK, sobre
+os mesmos campos com outro dado do chip no fim (`03A06010`): ARQC
+`29CCA15AE665FA2E`; com o ARC `3030`, o ARPC pelo método 1 é
+`28993816AFAE4AEB`.
+
+### 40.3 Casos de uso: onde mora cada chave
+
+As contas acima explicam como. Os casos abaixo explicam **por que nenhuma
+dessas chaves sai do lugar onde mora**, e o que isso permite e impede.
+
+<figure class="fig">
+<svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="10" y="40" width="120" height="70"/>
+<text x="70" y="62" text-anchor="middle" class="tb">cartão</text>
+<text x="70" y="80" text-anchor="middle" class="ts">chip com a MK</text>
+<text x="70" y="94" text-anchor="middle" class="ts">calcula o ARQC</text>
+<rect class="cxa" x="170" y="40" width="110" height="70"/>
+<text x="225" y="66" text-anchor="middle" class="tb">terminal</text>
+<text x="225" y="84" text-anchor="middle" class="ts">sem chave do cartão</text>
+<rect class="cxa" x="320" y="40" width="110" height="70"/>
+<text x="375" y="66" text-anchor="middle" class="tb">adquirente</text>
+<text x="375" y="84" text-anchor="middle" class="ts">e bandeira</text>
+<rect class="cxa" x="470" y="30" width="200" height="140"/>
+<text x="570" y="50" text-anchor="middle" class="tb">emissor</text>
+<rect class="fr" x="490" y="60" width="160" height="96"/>
+<text x="570" y="80" text-anchor="middle" class="tb">HSM</text>
+<text x="570" y="98" text-anchor="middle" class="ts">IMK, sob a LMK</text>
+<text x="570" y="114" text-anchor="middle" class="ts">refaz MK e sessão</text>
+<text x="570" y="130" text-anchor="middle" class="ts">confere o ARQC</text>
+<text x="570" y="146" text-anchor="middle" class="ts">gera o ARPC</text>
+<line class="ln" x1="130" y1="66" x2="168" y2="66" marker-end="url(#seta)"/>
+<line class="ln" x1="280" y1="66" x2="318" y2="66" marker-end="url(#seta)"/>
+<line class="ln" x1="430" y1="66" x2="488" y2="66" marker-end="url(#seta)"/>
+<line class="ln" x1="488" y1="96" x2="430" y2="96" marker-end="url(#seta)"/>
+<line class="ln" x1="318" y1="96" x2="280" y2="96" marker-end="url(#seta)"/>
+<line class="ln" x1="168" y1="96" x2="130" y2="96" marker-end="url(#seta)"/>
+<text x="300" y="22" text-anchor="middle" class="ts">ARQC + PAN + ATC + dados →</text>
+<text x="300" y="130" text-anchor="middle" class="ts">← resposta + ARPC</text>
+<line class="grade" x1="10" y1="190" x2="670" y2="190"/>
+<text x="70" y="214" text-anchor="middle" class="ts">a MK não sai</text>
+<text x="70" y="228" text-anchor="middle" class="ts">do chip</text>
+<text x="225" y="214" text-anchor="middle" class="ts">vê o ARQC,</text>
+<text x="225" y="228" text-anchor="middle" class="ts">não sabe conferir</text>
+<text x="375" y="214" text-anchor="middle" class="ts">repassam;</text>
+<text x="375" y="228" text-anchor="middle" class="ts">não têm a IMK</text>
+<text x="570" y="214" text-anchor="middle" class="ts">a IMK não sai do HSM;</text>
+<text x="570" y="228" text-anchor="middle" class="ts">o HSM nunca toca o cartão</text>
+<text x="340" y="276" text-anchor="middle" class="ts">só dois lugares sabem fazer a conta: o chip e o HSM do emissor</text>
+</svg>
+<figcaption>Figura 40.2 — O caminho de uma transação com chip. Só as pontas têm chave: o chip, com a MK, e o HSM do emissor, com a IMK.</figcaption>
+</figure>
+
+**Caso 1 — a chave do cartão fica no chip.** A MK é gravada no chip na
+personalização, e o chip é um elemento seguro feito para nunca entregá-la.
+Não há comando no cartão que a leia, nem para o dono do cartão. O chip só a
+usa: recebe os dados da transação e devolve o ARQC.
+
+**Caso 2 — a chave do emissor fica no HSM do emissor.** A IMK existe só nos
+HSMs do emissor, embrulhada sob a LMK deles. Conferir um ARQC exige refazer
+a MK do cartão, e refazer a MK exige a IMK. Ninguém fora do emissor tem essa
+chave: nem o terminal, nem o adquirente, nem a bandeira.
+
+**Caso 3 — pedir um ARQC é fácil; conferir, só o emissor.** Com um leitor de
+cartões no PC, qualquer um pode mandar ao chip os comandos de uma compra e
+receber um ARQC. O que não dá é conferi-lo, nem calcular um ARQC válido sem
+o chip. É isso que impede falsificar transações: um cartão clonado sem a MK
+não produz um ARQC que o emissor aceite, e o contador (ATC) impede repetir
+um ARQC antigo.
+
+**Caso 4 — o HSM nunca toca o cartão.** Quem lê o chip é o terminal. Ao HSM
+do emissor chegam só o ARQC, o PAN, o PSN, o ATC e os dados da transação,
+pela rede. O HSM refaz as chaves, confere e devolve o ARPC; o terminal o
+entrega ao chip.
+
+**Caso 5 — "tenho o cartão do meu banco: consigo abri-lo neste
+dispositivo?"** Não. Pelos casos 1 a 4:
+
+- a MK do seu cartão está no chip, que não a entrega;
+- a IMK do seu banco está nos HSMs do banco, que não a entregam;
+- com um leitor, você obteria um ARQC do seu cartão, mas não teria com que
+  conferi-lo: este equipamento precisaria da IMK do banco;
+- e a regra do projeto proíbe PAN real.
+
+O que este equipamento faz é o **papel do emissor, com uma IMK de teste**.
+
+**Caso 6 — o chip dos testes.** Nos testes, o "cartão" é um programa no PC
+(`host/emv.py`). Ele tem uma MK derivada de uma IMK de teste e um PAN
+inventado, com o prefixo `999999`. O programa calcula o ARQC como um chip
+calcularia; o HSM confere e responde. Um cartão de verdade com uma MK de
+teste é uma ideia registrada, não implementada (`doc/ideia-cartao-emv.md`).
+
+### 40.4 O ARQC neste equipamento
+
+Dois comandos. A IMK chega no key block do host, com uso `E0` (*EMV/chip
+issuer master key: application cryptograms*), algoritmo 3DES duplo e modo
+`X` (só deriva), como a BDK do DUKPT.
+
+| Comando | Faz | Devolve |
+|---|---|---|
+| `A0` | confere o ARQC e, se conferir, gera o ARPC | `00` e o ARPC; `01` sem ARPC |
+| `A2` | a MK de um cartão, sob uma KEK, para a personalização | o bloco da MK e o KCV dela |
+
+```
+    A0  <IMK>  esquema  preenchimento  PAN  PSN  ATC  ARQC  método  [ARC | CSU dado]  dados
+    A2  <KEK>  <IMK>  PAN  PSN
+
+    esquema         0 = a MK direto (CVN 10); 1 = chave de sessão comum (CVN 18)
+    preenchimento   1 = zeros; 2 = 80 e zeros
+    método          0 = só conferir; 1 = ARC (4 caracteres); 2 = CSU (8) e
+                    dado próprio (1 dígito de tamanho, 0 a 8 bytes)
+```
+
+Exemplo, o CVN 18 da seção 40.2:
+
+```
+    pedido      A0  <IMK>  1  2  16 1234567890123456  00  001C
+                    7A788EA6B8A3E733  2  00000000 0  0040 0000…B800
+    resposta    A1  00  9AF514C1
+```
+
+As regras:
+
+- **O HSM não gera ARQC.** Quem gera é o chip. Um comando que calculasse
+  ARQC sob a IMK forjaria transações de qualquer cartão do emissor.
+- **O ARPC só sai se o ARQC conferir.** Não conferiu: `01`, e nada mais. Um
+  ARPC para um ARQC falso ajudaria quem o forjou.
+- **O `A0` devolve um bit sobre o ARQC**, comparado em tempo constante. O
+  ARQC calculado não sai.
+- **O esquema `0` (CVN 10) responde só pelo método 1**; o esquema `1`, pelo
+  1 ou pelo 2. A combinação errada responde `16`.
+- **PAN com mais de 16 dígitos responde `15`**: a Opção B ficou fora.
+- **A MK do `A2` sai com uso `E0`, modo `X` e exportabilidade `N`**, como a
+  IPEK do `I0`: o destino é o chip, e de lá ela não sai mais. A MK nunca
+  aparece em claro, e qualquer KEK do equipamento a leva, porque ela é 3DES
+  dupla.
+- **A MK, a chave de sessão, o ARQC e o ARPC são calculados duas vezes**, com
+  a derivação refeita, e comparados. Uma discordância responde `91`.
+- **O autoteste do 3DES** (seção 39.8) passou a incluir um caso CVN 10 e um
+  CVN 18, de fontes diferentes.
+
+Fica fora: a Opção B, a variante AES do EMV, as derivações de sessão
+próprias de cada bandeira, e as chaves de mensagens seguras ao chip (os
+*issuer scripts*).

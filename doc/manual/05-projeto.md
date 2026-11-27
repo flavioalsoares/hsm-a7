@@ -1283,6 +1283,77 @@ cerimônia marcada é alarme.
 (`hsmhost.py diag`). Pelo console há mais: `ping`, `version`, `build` (o hash
 do firmware gravado), `post` e `env` (os sensores).
 
+#### O chip EMV: `A2`; `A0`
+
+<figure class="fig">
+<svg viewBox="0 0 680 330" xmlns="http://www.w3.org/2000/svg">
+<text x="10" y="14" text-anchor="start" class="ts tb">NO EQUIPAMENTO COMERCIAL</text>
+<text x="130" y="40" text-anchor="middle" class="ts tb">na personalização</text>
+<rect class="fr" x="15" y="50" width="105" height="52"/>
+<text x="67.5" y="70" text-anchor="middle" class="tb">HSM</text>
+<text x="67.5" y="86" text-anchor="middle" class="ts tm">A2</text>
+<rect class="cxa" x="140" y="50" width="100" height="52"/>
+<text x="190" y="74" text-anchor="middle" class="tb">bureau</text>
+<text x="190" y="88" text-anchor="middle" class="ts">grava o chip</text>
+<line class="ln" x1="120" y1="76" x2="138" y2="76" marker-end="url(#seta)"/>
+<text x="67" y="118" text-anchor="middle" class="ts">MK, sob a KEK</text>
+<rect class="cxa" x="140" y="124" width="100" height="38"/>
+<text x="190" y="147.5" text-anchor="middle" class="tb">cartão</text>
+<line class="ln" x1="190" y1="102" x2="190" y2="122" marker-end="url(#seta)"/>
+<line class="lnt" x1="255" y1="30" x2="255" y2="170"/>
+<text x="470" y="40" text-anchor="middle" class="ts tb">em cada compra</text>
+<rect class="cxa" x="270" y="56" width="105" height="66"/>
+<text x="322.5" y="80.5" text-anchor="middle" class="tb">cartão e</text>
+<text x="322.5" y="94" text-anchor="middle" class="tb">terminal</text>
+<text x="322.5" y="110" text-anchor="middle" class="ts">o chip faz o ARQC</text>
+<rect class="cxa" x="420" y="56" width="110" height="66"/>
+<text x="475" y="87" text-anchor="middle" class="tb">adquirente</text>
+<text x="475" y="100" text-anchor="middle" class="ts">e bandeira</text>
+<rect class="fr" x="565" y="48" width="105" height="90"/>
+<text x="617.5" y="66" text-anchor="middle" class="tb">HSM</text>
+<text x="617.5" y="81" text-anchor="middle" class="ts">do emissor</text>
+<text x="617.5" y="97" text-anchor="middle" class="ts tm">A0</text>
+<text x="617.5" y="113" text-anchor="middle" class="ts">deriva da IMK</text>
+<line class="ln" x1="375" y1="76" x2="418" y2="76" marker-end="url(#seta)"/>
+<text x="396.5" y="70" text-anchor="middle" class="ts">ARQC</text>
+<line class="ln" x1="418" y1="102" x2="375" y2="102" marker-end="url(#seta)"/>
+<text x="396.5" y="116" text-anchor="middle" class="ts">ARPC</text>
+<line class="ln" x1="530" y1="76" x2="563" y2="76" marker-end="url(#seta)"/>
+<line class="ln" x1="563" y1="102" x2="530" y2="102" marker-end="url(#seta)"/>
+<line class="grade" x1="10" y1="182" x2="670" y2="182"/>
+<text x="10" y="202" text-anchor="start" class="ts tb">NESTE EQUIPAMENTO</text>
+<rect class="cxa" x="10" y="220" width="200" height="70"/>
+<text x="110" y="246.5" text-anchor="middle" class="tb">hsmhost.py + emv.py</text>
+<text x="110" y="259.5" text-anchor="middle" class="ts">faz o chip: MK de teste,</text>
+<text x="110" y="272.5" text-anchor="middle" class="ts">PAN 999999…, calcula o ARQC</text>
+<rect class="cxc" x="246" y="235" width="90" height="40"/>
+<text x="291" y="259.5" text-anchor="middle" class="tb">ponte</text>
+<rect class="fr" x="375" y="214" width="295" height="84"/>
+<text x="522.5" y="232" text-anchor="middle" class="tb">placa</text>
+<text x="522.5" y="247" text-anchor="middle" class="ts">A0: confere o ARQC, gera o ARPC</text>
+<text x="522.5" y="261" text-anchor="middle" class="ts">A2: a MK do cartão, sob a KEK</text>
+<text x="522.5" y="275" text-anchor="middle" class="ts">a IMK só deriva (uso E0, modo X)</text>
+<line class="ln" x1="210" y1="255" x2="244" y2="255" marker-end="url(#seta)"/>
+<line class="ln" x1="336" y1="255" x2="373" y2="255" marker-end="url(#seta)"/>
+<text x="340" y="318" text-anchor="middle" class="ts">o HSM nunca toca o cartão, e não gera ARQC: isso é do chip</text>
+</svg>
+<figcaption>Figura 24.18 — O chip EMV. O HSM do emissor entrega a MK para a personalização e confere o ARQC em cada compra; o chip, aqui, é o teste.</figcaption>
+</figure>
+
+**No equipamento comercial**, na emissão do cartão, o HSM do emissor deriva
+da IMK a MK de cada cartão e a entrega sob uma KEK ao bureau de
+personalização, que a grava no chip. Em cada compra, o chip calcula o ARQC,
+o terminal o encaminha, e o HSM do emissor refaz a MK e a chave de sessão,
+confere o ARQC e devolve o ARPC.
+
+O HSM **não gera ARQC**: isso é do chip. Um comando que calculasse ARQC sob a
+IMK forjaria transações de qualquer cartão.
+
+**Neste equipamento**, a placa faz o papel do HSM do emissor, com os mesmos
+dois passos. O chip não existe: `host/emv.py` faz o papel dele, com uma IMK
+de teste e um PAN inventado, e o teste confere tudo com os valores publicados
+(seção 40).
+
 #### Resumo
 
 | Família | Quem pede, no equipamento comercial | Quando | Comandos aqui | Quem faz o papel, aqui |
@@ -1293,6 +1364,7 @@ do firmware gravado), `post` e `env` (os sensores).
 | PIN | autorizadores do adquirente, da bandeira e do emissor | em cada transação | `P0` `P2` `V2` `V6` | `pin-confere`, `pinv-confere` |
 | Terminal DUKPT | fabricação; autorizador do adquirente | uma vez; em cada transação | `I0`; `P2` `M4` `M6` `C4` `C6` | `dukpt-confere` |
 | Emissão | sistema do emissor | quando o cartão é emitido | `V0` `V4` `W0` | `pinv-confere`, `cvv-confere` |
+| Chip EMV | personalização; autorizador do emissor | na emissão; em cada compra | `A2`; `A0` | `arqc-confere` |
 | Dados e MAC | aplicações das instituições | em cada mensagem ou arquivo | `C0` `C2` `M0` `M2` | `confere`, `tdes-confere` |
 | Assinatura | aplicações | carga remota, arquivos | `R0` `R2` `R4` `E0` `E2` `E4` | `rsa-confere`, `ecdsa-confere` |
 | Diagnóstico | monitoramento | de tempos em tempos | `D0` | `hsmhost.py diag` |

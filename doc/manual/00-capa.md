@@ -39,6 +39,8 @@ VII, se o interesse for pagamento. Quem quer reproduzir o trabalho começa na
 Parte V e volta às anteriores conforme a dúvida aparecer. Quem tem a placa
 na mão e quer operá-la vá direto ao **apêndice E**, que percorre uma sessão
 inteira: ligar, autoteste, cerimônia, ativação e o trabalho com chaves.
+O **apêndice F** é a referência dos programas: cada subcomando e cada
+parâmetro do `hsmtool.py`, do `hsmhost.py` e dos demais.
 
 :::
 

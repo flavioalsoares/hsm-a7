@@ -462,6 +462,245 @@ Consequência de projeto: **um byte errado no cabeçalho explode o MAC
 inteiro**. É o comportamento desejado, e é o que torna a implementação
 irritante de acertar.
 
+### Autenticar com uma chave: o CMAC e o HMAC
+
+O MAC do key block é um **código de autenticação de mensagem**: um valor
+curto que só quem tem a chave calcula, e que muda se um bit da mensagem
+mudar. Quem recebe recalcula e compara. Há dois jeitos padronizados de
+fazer um MAC: a partir de uma **cifra de bloco** (o CMAC, NIST SP 800-38B) ou
+a partir de uma **função de hash** (o HMAC, FIPS 198-1 e RFC 2104). Os dois
+partem de uma ideia simples que não funciona, e a correção é o que dá nome a
+cada um.
+
+#### O CMAC
+
+**1. O CBC-MAC, e por que ele sozinho não basta.** A ideia simples é cifrar
+a mensagem em CBC, com IV zero, e ficar só com o último bloco:
+
+```
+    C1 = E_K( M1 )
+    Cj = E_K( C(j-1) ⊕ Mj )        j = 2 .. q
+    CBC-MAC = Cq
+```
+
+Com mensagens de **um tamanho fixo**, isso é seguro. Com tamanhos variáveis,
+não é. Quem viu o MAC `T` de uma mensagem de um bloco `M` forja o MAC de
+outra mensagem sem conhecer a chave:
+
+```
+    T = E_K( M )                              o MAC visto
+    M' = M ‖ ( M ⊕ T )                        a mensagem forjada, 2 blocos
+    CBC-MAC(M') = E_K( T ⊕ M ⊕ T ) = E_K( M ) = T
+```
+
+O segundo bloco anula o efeito do primeiro, e o MAC de `M'` é o mesmo `T`.
+O preenchimento também cria ambiguidade: com zeros, `M` e `M ‖ 00` dão o
+mesmo MAC. O retail MAC (seção 39.10) resolve parte disso com uma chave a
+mais no último bloco. O CMAC resolve com uma marca no último bloco.
+
+**2. As subchaves K1 e K2.** O CMAC deriva duas subchaves da chave `K`,
+cifrando um bloco de zeros:
+
+```
+    L  = E_K( 00 00 ... 00 )
+    K1 = dbl( L )
+    K2 = dbl( K1 )
+
+    dbl(x): desloca x um bit para a esquerda; se o bit que saiu era 1,
+            faz XOR do último byte com 87 (bloco de 128 bits, AES)
+                                    ou com 1B (bloco de 64 bits, 3DES)
+```
+
+`dbl` é a multiplicação por 2 num corpo finito de 2¹²⁸ (ou 2⁶⁴) elementos. A
+constante `87` (ou `1B`) é o polinômio que define esse corpo. O que importa
+na prática: `K1` e `K2` dependem da chave, são diferentes entre si, e quem
+não tem a chave não as conhece.
+
+**3. O último bloco.** É o único que muda em relação ao CBC-MAC:
+
+- **completo** (a mensagem tem um múltiplo de 16 bytes, e não está vazia):
+  XOR com `K1`;
+- **incompleto, ou mensagem vazia**: preenchimento `80 00 … 00` até 16
+  bytes, e XOR com `K2`.
+
+A forja do item 1 deixa de funcionar: ela precisa pôr `T` na entrada do
+bloco seguinte, mas o bloco que produziu `T` foi misturado com `K1`, e o
+atacante não sabe com quanto. A ambiguidade do preenchimento também some: a
+mensagem preenchida e a mensagem que já termina em `80 00 …` usam subchaves
+diferentes. A mensagem vazia é um caso válido, e o código tem de tratá-lo: o
+KAT do equipamento passa pelos três casos.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxa" x="40" y="20" width="90" height="28"/><text x="85" y="39" text-anchor="middle" class="tm">M1</text>
+<rect class="cxa" x="210" y="20" width="90" height="28"/><text x="255" y="39" text-anchor="middle" class="tm">M2</text>
+<rect class="cxa" x="380" y="20" width="230" height="28"/><text x="495" y="39" text-anchor="middle" class="tm">Mq   (ou Mq ‖ 80 00…)</text>
+<rect class="cx" x="40" y="100" width="90" height="30"/><text x="85" y="120" text-anchor="middle" class="ts">E, K</text>
+<circle class="cx" cx="255" cy="76" r="12"/><text x="255" y="81" text-anchor="middle" class="tb">⊕</text>
+<rect class="cx" x="210" y="100" width="90" height="30"/><text x="255" y="120" text-anchor="middle" class="ts">E, K</text>
+<circle class="cx" cx="450" cy="76" r="12"/><text x="450" y="81" text-anchor="middle" class="tb">⊕</text>
+<rect class="cxd" x="405" y="100" width="90" height="30"/><text x="450" y="120" text-anchor="middle" class="ts">E, K</text>
+<rect class="cxc" x="530" y="62" width="110" height="28"/><text x="585" y="81" text-anchor="middle" class="tm">K1 ou K2</text>
+<line class="ln" x1="85" y1="48" x2="85" y2="98" marker-end="url(#seta)"/>
+<line class="ln" x1="255" y1="48" x2="255" y2="62" marker-end="url(#seta)"/>
+<line class="ln" x1="255" y1="88" x2="255" y2="98" marker-end="url(#seta)"/>
+<line class="ln" x1="450" y1="48" x2="450" y2="62" marker-end="url(#seta)"/>
+<line class="ln" x1="530" y1="76" x2="464" y2="76" marker-end="url(#seta)"/>
+<line class="ln" x1="450" y1="88" x2="450" y2="98" marker-end="url(#seta)"/>
+<path class="ln" d="M130,115 L180,115 L180,76 L241,76" fill="none" marker-end="url(#seta)"/>
+<path class="ln" d="M300,115 L350,115 L350,76 L436,76" fill="none" stroke-dasharray="4 3" marker-end="url(#seta)"/>
+<text x="352" y="70" class="ts">…</text>
+<line class="ln" x1="450" y1="130" x2="450" y2="160" marker-end="url(#seta)"/>
+<rect class="cxv" x="390" y="162" width="120" height="28"/><text x="450" y="181" text-anchor="middle" class="tm">tag (16 bytes)</text>
+<text x="85" y="160" text-anchor="middle" class="ts">o CBC-MAC de sempre…</text>
+<text x="590" y="110" text-anchor="middle" class="ts">K1: último bloco completo</text>
+<text x="590" y="124" text-anchor="middle" class="ts">K2: preenchido, ou vazio</text>
+<text x="340" y="220" text-anchor="middle" class="ts">K1 e K2 saem de E_K(0): só quem tem a chave sabe o que entrou no último bloco</text>
+</svg>
+<figcaption>Figura 8.2 — O CMAC é o CBC-MAC com uma marca secreta no último bloco: K1 se ele está completo, K2 se foi preenchido.</figcaption>
+</figure>
+
+**4. Um exemplo com números**, com AES-256 e dois vetores do CAVP (o arquivo
+`CMACGenAES256.rsp`, o mesmo do autoteste). O CAVP publica só os 5
+primeiros bytes da tag; o resto é conta, conferida com a biblioteca
+`cryptography`.
+
+```
+Vetor 16: mensagem de 16 bytes, um bloco completo -> K1
+  K   916CD8119A4D7E825E01A86F93B0EEE4A46D29216115CC9EF67A784C19C1CA1E
+  M   3310FC5BC910F4C9B9CF4957AC638AE7
+  L   42E46BAC0156A5F74F0F5EC44CBA81F4      primeiro bit 0
+  K1  85C8D75802AD4BEE9E1EBD88997503E8      L deslocado, sem o 87
+  K2  0B91AEB0055A97DD3C3D7B1132EA0757      K1 começa com 1: deslocado, e 87
+  M⊕K1   B6D82B03CBBDBF2727D1F4DF3516890F
+  tag    03F045F886 F50D68CEC936775E3DA38A  (CAVP: 03f045f886)
+
+Vetor 48: mensagem de 10 bytes, incompleta -> preenche, K2
+  K   6C0B2C3C5FEC961AB84E68F56CA166586E5942FB2594B18A1DFDC4A8FDF07634
+  M   F08F890875E139480489
+  K2  10244D164A9A1967B97FEF1BC10D7721
+  M ‖ 80 00 00 00 00 00   F08F890875E139480489800000000000
+  (M ‖ 80 00…) ⊕ K2       E0ABC41E3F7B202FBDF66F1BC10D7721
+  tag    B49C2239E7 8C31C52EE05C7649038E4C  (CAVP: b49c2239e7)
+```
+
+Nos dois casos a mensagem tem um bloco só, então a tag é a cifra do último
+bloco já marcado: `E_K(M ⊕ K1)` e `E_K((M ‖ 80 00…) ⊕ K2)`.
+
+#### O HMAC
+
+**1. O hash com chave, e por que ele sozinho não basta.** A ideia simples é
+pôr a chave antes da mensagem e calcular o hash: `H(K ‖ M)`. Com SHA-256,
+isso é forjável. O SHA-256 processa a entrada em blocos de 64 bytes, e o
+resultado é o **estado interno** depois do último bloco. Quem viu
+`H(K ‖ M)` e sabe o tamanho de `K ‖ M` continua o cálculo a partir desse
+estado e obtém `H(K ‖ M ‖ p ‖ X)` para qualquer `X`, sem conhecer `K` (`p` é o
+preenchimento que o SHA-256 pôs no fim de `K ‖ M`). É o **ataque de extensão
+de comprimento**. Pôr a chave no fim, `H(M ‖ K)`, troca esse problema por
+outro: uma colisão de `H` sobre `M` vira uma colisão de MAC.
+
+**2. As "subchaves" do HMAC.** O HMAC também tira duas chaves derivadas de
+`K`, mas sem cifrar nada:
+
+```
+    K0 = K completada com zeros até 64 bytes (o bloco do SHA-256)
+         ou, se K tem mais de 64 bytes, H(K) completada com zeros
+
+    chave interna  = K0 ⊕ 36 36 36 ... 36      (ipad)
+    chave externa  = K0 ⊕ 5C 5C 5C ... 5C      (opad)
+```
+
+As duas constantes só precisam ser diferentes uma da outra: as duas chaves
+derivadas ficam diferentes em metade dos bits.
+
+**3. As duas passadas.** O HMAC calcula o hash duas vezes:
+
+```
+    interno = H( (K0 ⊕ ipad) ‖ M )
+    HMAC    = H( (K0 ⊕ opad) ‖ interno )
+```
+
+A passada externa fecha a extensão de comprimento. O que sai é o hash de uma
+entrada de tamanho fixo (64 + 32 bytes), que começa com uma chave que o
+atacante não conhece. Estender esse hash dá o hash de outra coisa, não o HMAC
+de outra mensagem. O preço é pequeno: duas passadas de compressão a mais por
+mensagem, qualquer que seja o tamanho dela. Os casos da chave estão no
+item 2: chave curta é completada, chave de exatamente 64 bytes entra como
+está, e chave longa passa antes pelo hash.
+
+
+<figure class="fig">
+<svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<rect class="cxc" x="20" y="30" width="130" height="30"/><text x="85" y="50" text-anchor="middle" class="tm">K0 ⊕ ipad</text>
+<rect class="cxa" x="150" y="30" width="170" height="30"/><text x="235" y="50" text-anchor="middle" class="tm">M</text>
+<rect class="cx" x="360" y="30" width="110" height="30"/><text x="415" y="50" text-anchor="middle" class="ts">SHA-256</text>
+<rect class="cxa" x="510" y="30" width="150" height="30"/><text x="585" y="50" text-anchor="middle" class="tm">interno (32)</text>
+<line class="ln" x1="320" y1="45" x2="358" y2="45" marker-end="url(#seta)"/>
+<line class="ln" x1="470" y1="45" x2="508" y2="45" marker-end="url(#seta)"/>
+<rect class="cxc" x="20" y="110" width="130" height="30"/><text x="85" y="130" text-anchor="middle" class="tm">K0 ⊕ opad</text>
+<rect class="cxa" x="150" y="110" width="170" height="30"/><text x="235" y="130" text-anchor="middle" class="tm">interno (32)</text>
+<rect class="cx" x="360" y="110" width="110" height="30"/><text x="415" y="130" text-anchor="middle" class="ts">SHA-256</text>
+<rect class="cxv" x="510" y="110" width="150" height="30"/><text x="585" y="130" text-anchor="middle" class="tm">HMAC (32)</text>
+<line class="ln" x1="320" y1="125" x2="358" y2="125" marker-end="url(#seta)"/>
+<line class="ln" x1="470" y1="125" x2="508" y2="125" marker-end="url(#seta)"/>
+<path class="lnt" d="M585,60 L585,85 L305,85 L305,108" fill="none" marker-end="url(#seta-t)"/>
+<text x="20" y="22" class="ts">passada interna: qualquer tamanho de M</text>
+<text x="20" y="102" class="ts">passada externa: entrada de tamanho fixo, 64 + 32 bytes</text>
+<text x="340" y="180" text-anchor="middle" class="ts">o atacante vê só a saída externa: estendê-la não dá o HMAC de outra mensagem</text>
+</svg>
+<figcaption>Figura 8.3 — O HMAC: duas passadas de hash, cada uma com uma chave derivada de K. A externa fecha o ataque de extensão de comprimento.</figcaption>
+</figure>
+
+**4. Um exemplo com números**, o caso de teste 2 da RFC 4231 (o mesmo arquivo
+do autoteste). A chave é `Jefe`, de 4 bytes; a mensagem é
+`what do ya want for nothing?`.
+
+```
+  K0        4A656665 00000000 ... 00          4 bytes e 60 zeros
+  K0⊕ipad   7C535053 36363636 ... 36
+  K0⊕opad   16393A39 5C5C5C5C ... 5C
+  interno   A2E485863D27F9D864AC8D802432A1ED477D8C4C6F349D16D4E7E917C629CAD7
+  HMAC      5BDCC146BF60754E6A042426089575C75A003F089D2739839DEC58B964EC3843
+                                                     (RFC 4231: o mesmo)
+
+  só para comparar, H(K ‖ M), o que não usar:
+            689A1A0FA183259E022C4D77A4EB0810A94E9090D132C5F8732CCCE2B36E3621
+```
+
+#### Comparação
+
+**5. Quando usar cada um.**
+
+| | CBC-MAC | Retail MAC | CMAC | HMAC |
+|---|---|---|---|---|
+| Base | cifra de bloco | DES e 3DES | cifra de bloco (AES, 3DES) | hash (SHA-256) |
+| Mensagem de tamanho variável | forjável | melhor que o CBC-MAC; o preenchimento 1 é ambíguo (seção 39.10) | segura | segura |
+| Tamanho da tag | um bloco | 4 ou 8 bytes | 16 bytes (AES), 8 (3DES) | 32 bytes (SHA-256) |
+| Custo por bloco | 1 cifra | 1 DES | 1 cifra, mais 1 para `L` | 1 compressão, mais 2 fixas |
+| Onde se usa | histórico | redes de pagamento com 3DES | key block X9.143, DUKPT AES, EMV moderno | TLS, IPsec, JWT, derivação de chave (HKDF) |
+| Norma | ISO/IEC 9797-1 alg. 1 | ISO/IEC 9797-1 alg. 3, ANSI X9.19 | NIST SP 800-38B | FIPS 198-1, RFC 2104 |
+
+A escolha costuma vir do que o equipamento já tem. Quem só tem uma cifra de
+bloco faz CMAC; quem tem um hash faz HMAC. Num HSM de pagamento, a cifra de
+bloco está em todo lugar, e o CMAC vem de graça.
+
+**Por que o key block usa o CMAC também para derivar chaves.** A X9.143
+deriva a KBEK e a KBAK pela NIST SP 800-108 em modo contador, que aceita
+qualquer função pseudoaleatória. Um MAC seguro é uma função pseudoaleatória
+da chave: sem a chave, a saída é indistinguível de bytes ao acaso. Com o
+CMAC-AES, a derivação usa a mesma cifra que já cifra o corpo e autentica o
+bloco, e a versão B faz o mesmo com o CMAC-TDES. O HMAC serviria do mesmo
+jeito; a norma escolheu a primitiva que todo HSM de pagamento já tem.
+
+**Neste equipamento.** O CMAC-AES-256 autentica e deriva no key block versão
+D, é o MAC dos comandos `MAC_GENERATE`/`MAC_VERIFY` (console) e `M0`/`M2`
+(porta host) com chave AES, e é o MAC do DUKPT AES (seção 37.4). O CMAC-TDES
+faz o mesmo papel no key block versão B (seção 39.9). O HMAC-SHA-256 está no
+SHA-256 do coprocessador e passa pelo autoteste a cada boot, mas hoje nenhum
+comando o usa: o comando que o expunha (`0x13`, apêndice B) recebia a
+chave em claro e foi removido. Os vetores dos dois estão na seção 42.2.
+
 ### KBPK, KBEK e KBAK: as três chaves de um key block
 
 Três chaves participam de um key block, e só uma delas existe guardada:
@@ -509,7 +748,7 @@ ficam em slot nenhum.
 <text x="562" y="124" class="ts">o MAC é o IV</text>
 <text x="340" y="236" text-anchor="middle" class="ts">só um byte da entrada separa KBEK de KBAK; as duas saídas não têm nada em comum</text>
 </svg>
-<figcaption>Figura 8.2 — Da KBPK ao bloco, na versão D. As duas subchaves nascem por CMAC, servem a um bloco e são apagadas.</figcaption>
+<figcaption>Figura 8.4 — Da KBPK ao bloco, na versão D. As duas subchaves nascem por CMAC, servem a um bloco e são apagadas.</figcaption>
 </figure>
 
 **A derivação na versão D.** Cada subchave tem 256 bits, e o CMAC-AES
@@ -525,7 +764,7 @@ devolve 128. São duas chamadas por subchave, sobre 8 bytes de entrada:
 ```
 
 Um exemplo com números, do bloco publicado pela biblioteca `psec` (valor de
-terceiros, seção 42.1). A KBPK é
+terceiros, seção 43.1). A KBPK é
 `88E1AB2A2E3DD38C1FA039A536500CC8A87AB9D62DC92C01058FA79F44657DE6`:
 
 ```
@@ -601,7 +840,7 @@ o corpo depois de decifrado com a KBEK.
 <path class="lnt" d="M590,84 L590,138 L660,138 L660,262" marker-end="url(#seta-t)"/>
 <text x="340" y="358" text-anchor="middle" class="ts">o mesmo cabeçalho e a mesma chave, com outro enchimento, dão outro corpo cifrado e outro MAC</text>
 </svg>
-<figcaption>Figura 8.3 — Um key block de verdade: o vetor publicado do KAT, aberto. Em vermelho, os campos que limitam o que a chave pode fazer, e a chave.</figcaption>
+<figcaption>Figura 8.5 — Um key block de verdade: o vetor publicado do KAT, aberto. Em vermelho, os campos que limitam o que a chave pode fazer, e a chave.</figcaption>
 </figure>
 
 Os campos do cabeçalho, pelos números da figura:
@@ -628,7 +867,7 @@ O corpo em claro tem três partes: o tamanho da chave **em bits** (`0080` é
 até um múltiplo do bloco AES. A norma também permite um enchimento maior,
 para esconder o tamanho da chave de quem só vê o bloco. Como o enchimento é aleatório, embrulhar a mesma chave duas
 vezes dá dois blocos diferentes: é por isso que o embrulho não tem KAT
-(seção 41), só a abertura.
+(seção 42), só a abertura.
 
 O CMAC-AES com a KBAK sobre o cabeçalho e esse corpo em claro dá
 `7E8E31DA05F7425509593D03A457DC34`, o MAC do bloco: ele é íntegro. O
@@ -687,7 +926,7 @@ faz o bloco inteiro ser recusado (Figura 8.1).
 <text x="340" y="260" text-anchor="middle" class="tb">N não impede usar: impede sair</text>
 <text x="340" y="278" text-anchor="middle" class="ts">uma chave N cifra, traduz PIN e faz MAC normalmente; só o K4 a recusa</text>
 </svg>
-<figcaption>Figura 8.4 — Os dois sentidos de "sair". Sob a LMK, a chave vai para o banco de dados e continua do HSM; sob uma KEK, ela passa por duas checagens antes de ir para outra instituição.</figcaption>
+<figcaption>Figura 8.6 — Os dois sentidos de "sair". Sob a LMK, a chave vai para o banco de dados e continua do HSM; sob uma KEK, ela passa por duas checagens antes de ir para outra instituição.</figcaption>
 </figure>
 
 A segunda checagem da figura é a **regra de força**: uma chave nunca sai

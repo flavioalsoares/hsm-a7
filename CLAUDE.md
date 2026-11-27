@@ -809,7 +809,7 @@ Tudo em `doc/fase8-notas.md`; a teoria está no manual, Parte VII. O plano em vi
 está no `PLANO.md`, Fase 8: 8.1 formato 4 e tradução de PIN (**feita**), 8.2 motor
 DES/3DES (**feita**), 8.3 chave 3DES no key store (**feita**), 8.4 formato 0 e tradução entre formatos (**feita**), 8.5
 verificação de PIN e o ataque de decimalização (**feita**), 8.6 CVV (**feita**), 8.7 troca de chaves 3DES (**feita**),
-8.8 DUKPT (8.8a TDES: **feita**; 8.8b AES: **feita**), 8.9 MAC e dados com 3DES (8.9a 3DES: **feita**; 8.9b DUKPT: **feita**), 8.10 ARQC (decisão do usuário, 2026-11-23).
+8.8 DUKPT (8.8a TDES: **feita**; 8.8b AES: **feita**), 8.9 MAC e dados com 3DES (8.9a 3DES: **feita**; 8.9b DUKPT: **feita**), 8.10 ARQC (**feita**).
 
 ⚠ **O 3DES entra, por decisão do usuário (2026-11-14), e o critério é o mercado de
 meios de pagamento**: "o objetivo não é ser o melhor, o objetivo é aprender como o
@@ -1055,11 +1055,23 @@ espelho, a BRAM está em **41,5 de 50** e o timing em +0,280 ns.
 
 ⚠ **Os valores do retail MAC são de duas fontes** (`psec` e o crate `retail-mac` do RustCrypto, que transcreve a ISO/IEC 9797-1 B.4), em `vectors/mac/retail_mac.rsp`. Mexer no retail MAC exige mexer em `fw/src/mac_tdes.c` e `host/mac_tdes.py`, e rodar `host/test_retail_mac.py` (0,8 s).
 
-**Etapa 8.9b (MAC e dados com DUKPT): ✅ validada em hardware 2026-11-26.** `tb_dukpt_mac` 4 h 58, `tb_dukpt` 4 h 51, `tb_dukpt_aes` 3 h 31, `tb_ascii` 2 h 42 (3 simulações por vez); `regressao.py` com 20 passos em 426 s, o passo do DUKPT em 43,5 s. Firmware `0.8.12`, 68 028 bytes. Próxima: etapa 8.10 (ARQC). Comandos ASCII `M4` (conferir o MAC de pedido), `M6` (fazer o MAC de resposta), `C4` (decifrar os dados de pedido) e `C6` (cifrar os dados de resposta). A BDK é a do `P2`: com BDK TDES, retail MAC e 3DES-CBC sob as variantes da X9.24-1 (função de mão única nas chaves de dados); com BDK AES, CMAC e AES-CBC sob as chaves de uso `2000`/`2001`/`3000`/`3001`. As contas sem política estão em `fw/src/dukpt.c`; a BDK, em `keystore_dukpt_mac()` e `keystore_dukpt_dados()`.
+**Etapa 8.9b (MAC e dados com DUKPT): ✅ validada em hardware 2026-11-26.** `tb_dukpt_mac` 4 h 58, `tb_dukpt` 4 h 51, `tb_dukpt_aes` 3 h 31, `tb_ascii` 2 h 42 (3 simulações por vez); `regressao.py` com 20 passos em 426 s, o passo do DUKPT em 43,5 s. Firmware `0.8.12`, 68 028 bytes. Comandos ASCII `M4` (conferir o MAC de pedido), `M6` (fazer o MAC de resposta), `C4` (decifrar os dados de pedido) e `C6` (cifrar os dados de resposta). A BDK é a do `P2`: com BDK TDES, retail MAC e 3DES-CBC sob as variantes da X9.24-1 (função de mão única nas chaves de dados); com BDK AES, CMAC e AES-CBC sob as chaves de uso `2000`/`2001`/`3000`/`3001`. As contas sem política estão em `fw/src/dukpt.c`; a BDK, em `keystore_dukpt_mac()` e `keystore_dukpt_dados()`.
 
 ⚠ **Só o lado do adquirente.** Não criar comando que faça o MAC de um pedido ou cifre um pedido: é papel do terminal, e um HSM que fizesse os dois lados permitiria forjar mensagens de terminal. A chave de uso nunca entra em slot, como a chave de PIN da transação.
 
 ⚠ **Os valores de MAC e dados DUKPT são de duas fontes** (`openemv/dukpt` e `moov-io/dukpt`), em `vectors/dukpt/dukpt_mac_dados.rsp`; os de resposta têm uma fonte só, por decisão do usuário. Mexer exige mexer em `fw/src/dukpt.c` e `host/dukpt.py`, e rodar `host/test_dukpt.py`.
+
+**Etapa 8.10 (ARQC e ARPC): ✅ validada em hardware 2026-11-26.** `tb_kek3` 8 h 25, `tb_arqc` 4 h 45, `tb_tdes` 3 h 07, `tb_ascii` 2 h 46 (3 simulações por vez); `regressao.py` com 21 passos em 454 s, o passo do ARQC em 28,8 s. Firmware `0.8.13`, 71 824 bytes; timing +0,280 ns, BRAM 41,5. Próximo: fechar a fase 8 com a suíte completa. Comandos ASCII `A0` (conferir o ARQC e, se conferir, devolver o ARPC) e `A2` (a MK de um cartão sob KEK). A IMK é uso `E0`, modo `X`, 3DES duplo. Opção A só (PAN de até 16 dígitos; maior é `15`); esquemas CSK (EMV Book 2 A1.3) e CVN 10 (a MK direto); ARPC métodos 1 e 2 (CVN 10 com método 2 é `16`). As contas sem política estão em `fw/src/emv.c`; a IMK, em `keystore_emv_arqc()` e `keystore_emv_mk()`. Teoria no manual, seção 40.
+
+⚠ **O HSM não gera ARQC**: isso é do chip. Não criar comando que gere ARQC; o chip de teste é o Python (`host/emv.py`, `gera_arqc()`), com PAN `999999`.
+
+⚠ **O ARPC só sai se o ARQC conferiu**, e o ARQC calculado nunca sai: o `A0` vaza um bit. Um ARPC para um ARQC falso ajudaria quem o forjou. A MK e a chave de sessão nunca entram em slot.
+
+⚠ **A MK sai do `A2` com uso `E0`, modo `X` e exportabilidade `N`**, derivada duas vezes e comparada. O `A0` calcula a chave, o ARQC, o ARPC e o veredito duas vezes, com a derivação refeita. Não "simplificar".
+
+⚠ **Os valores de ARQC são de duas fontes** (`pyemv` e jPOS, sem entradas em comum), em `vectors/emv/arqc.rsp`. Mexer em `fw/src/emv.c` exige mexer em `host/emv.py` e rodar `host/test_emv.py` (3,5 s).
+
+⚠ **A 8.10 renumerou a Parte VIII do manual** (40–48 viraram 41–49), e o capítulo 8 ganhou a seção do CMAC e do HMAC (figuras 8.2 e 8.3; as antigas 8.2–8.4 são 8.4–8.6). O apêndice F é a referência dos programas: comando ou parâmetro novo num programa do usuário entra lá.
 
 ⚠ **A extração do CVV repete a do PVV** (`cvv_extrai()` e `pinv_pvv_extrai()`), de
 propósito: generalizar mudaria código validado. Corrigir uma exige olhar a outra.

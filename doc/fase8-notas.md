@@ -560,7 +560,7 @@ Uma KEK (uso `K0`) pode ser 3DES, dupla ou tripla, e troca chave com outra
 instituição em key block **versão B**. A KEK 3DES nasce por componentes no
 console e fica na flash, como a AES. A teoria, com o exemplo numérico da
 derivação e do bloco aberto, está no manual, seção 39.9; os testes e a
-matemática deles, na 42.7.
+matemática deles, na 43.7.
 
 ### As peças
 
@@ -687,7 +687,7 @@ que chega com a transação e da BDK, ele refaz a chave de PIN do terminal e
 traduz o PIN para uma chave de zona (`P2`). Ele também gera a IPEK de um
 terminal e a entrega sob uma KEK, para a carga do terminal (`I0`). A teoria,
 com o exemplo numérico do anexo A.4, está no manual, seção 37.2; os testes e
-a matemática deles, na 42.8.
+a matemática deles, na 43.8.
 
 ### As peças
 
@@ -808,7 +808,7 @@ mesmos comandos da 8.8a: o `P2` traduz o PIN de um terminal DUKPT AES para
 uma chave de zona, e o `I0` entrega a chave inicial (IK) de um terminal sob
 uma KEK AES. O algoritmo da BDK, no cabeçalho do bloco dela, diz qual DUKPT
 o comando faz. A teoria, com o exemplo numérico do suplemento da norma, está
-no manual, seção 37.3; os testes e a matemática deles, na 42.9.
+no manual, seção 37.3; os testes e a matemática deles, na 43.9.
 
 ### As peças
 
@@ -993,7 +993,7 @@ escolhe a conta: `C0`/`C2` fazem 3DES-CBC com IV de 8 bytes, e `M0`/`M2`
 fazem o retail MAC (ISO/IEC 9797-1, algoritmo 3; ANSI X9.19), com dois campos
 novos, o preenchimento e o tamanho do MAC. A teoria, com o exemplo numérico
 da ISO/IEC 9797-1 B.4 e o ataque de Preneel e van Oorschot, está no manual,
-seção 39.10; os testes, na 42.10.
+seção 39.10; os testes, na 43.10.
 
 ### As peças
 
@@ -1088,7 +1088,7 @@ de resposta. A BDK é a mesma do `P2`, e o algoritmo dela escolhe a conta: no
 TDES, retail MAC (preenchimento 1, 4 ou 8 bytes) e 3DES-CBC sob as variantes
 da norma, com a função de mão única nas chaves de dados; no AES, CMAC e
 AES-CBC sob as chaves de uso `2000`, `2001`, `3000` e `3001`. A teoria, com
-o exemplo numérico, está no manual, seção 37.4; os testes, na 42.11.
+o exemplo numérico, está no manual, seção 37.4; os testes, na 43.11.
 
 ### As peças
 
@@ -1161,6 +1161,92 @@ confere na placa.
 | `tb_dukpt_aes` | o DUKPT AES da 8.8b | PASS, 3 h 31 |
 | `tb_ascii` | a porta host inteira; a tabela de comandos mudou | PASS, 2 h 42 |
 | `tb_uart_frame` | o `GET_BUILD` com a ROM de 128 KB | PASS, 27 min |
+| `tb_tr31_block` | o POST e a máscara dele | PASS, 11 min |
+
+As simulações rodaram 3 por vez.
+
+## Etapa 8.10: ARQC e ARPC
+
+Estado: validada na placa em 2026-11-26. Simulação dos seis testbenches que cobrem a mudança, todos PASS (3 por vez); bitstream com WNS +0,280 ns, 0 critical warnings, 8086 LUTs e BRAM 41,5 (iguais aos da 8.9b); `hsmtool build` CONFERE com o firmware `0.8.13` (71 824 bytes); `regressao.py` com 21 passos em 454 s, o passo novo do ARQC em 28,8 s.
+
+O equipamento faz o lado do emissor do criptograma do chip EMV, com 3DES.
+Dois comandos ASCII novos. O `A0` confere o ARQC que o chip mandou e, se
+ele conferir, devolve o ARPC, a resposta que o chip confere; se não
+conferir, devolve `01` e nenhum ARPC. O `A2` entrega a MK de um cartão sob
+uma KEK, para a personalização. A chave mestra do emissor (IMK) é uso `E0`,
+modo `X`, 3DES duplo. A teoria, com o exemplo numérico e os casos de uso,
+está no manual, seção 40; os testes, na 43.12.
+
+### As peças
+
+| Arquivo | O que faz |
+|---|---|
+| `fw/src/emv.c`, `emv.h` | as contas, sem política: a MK pela Opção A, a chave de sessão comum (CSK), o criptograma (retail MAC, preenchimento 1 ou 2) e o ARPC pelos métodos 1 e 2. `emv_selftest()` entra no KAT do 3DES, com um caso CVN 10 (jPOS) e um CVN 18 (`pyemv`) |
+| `fw/src/keystore.c` | `keystore_emv_arqc()` e `keystore_emv_mk()`: conferem o uso da IMK e o PAN, calculam duas vezes, com a derivação refeita, e comparam antes de algo sair |
+| `fw/src/cmd_ascii.c` | `A0` e `A2` |
+| `scripts/mkkat.py` | os valores do autoteste, de `arqc.rsp` |
+| `host/emv.py` | as mesmas contas em Python, e o chip de teste (`gera_arqc()`) |
+| `host/hsmhost.py` | `arqc-confere`: o Python faz o papel do chip, com PAN `999999`, e o HSM confere |
+| `scripts/_extrai_emv.py` | copia os 18 valores das duas fontes para `vectors/emv/arqc.rsp` |
+
+### Decisões
+
+Do usuário, em 2026-11-26 (`PLANO.md`):
+
+- Só a Opção A (PAN de até 16 dígitos); PAN maior é recusado com `15`.
+- Só 3DES.
+- Dois esquemas: a chave de sessão comum (EMV Book 2, A1.3) e o CVN 10, em
+  que o criptograma sai da MK direto. O CVN 10 responde só pelo ARPC método
+  1; método 2 com ele é `16`.
+- ARPC métodos 1 e 2.
+- O HSM não gera ARQC: isso é do chip.
+- Um comando só para conferir e responder. O ARPC sai só se o ARQC conferiu.
+- A MK sai sob KEK, com uso `E0`, modo `X` e exportabilidade `N`, como a
+  IPEK do `I0`.
+- Vetores de duas fontes.
+
+De implementação, seguindo decisões anteriores:
+
+- **O que se deriva da IMK nunca entra em slot.** A MK e a chave de sessão
+  vivem em variável local dentro de `keystore.c` e saem apagadas.
+- **O ARQC calculado não sai.** O `A0` vaza um bit, como o `M2`: confere ou
+  não confere. O ARPC é calculado sobre o ARQC recebido, que é o que o chip
+  vai conferir.
+- **Tudo é calculado duas vezes**, com a derivação refeita: a chave, o ARQC,
+  o ARPC e o veredito. Discordou: `91` e erro grave marcado.
+
+### O checklist
+
+`A0` e `A2`, comandos ASCII novos; nenhum opcode binário.
+
+- **Estados:** só `OPERATIONAL`, como os demais comandos da porta host.
+- **Dual control:** não. É operação.
+- **Vazamento em laço:** o `A0` vaza um bit por pedido. Achar um ARQC por
+  tentativa custa 2^64 pedidos, e cada um fica no log. Um ARPC para um ARQC
+  falso ajudaria quem o forjou, e por isso o ARPC só sai se o ARQC conferiu.
+  O `A2` é função de emissão: entrega, sob KEK, a MK de qualquer PAN. O
+  controle é o uso da KEK e o log.
+- **Exportabilidade:** a MK sai com `N`. Ela vai para o chip, e de lá não
+  sai mais. A IMK não sai.
+- **Log:** entra antes da execução, pelo despachante ASCII.
+
+### Vetores
+
+`vectors/emv/arqc.rsp`: 18 casos de duas fontes independentes, o `pyemv`
+(Python, 8 casos) e o jPOS (Java, 10 casos). As duas não têm entradas em
+comum, e cada uma confere a implementação sozinha. Procedência e o que ficou
+fora (Opção B, MCHIP): no `MANIFEST.txt`.
+
+### Testes
+
+| Teste | O que cobre | Resultado |
+|---|---|---|
+| `host/test_emv.py` | Python e C contra os 18 valores; C contra Python em 500 casos ao acaso; recusas; o autoteste | PASS, 3,5 s |
+| `tb_arqc` | pela UART, com o firmware real: o `A0` com os valores do jPOS e do `pyemv`, nos dois esquemas e nos dois métodos; ARQC trocado dá `01` sem ARPC; o `A2` com o cabeçalho `E0`/`T`/`X`/`N` e o KCV publicado; três recusas | PASS, 4 h 45 |
+| `tb_kek3` | a KEK 3DES, que o `A2` usa; `keystore.c` mudou | PASS, 8 h 25 |
+| `tb_tdes` | o KAT do 3DES, que agora inclui o `emv_selftest()` | PASS, 3 h 07 |
+| `tb_ascii` | a porta host inteira; a tabela de comandos mudou | PASS, 2 h 46 |
+| `tb_uart_frame` | o `GET_BUILD` | PASS, 24 min |
 | `tb_tr31_block` | o POST e a máscara dele | PASS, 11 min |
 
 As simulações rodaram 3 por vez.

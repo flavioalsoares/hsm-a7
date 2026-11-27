@@ -194,6 +194,7 @@ python3 host/test_tr31b.py          # key block versão B (KEK 3DES)
 python3 host/test_cmac_tdes.py      # CMAC-TDES, vetores do NIST
 python3 host/test_dukpt.py          # DUKPT TDES e AES, valores publicados
 python3 host/test_retail_mac.py     # retail MAC e 3DES-CBC, duas fontes e o NIST
+python3 host/test_emv.py            # ARQC e ARPC, duas fontes
 ```
 
 - **`test_hsmtool.py`** liga o cliente a um **pty** e põe do outro lado um
@@ -328,7 +329,7 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   LMK e o KCV.
 - **`host/test_pinverif.py`** não fala com a placa. Confere o Python contra os
   24 valores de terceiros e compila `fw/src/pinverif.c` com `gcc` para
-  comparar as contas (manual, seção 42.3).
+  comparar as contas (manual, seção 43.3).
 
 - **`host/cvv.py`** é o CVV em Python: monta a entrada, faz a cifra (DES sob
   `A`, XOR, 3DES sob `A` e `B`) e extrai os 3 dígitos. O mesmo método dá o
@@ -338,7 +339,7 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   troca cada dígito para cobrar a recusa do `W2`, e cobra os erros `11` e `16`.
 - **`host/test_cvv.py`** não fala com a placa. Confere o Python contra os 7
   valores de terceiros, e o KCV das chaves do jPOS; compila `fw/src/cvv.c` com
-  `gcc` para comparar a montagem da entrada e a extração (manual, seção 42.4).
+  `gcc` para comparar a montagem da entrada e a extração (manual, seção 43.4).
 
 - **`host/tr31.py`, versão B** (etapa 8.7): o key block sob uma KBPK 3DES,
   com o 3DES e o CMAC da biblioteca `cryptography` (não o `des.py`, para a
@@ -354,7 +355,7 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   placa. O primeiro confere o CMAC-TDES do firmware (compilado com `gcc`) e o
   da `cryptography` contra os 192 vetores do NIST. O segundo confere a versão
   B: os 6 blocos de terceiros, o C contra o Python com o mesmo enchimento, e
-  um bit trocado em cada posição (manual, seção 42.7).
+  um bit trocado em cada posição (manual, seção 43.7).
 
 - **`host/dukpt.py`** (etapa 8.8a) é o DUKPT TDES em Python: `ipek()`,
   `chave_transacao()`, `chave_pin()`, `cifra_pin()` e `ksn_valido()`. O DES é
@@ -380,12 +381,12 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   cada volta, em TDES e em AES, contra o `dukpt.py`.
 - **`host/test_dukpt.py`** não fala com a placa. Confere o Python e o C do
   firmware (compilado com `gcc`) contra a IPEK e as 34 transações do anexo,
-  e os dois entre si em 300 casos ao acaso (manual, seção 42.8). Na parte
+  e os dois entre si em 300 casos ao acaso (manual, seção 43.8). Na parte
   AES, confere o `aes128.c` contra os 568 vetores ECB de 128 bits do CAVP, e
   o Python e o C contra os valores publicados da X9.24-3 e entre si em 400
-  casos (seção 42.9). No PC, o coprocessador é trocado pela OpenSSL; o teste
+  casos (seção 43.9). No PC, o coprocessador é trocado pela OpenSSL; o teste
   precisa da `libcrypto`. Desde a etapa 8.9b, confere também os 63 valores de MAC e de
-  dados das duas fontes, e o C contra o Python ao acaso (seção 42.11).
+  dados das duas fontes, e o C contra o Python ao acaso (seção 43.11).
 
 - **`host/mac_tdes.py`** (etapa 8.9a) é o retail MAC (ISO/IEC 9797-1,
   algoritmo 3) e o 3DES-CBC de dados em Python: `retail_mac()`, `preenche()`
@@ -399,7 +400,24 @@ e o manda de volta em cada `encrypt`, `mac` etc. Formato e erros:
   os 6 valores de terceiros e o 3DES-CBC contra os MMT do NIST, e o C do
   firmware (`mac_tdes.c` com o `des.c`, compilados com `gcc`) contra os
   valores e contra o Python em 2 000 casos ao acaso e em todo tamanho de 1 a
-  40 bytes (manual, seção 42.10). Leva menos de 1 s.
+  40 bytes (manual, seção 43.10). Leva menos de 1 s.
+
+- **`host/emv.py`** (etapa 8.10) é o ARQC e o ARPC do EMV em Python:
+  `mk_opcao_a()`, `csk()`, `chave_ac()`, `criptograma()`, `arpc1()` e
+  `arpc2()`. Faz também o papel do CHIP de teste (`gera_arqc()`): nos testes,
+  o cartão é este programa, com uma MK derivada de uma IMK de teste. O DES é
+  o da biblioteca `cryptography`, e o retail MAC é o de `mac_tdes.py`.
+- **`hsmhost.py arqc-confere --lmk LMK [-n N]`** leva ao equipamento, por
+  `K6`, as IMKs das duas fontes e exige o veredito e o ARPC publicados nos
+  casos que trazem o ATC. Em cada volta, gera uma IMK no HSM, abre-a com a
+  LMK, calcula o ARQC em Python e o confere no `A0`, nos dois esquemas e nos
+  dois preenchimentos, com os métodos 0, 1 e 2; troca um bit do ARQC, do ATC
+  e dos dados; e confere a MK do `A2` sob uma KEK AES e uma 3DES. No fim, as
+  recusas.
+- **`host/test_emv.py`** não fala com a placa. Confere o Python e o C do
+  firmware (`emv.c` com `des.c` e `mac_tdes.c`, compilados com `gcc`)
+  contra os 18 casos de terceiros, e os dois entre si em 500 casos ao acaso
+  (manual, seção 43.12). Leva cerca de 3 s.
 
 - **`host/regressao.py --lmk LMK [--rapido]`** é a regressão na placa: roda o
   `ping`, o `post`, os sensores, todos os `confere`, os vetores do CAVP e o

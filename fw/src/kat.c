@@ -19,6 +19,7 @@
 #include "sha.h"
 #include "tr31.h"
 #include "dukpt.h"
+#include "emv.h"
 #include "mac_tdes.h"
 #include "wipe.h"
 
@@ -444,7 +445,8 @@ static unsigned kat_ecdsa(void)
 
 /* DES e 3DES contra o CAVP, desde a etapa 8.7 o CMAC-TDES e o key block
  * versao B (tr31b_selftest()), e desde a 8.8a o DUKPT TDES
- * (dukpt_selftest()), e desde a 8.9a o retail MAC. Os KATs de substituicao da SP 800-20 exercitam
+ * (dukpt_selftest()), desde a 8.9a o retail MAC, e desde a 8.10 o ARQC e o
+ * ARPC (emv_selftest()). Os KATs de substituicao da SP 800-20 exercitam
  * cada entrada das caixas S; os tres MMT cobrem a chave dupla, a tripla, o
  * CBC e as duas direcoes. */
 static unsigned kat_tdes(void)
@@ -511,6 +513,11 @@ static unsigned kat_tdes(void)
         d |= (uint8_t)(saida[j] ^ kat_rmac2_mac[j]);
     }
     wipe(saida, sizeof saida);
+    /* Etapa 8.10: ARQC e ARPC, um caso CVN 10 e um CVN 18. Mesmo bit: e o
+     * mesmo motor 3DES e o mesmo retail MAC. */
+    if (emv_selftest() != 0) {
+        d |= 1u;
+    }
     return (d != 0u) ? KAT_FALHA_TDES : 0u;
 }
 

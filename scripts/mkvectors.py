@@ -912,6 +912,78 @@ def rsa_r2(prefixo):
     return len(bloco), len(aes)
 
 
+def arqc_tb():
+    """Vetores do tb_arqc (etapa 8.10): A0 e A2.
+
+    Tudo de TERCEIROS (vectors/emv/arqc.rsp, duas fontes; ver o MANIFEST):
+    do jPOS, a IMK "4 times 12345678", o ARQC VSDC (MK, preenchimento 00) com
+    o ARPC metodo 1 e o EMV_CSKD (preenchimento 80) com o ARPC metodo 2; do
+    pyemv, a IMK do CVN 10 e do CVN 18, os dois ARQCs e os ARPCs, e os dois
+    primeiros bytes do KCV da MK do cartao (BAB0). O KCV inteiro da MK e a
+    KEK de transporte sao conta do Python (host/emv.py, conferido contra as
+    duas fontes pelo host/test_emv.py).
+    """
+    sys.path.insert(0, str(ROOT / "host"))
+    import des
+    import emv
+    import tr31
+
+    lmk = bytes(((0x10 + i) ^ (0x5A ^ ((i * 7) & 0xFF)) ^ ((0xC3 + i) & 0xFF)) & 0xFF
+                for i in range(32))
+    ench = bytes(range(16))
+
+    def sob_lmk(chave, uso, modo):
+        b = tr31.embrulha(lmk, chave, uso=uso, algoritmo="T", modo=modo,
+                          exportabilidade="E", enchimento=ench)
+        if len(b) != 112:
+            raise SystemExit("tb_arqc: bloco de %d caracteres" % len(b))
+        return b
+
+    casos = {c["FONTE"].split()[-1]: c
+             for c in emv.le_rsp(str(VEC / "emv" / "arqc.rsp"))}
+    j1 = casos["testVerifyARQCGenerateARPCImpl_VSDC_P00_M1"]
+    j2 = casos["testVerifyARQCGenerateARPCImpl_CSKD_P80_M2"]
+    p10 = casos["test_visa_cvn10"]
+    p18 = casos["test_visa_cvn18"]
+    if not (j1["IMK"] == j2["IMK"] and j1["DADOS"] == j2["DADOS"] and
+            j1["PAN"] == j2["PAN"] and j1["ATC"] == j2["ATC"] and
+            p10["IMK"] == p18["IMK"] and p10["PAN"] == p18["PAN"] and
+            p10["ATC"] == p18["ATC"] and p10["PSN"] == p18["PSN"] and
+            j1["ESQUEMA"] == "MK" and j1["PAD"] == "1" and
+            j2["ESQUEMA"] == "CSK" and j2["PAD"] == "2" and j2["PAD_AUT"] == "" and
+            p10["ESQUEMA"] == "MK" and p10["PAD"] == "1" and
+            p18["ESQUEMA"] == "CSK" and p18["PAD"] == "2" and p18["PAD_AUT"] == "" and
+            len(j1["PAN"]) == 16 and len(p10["PAN"]) == 16):
+        raise SystemExit("tb_arqc: casos inesperados")
+    imk_j = bytes.fromhex(j1["IMK"])
+    imk_p = bytes.fromhex(p10["IMK"])
+    kek = des.paridade_impar(hashlib.sha256(b"tb_arqc: kek").digest()[:16])
+    t112 = (sob_lmk(imk_j, "E0", "X")       # 0: IMK do jPOS
+            + sob_lmk(imk_p, "E0", "X")     # 1: IMK do pyemv
+            + sob_lmk(kek, "K0", "E"))      # 2: KEK 3DES, para o A2
+    escreve("arqc_b112", ["%02x" % ord(c) for c in t112], 2)
+    mk = emv.mk_opcao_a(imk_p, p10["PAN"], p10["PSN"])
+    mk_kcv = des.kcv(mk).hex().upper()
+    if mk_kcv[:4] != p10["MKKCV2"]:
+        raise SystemExit("tb_arqc: KCV da MK nao e o publicado")
+    partes = [
+        (0, j1["ATC"]), (4, j1["ARQC"]), (20, j1["ARC"]), (24, j1["ARPC1"]),
+        (40, j2["ARQC"]), (56, j2["CSU"]), (64, j2["ARPC2"]), (72, j1["DADOS"]),
+        (150, p10["ATC"]), (154, p10["ARQC"]), (170, p10["ARC"]),
+        (174, p10["ARPC1"]), (190, p10["DADOS"]), (264, p18["ARQC"]),
+        (280, p18["CSU"]), (288, p18["ARPC2"]), (296, p18["DADOS"]),
+        (376, j1["PAN"]), (392, j1["PSN"]), (394, p10["PAN"]), (410, p10["PSN"]),
+        (412, p10["MKKCV2"]), (416, mk_kcv)]
+    pedido = ""
+    for de, txt in partes:
+        if len(pedido) != de:
+            raise SystemExit("tb_arqc: campo em %d, esperado %d" % (len(pedido), de))
+        pedido += txt
+    if len(pedido) != 422:
+        raise SystemExit("tb_arqc: dados de %d caracteres" % len(pedido))
+    escreve("arqc_dados", ["%02x" % ord(c) for c in pedido], 2)
+
+
 def main():
     if not VEC.exists():
         raise SystemExit("vectors/ ausente — rode ./scripts/fetch-vectors.sh")
@@ -929,6 +1001,7 @@ def main():
     dukpt_aes_tb()
     mac3_tb()
     dukpt_mac_tb()
+    arqc_tb()
 
     # As contagens saem daqui em vez de serem repetidas no testbench: um
     # numero desatualizado la faria o teste rodar sobre lixo silenciosamente.

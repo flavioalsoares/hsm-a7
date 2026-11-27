@@ -5,6 +5,14 @@
 **APT** — *Adaptive Proportion Test*. Teste de saúde de fonte de entropia
 (SP 800-90B) que dispara quando um valor domina uma janela de amostras.
 
+**ARQC / ARPC** — *Authorization Request / Response Cryptogram*. O ARQC são
+8 bytes que o chip do cartão calcula sobre os dados da transação, com a
+chave dele; o emissor o confere. O ARPC é a resposta do emissor, que o chip
+confere. Seção 40.
+
+**ATC** — *Application Transaction Counter*. O contador de transações do
+chip EMV; entra na chave de sessão e nos dados do ARQC. Seção 40.
+
 **BBRAM** — memória volátil do FPGA onde pode ficar a chave de decifra do
 bitstream. Perde conteúdo sem alimentação, e por isso é recuperável — ao
 contrário do eFUSE.
@@ -17,7 +25,8 @@ receber coprocessadores do usuário. É onde AES e SHA entram na Fase 2.
 
 **CMAC** — código de autenticação de mensagem baseado em cifra de bloco.
 Usado no TR-31 para autenticar cabeçalho e corpo, e para derivar KBEK/KBAK.
-Com AES no key block versão D; com 3DES (CMAC-TDES) na versão B.
+Com AES no key block versão D; com 3DES (CMAC-TDES) na versão B. É o
+CBC-MAC com uma subchave secreta no último bloco (seção 8).
 
 **CMVP** — programa NIST/CCCS que valida módulos contra a FIPS 140-3.
 
@@ -31,6 +40,10 @@ pessoa sozinha. Ver seção 7.
 **DRBG** — *Deterministic Random Bit Generator*. Gerador determinístico
 semeado por entropia física, especificado na SP 800-90A.
 
+**CVN** — *Cryptogram Version Number*. A escolha, entre as opções da
+especificação EMV, de como o chip calcula o ARQC: com que chave, sobre que
+dados, com que preenchimento. Seção 40.
+
 **CVV / CVC** — três dígitos derivados de PAN, validade e código de serviço
 sob um par de chaves 3DES (a chave dupla de uso `C0`). O CVV2 (verso) e o
 iCVV (chip) saem da mesma conta, com os códigos de serviço `000` e `999`.
@@ -43,6 +56,14 @@ foi a origem do ataque de Bond e Zieliński (seções 15.2 e 35.3).
 **DUKPT** — *Derived Unique Key Per Transaction*. Esquema em que cada
 transação usa uma chave distinta derivada de uma BDK, identificada por um
 KSN. Duas normas: X9.24-1 (TDES, legado) e X9.24-3 (AES). Seção 37.
+
+**HMAC** — código de autenticação de mensagem baseado em função de hash
+(FIPS 198-1, RFC 2104): duas passadas de hash, com duas chaves derivadas da
+chave. Aqui, HMAC-SHA-256, conferido no autoteste (seção 8).
+
+**IMK** — *Issuer Master Key*. A chave mestra do emissor, da qual se deriva
+a chave (MK) de cada cartão de chip. Existe só nos HSMs do emissor. Aqui,
+uso `E0`, modo `X`. Seção 40.
 
 **IK** — *Initial Key*, a chave inicial de um terminal DUKPT AES. É o papel
 da IPEK no DUKPT AES: vem da BDK e do IKID (os 8 primeiros bytes do KSN), e
@@ -441,6 +462,8 @@ comprimento em 4 dígitos decimais seguido de hex.
 | `M6` | `M7` | bloco da BDK ‖ KSN(20 ou 24) ‖ [chave de trabalho(1)] ‖ [tamanho(1)] ‖ dados | MAC(8, 16 ou 32) | `OPERATIONAL` |
 | `C4` | `C5` | bloco da BDK ‖ KSN(20 ou 24) ‖ [chave de trabalho(1)] ‖ IV(16 ou 32) ‖ dados | dados | `OPERATIONAL` |
 | `C6` | `C7` | bloco da BDK ‖ KSN(20 ou 24) ‖ [chave de trabalho(1)] ‖ IV(16 ou 32) ‖ dados | dados | `OPERATIONAL` |
+| `A0` | `A1` | bloco da IMK ‖ esquema(1) ‖ preenchimento(1) ‖ tamanho do PAN(2) ‖ PAN ‖ PSN(2) ‖ ATC(4) ‖ ARQC(16) ‖ método(1) ‖ [ARC(4)] ‖ [CSU(8) ‖ tamanho(1) ‖ dado próprio] ‖ dados | ARPC(16 ou 8), se o método não é `0` (o veredito é o erro) | `OPERATIONAL` |
+| `A2` | `A3` | bloco da KEK ‖ bloco da IMK ‖ tamanho do PAN(2) ‖ PAN ‖ PSN(2) | bloco da MK sob a KEK ‖ KCV(6) | `OPERATIONAL` |
 | `W0` | `W1` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) | código(3) | `OPERATIONAL` |
 | `W2` | `W3` | bloco da CVK ‖ tamanho do PAN(2) ‖ PAN ‖ validade(4) ‖ código de serviço(3) ‖ código(3) | — (o veredito é o erro) | `OPERATIONAL` |
 
@@ -454,7 +477,8 @@ inválido · `17` tabela de decimalização não autorizada · `20` estado não 
 mensagem malformada · `27` falha no log · `90` erro interno · `91` erro grave. Os códigos de
 comando e de erro são deste projeto.
 
-Os comandos `R` são de RSA-2048 e os `E`, de ECDSA sobre a curva P-256. O
+Os comandos `R` são de RSA-2048 e os `E`, de ECDSA sobre a curva P-256. Os
+comandos `A` são do chip EMV (seção 40). O
 digest é SHA-256, calculado pelo host. A seção 30 explica os dois.
 
 No `K0`, os dois últimos campos são opcionais e vêm juntos: `A4` é AES-256,
@@ -1273,7 +1297,291 @@ que não foi escrito:
   nunca permitiria. Serve para as duas implementações do formato de key
   block se conferirem; é bancada, não operação.
 
-## F. Leitura
+## F. Os programas
+
+O apêndice E mostra uma sessão de trabalho. Este apêndice é a referência:
+ele lista os programas que o usuário roda e explica cada subcomando, cada
+parâmetro e cada controle. Os programas estão em `host/` e em `scripts/`.
+
+<figure class="fig">
+<svg viewBox="0 0 680 250" xmlns="http://www.w3.org/2000/svg">
+<rect class="cx" x="10" y="20" width="300" height="210" rx="6"/>
+<text x="160" y="40" text-anchor="middle" class="tb">PC</text>
+<rect class="cxa" x="30" y="55" width="130" height="34"/><text x="95" y="77" text-anchor="middle" class="tm">hsmtool.py</text>
+<text x="170" y="70" class="ts">console:</text><text x="170" y="82" class="ts">protocolo binário</text>
+<rect class="cxd" x="30" y="110" width="130" height="34"/><text x="95" y="132" text-anchor="middle" class="tm">hsmhost.py</text>
+<text x="170" y="125" class="ts">host:</text><text x="170" y="137" class="ts">command set ASCII</text>
+<rect class="cxc" x="30" y="170" width="130" height="34"/><text x="95" y="192" text-anchor="middle" class="tm">hsm_ponte.py</text>
+<text x="170" y="185" class="ts">TCP 1500 ↔ serial,</text><text x="170" y="197" class="ts">sem entender</text>
+<line x1="95" y1="144" x2="95" y2="170" class="ln"/>
+<text x="100" y="161" class="ts">TCP</text>
+<rect class="cxv" x="450" y="80" width="210" height="110" rx="6"/>
+<text x="555" y="105" text-anchor="middle" class="tb">placa</text>
+<text x="555" y="128" text-anchor="middle" class="ts">uma UART, 115 200 8N1</text>
+<text x="555" y="146" text-anchor="middle" class="ts">o 1º byte separa</text>
+<text x="555" y="160" text-anchor="middle" class="ts">binário de ASCII</text>
+<line x1="310" y1="72" x2="450" y2="120" class="ln"/>
+<line x1="310" y1="187" x2="450" y2="150" class="ln"/>
+<text x="318" y="70" class="ts">serial (CP2102)</text>
+<text x="318" y="200" class="ts">serial (CP2102)</text>
+<text x="340" y="242" text-anchor="middle" class="ts">só um programa abre a serial por vez: com a ponte rodando, o hsmtool não fala</text>
+</svg>
+<figcaption>Figura F.1 — Os dois clientes e a ponte. O hsmhost fala pela ponte (padrão) ou direto na serial (--serial).</figcaption>
+</figure>
+
+| Programa | Para quê | Precisa da placa |
+|---|---|---|
+| `host/hsmtool.py` | o console: cerimônia, estado, chaves de slot, log, diagnóstico | sim, menos `selftest` e `kcv` |
+| `host/hsmhost.py` | a porta host: os comandos ASCII e as conferências contra o Python | sim, menos `selftest` |
+| `host/hsm_ponte.py` | a ponte TCP ↔ UART que o `hsmhost.py` usa | sim |
+| `host/regressao.py` | a regressão inteira na placa | sim |
+| `host/test_*.py` | os testes no PC, C contra Python e contra os valores publicados | não |
+| `host/glitch.py`, `host/puf.py` | as medidas de ataque e do PUF | sim, com bitstream próprio |
+| `scripts/*.sh`, `scripts/*.py` | simular, construir, gravar, gerar vetores e o PDF | só o `program.sh` |
+
+Todos os programas Python devolvem 0 quando tudo deu certo e 1 quando o
+dispositivo recusou ou uma conferência falhou. O `hsmtool.py` devolve 2
+quando a porta serial falha.
+
+### F.1 `hsmtool.py`, o console
+
+```
+python3 host/hsmtool.py [-p PORTA] [-b BAUD] [-t SEGUNDOS] SUBCOMANDO ...
+```
+
+| Opção | Padrão | O que faz |
+|---|---|---|
+| `-p`, `--port` | a do CP2102 | a porta serial. Sem ela, o programa escolhe pelo VID:PID do CP2102 (`10c4:ea60`), e nunca o gravador JTAG, que também cria uma `/dev/ttyUSB*` |
+| `-b`, `--baud` | 115 200 | a velocidade da UART |
+| `-t`, `--timeout` | 2,0 | quanto esperar a resposta, em segundos |
+
+Os valores de chave, de mensagem e de MAC entram em hexadecimal. Um
+`handle` é o número do slot (1 a 16) que o `gen-key`, o `import-key` e o
+`comp-load` devolvem.
+
+**Sem placa**
+
+| Subcomando | O que faz |
+|---|---|
+| `selftest` | confere o codec do protocolo (enquadramento e CRC) |
+| `kcv [--tdes] [--mostra] COMP ...` | calcula o KCV de cada componente e o do XOR deles: é a conta do custodiante. `--tdes` usa o KCV do 3DES (componentes de 16 ou 24 bytes). `--mostra` imprime também a chave montada |
+
+**Identificação e diagnóstico**
+
+| Subcomando | O que faz |
+|---|---|
+| `ping` | `PONG` e o tempo de ida e volta |
+| `version` | a versão do firmware e o estado |
+| `dna` | o identificador de fábrica do FPGA (57 bits) |
+| `build` | o SHA-256 da memória de código, comparado com `fw/elf.bin`: `CONFERE` diz que o firmware gravado é o que foi compilado |
+| `post` | roda o autoteste de novo e mostra cada teste. Reprovar leva a `TAMPERED`, como no boot |
+| `env` | temperatura, tensões e alarmes de ambiente |
+| `sha256 [HEX]` | o SHA-256 de uma mensagem, calculado no coprocessador |
+| `random [-n N] [-o ARQ]` | N bytes do gerador aleatório (padrão 32). `-o` grava num arquivo |
+| `bench [-n N] [--limit MS]` | N pings (padrão 10 000), com o limite por ping (padrão 50 ms): o teste de aceitação da fase 1 |
+| `audit [--desde SEQ]` | lê o log de auditoria, do registro `SEQ` em diante (padrão: o mais antigo guardado) |
+
+**Cerimônia e estado** (todos exigem os dois botões, salvo `lmk-status`)
+
+| Subcomando | O que faz |
+|---|---|
+| `lmk-status` | quantos componentes da LMK entraram, e o KCV dela |
+| `lmk-load [--random] N [COMP]` | carrega o componente N (0 a 2) da LMK, 32 bytes. `--random` gera o componente no PC e o imprime |
+| `activate` | `AUTHORIZED` → `OPERATIONAL` |
+| `tabela-autoriza TABELA KCV` | autoriza uma tabela de decimalização (16 dígitos) para a chave `V1` daquele KCV (6 hex). A resposta é o bloco que o `V0` e o `V2` pedem |
+| `zeroize [--sim]` | apaga toda chave, LMK inclusive. Pede para digitar `apagar`; `--sim` pula essa pergunta, mas não os botões |
+
+Os botões de dual control são o 2º e o 5º da fileira. Eles têm de estar
+apertados quando o comando chega, e soltos entre duas autorizações (seção
+7). Rode esses comandos num terminal de verdade: sem terminal, o programa
+envia antes de você apertar.
+
+**Chaves de slot**
+
+| Subcomando | O que faz |
+|---|---|
+| `gen-key [--uso U] [--modo M] [--exp X]` | gera uma chave AES-256 dentro do dispositivo e devolve o handle e o KCV |
+| `comp-load [--random] [--alg A] [--uso U] [--modo M] [--exp X] N TOTAL [COMP]` | monta uma chave de trabalho a partir de TOTAL componentes; este é o N (0 a TOTAL−1). Exige os botões a cada componente. `N = 0` recomeça a montagem |
+| `export-key [-o ARQ] HANDLE` | exporta o slot como key block sob a LMK. `-o` grava num arquivo |
+| `import-key [-f ARQ] [BLOCO]` | importa um key block, da linha de comando ou do arquivo `-f` |
+| `key-info HANDLE` | uso, algoritmo, modo, exportabilidade, tamanho, KCV e contador de uso. Nunca a chave |
+| `delete-key HANDLE` | apaga um slot, sem botões |
+| `encrypt HANDLE IV DADOS` | AES-CBC com a chave do slot. IV de 16 bytes; dados em múltiplos de 16 |
+| `decrypt HANDLE IV DADOS` | o inverso |
+| `mac HANDLE [DADOS]` | CMAC-AES-256 com a chave do slot |
+| `mac-verify HANDLE TAG [DADOS]` | confere a tag (16 bytes) dentro do dispositivo e responde com um bit |
+
+As opções de chave valem para o `gen-key` e o `comp-load`:
+
+| Opção | Valores | Padrão | O que é |
+|---|---|---|---|
+| `--uso` | `B0` `K0` `D0` `M0` `P0` | `D0` | o uso X9.143: BDK, KEK, dados, MAC, PIN (seção 8) |
+| `--modo` | `E` `D` `B` `G` `V` `C` `X` `N` | `B` | o modo de uso: `E`/`D`/`B` cifram, `G`/`V`/`C` fazem MAC, `X` só deriva |
+| `--exp` | `E` `N` `S` | `E` | a exportabilidade: `N` não sai |
+| `--alg` (só `comp-load`) | `A` `A128` `T2` `T3` | `A` | AES-256; AES-128 (só BDK, modo `X`); 3DES duplo; 3DES triplo |
+
+**Bancada**
+
+| Subcomando | O que faz |
+|---|---|
+| `keycycle --lmk HEX [-n N] [-v]` | gera, exporta e reimporta N chaves (padrão 100), e o Python abre cada bloco com a LMK. Precisa da LMK em claro, o que um HSM de verdade nunca permitiria |
+| `raw --op OP [--payload HEX]` | envia um opcode qualquer e mostra a resposta crua |
+
+### F.2 `hsmhost.py`, a porta host
+
+```
+python3 host/hsmhost.py [--tcp HOST:PORTA | --serial [--porta PORTA]] [--cab CCCC] SUBCOMANDO ...
+```
+
+| Opção | Padrão | O que faz |
+|---|---|---|
+| `--tcp` | `127.0.0.1:1500` | fala pela ponte (F.3) |
+| `--serial` | | fala direto na serial, sem a ponte |
+| `--porta` | a do CP2102 | a porta serial, com `--serial` |
+| `--cab` | `0000` | o cabeçalho de 4 caracteres, que volta igual na resposta (apêndice B) |
+
+O programa não guarda nada. Os key blocks entram e saem pela linha de
+comando: o host é quem os guarda. Uma recusa mostra o código de erro do
+apêndice B e o texto dele.
+
+**Comandos avulsos**
+
+| Subcomando | Comando | O que faz |
+|---|---|---|
+| `selftest` | | confere o codec, sem placa |
+| `diag` | `D0` | estado, KCV da LMK e versão |
+| `gen [--uso U] [--modo M] [--exp X] [--alg A]` | `K0` | gera uma chave e devolve o key block e o KCV. `--alg`: `A4` AES-256 (padrão), `T2`/`T3` 3DES duplo/triplo |
+| `check BLOCO` | `K2` | confere o bloco e mostra o cabeçalho e o KCV |
+| `export KEK BLOCO` | `K4` | passa a chave de sob a LMK para sob a KEK |
+| `import KEK BLOCO` | `K6` | o inverso |
+| `encrypt BLOCO IV DADOS` | `C0` | cifra. Com chave 3DES, IV de 8 bytes |
+| `decrypt BLOCO IV DADOS` | `C2` | decifra |
+| `mac BLOCO DADOS` | `M0` | CMAC (AES) ou retail MAC (3DES) |
+| `mac-verify BLOCO MAC DADOS` | `M2` | o veredito é o código: `00` ou `01` |
+| `rsa-gen [--exp X]` | `R0` | gera um par RSA-2048 |
+| `rsa-sign BLOCO DIGEST` | `R2` | assina o digest SHA-256 |
+| `rsa-verify N E DIGEST S` | `R4` | confere uma assinatura |
+| `ecdsa-gen [--exp X]` | `E0` | gera um par P-256 |
+| `ecdsa-sign BLOCO DIGEST` | `E2` | assina |
+| `ecdsa-verify QX QY DIGEST R S` | `E4` | confere |
+| `pin-traduz [--formatos OD] ORIGEM DESTINO PAN BLOCO` | `P0` | traduz um PIN block. `--formatos`: origem e destino, `4` (AES) ou `0` (3DES); padrão `44` |
+
+**Conferências.** Cada uma faz N voltas com dados ao acaso, e o Python
+refaz por conta própria o que o equipamento fez. As que pedem `--lmk` abrem
+os key blocks com a LMK de desenvolvimento: um host de verdade nunca tem a
+chave mestra. Os PANs são inventados, com o prefixo `999999`.
+
+| Subcomando | Voltas | Comandos | O que o Python faz |
+|---|---|---|---|
+| `confere --lmk HEX [-n N]` | 10 | `K0` `K2` `C0` `C2` `M0` `M2` | abre os blocos, refaz o AES e o CMAC |
+| `tdes-confere --lmk HEX [-n N]` | 5 | `K0` `K2` `K4` com 3DES | refaz o KCV e o bloco versão B |
+| `rsa-confere [-n N]` | 3 | `R0` `R2` `R4` | verifica as assinaturas só com `n` e `e` |
+| `rsa-cavp [--lmk HEX]` | | `R4`, e `R2` com a LMK | os vetores do CAVP, e um bit trocado |
+| `ecdsa-confere [-n N]` | 3 | `E0` `E2` `E4` | verifica só com o ponto público |
+| `ecdsa-cavp [--lmk HEX]` | | `E4`, e `E2` com a LMK | os vetores do CAVP, e chaves públicas inválidas |
+| `pkcs8-confere --lmk HEX [-n N]` | 3 | `R0` `E0` `R2` `E2` `R4` `E4` | troca chaves com a biblioteca `cryptography`, nos dois sentidos |
+| `pin-confere --lmk HEX [-n N]` | 10 | `P0` | faz o papel do terminal e do destino |
+| `pinv-confere --lmk HEX [-n N] [--tabela B --kcv K]` | 10 | `V0` `V2` `V4` `V6` | refaz o offset e o PVV. Com `--tabela` (o bloco do `tabela-autoriza`) e o `--kcv` da chave `V1`, confere também o MAC dessa tabela |
+| `cvv-confere --lmk HEX [-n N]` | 10 | `W0` `W2` | refaz o CVV, o CVV2 e o iCVV |
+| `dukpt-confere --lmk HEX [-n N]` | 10 | `P2` `I0` `M4` `M6` `C4` `C6` | faz o papel do terminal, TDES e AES |
+| `arqc-confere --lmk HEX [-n N]` | 10 | `A0` `A2` | faz o papel do chip: calcula o ARQC e confere o ARPC |
+
+Os comandos `V*`, `W*`, `P2`, `I0`, `M4` a `C6`, `A0` e `A2` não têm
+subcomando avulso: eles entram pelas conferências e pelo `regressao.py`.
+
+### F.3 `hsm_ponte.py`, a ponte
+
+```
+python3 host/hsm_ponte.py [--endereco IP] [--porta N] [--serial DEV]
+```
+
+| Opção | Padrão | O que faz |
+|---|---|---|
+| `--endereco` | `127.0.0.1` | onde escutar. O padrão aceita só esta máquina |
+| `--porta` | 1500 | a porta TCP |
+| `--serial` | a do CP2102 | a porta serial da placa |
+
+A ponte repassa `LEN(2)` + mensagem nos dois sentidos e não interpreta
+nada. Quem interpreta o ASCII é o firmware, dentro da fronteira. Com a
+ponte rodando, a serial fica com ela: pare a ponte antes de usar o
+`hsmtool.py`. Ctrl+C a encerra.
+
+### F.4 `regressao.py`
+
+```
+python3 host/regressao.py --lmk HEX [--rapido] [--porta DEV]
+```
+
+| Opção | O que faz |
+|---|---|
+| `--lmk` | a LMK de desenvolvimento, em hex. Obrigatória |
+| `--rapido` | menos voltas em cada passo |
+| `--porta` | a porta serial |
+
+Roda na placa o que a seção 48 descreve: os subcomandos do `hsmtool.py` e
+do `hsmhost.py`, um passo por função, e confere o resultado de cada um. A
+placa tem de estar em `OPERATIONAL`, e a ponte, parada. Ele não aperta
+botão, não provoca falha e não vê sinal interno: não substitui a simulação.
+Leva cerca de 7 minutos.
+
+### F.5 Os testes no PC
+
+Rodam sem placa e sem parâmetro: `python3 host/test_X.py`. Cada um
+imprime `PASS` ou a lista de falhas. Os que conferem o firmware compilam o
+C com o `gcc` do PC.
+
+| Teste | O que confere |
+|---|---|
+| `test_hsmtool.py` | o transporte, com um modelo do dispositivo num pseudoterminal |
+| `test_tr31.py`, `test_tr31b.py` | o key block X9.143, versões D e B |
+| `test_cmac_tdes.py`, `test_des.py`, `test_retail_mac.py` | o CMAC-TDES, o DES e o retail MAC |
+| `test_ecc.py`, `test_pkcs8.py` | o ECDSA e o leitor de PKCS#8 do firmware |
+| `test_pinblock.py`, `test_pinverif.py`, `test_cvv.py` | PIN block, verificação de PIN, CVV |
+| `test_dukpt.py` | o DUKPT TDES e AES |
+| `test_emv.py` | o ARQC e o ARPC |
+
+### F.6 Construir, simular e gravar
+
+| Comando | O que faz | Controles |
+|---|---|---|
+| `./scripts/sim.sh [TB ...]` | simula um testbench, alguns, ou todos (sem argumento). Resultado em `build/sim/<tb>/`, tempos em `build/sim/tempos.csv` | `SIM_JOBS` (padrão 3): quantos ao mesmo tempo. `SIM_TIMEOUT`: o limite de cada um, em segundos |
+| `make -C fw image` | compila o firmware e gera a imagem da memória de código | |
+| `vivado -mode batch -source scripts/build.tcl` | síntese e bitstream | antes, `source /opt/AMD/2026.1/Vivado/settings64.sh` |
+| `./scripts/program.sh [flash]` | grava o bitstream: sem argumento, na RAM de configuração; com `flash`, na flash SPI, que é o modo certo nesta placa | `BIT` (padrão `build/hsm_top.bit`), `CABLE` (padrão `digilent_hs2`), `CABLE_FREQ` (padrão 1 MHz) |
+| `python3 scripts/mkkat.py` | gera `fw/include/kat_vectors.h` a partir de `vectors/` | |
+| `./scripts/fetch-vectors.sh [--check]` | baixa os vetores das fontes e confere o hash. `--check` só confere o que já está no repositório | |
+| `./scripts/mkpdf.sh` | gera este manual em PDF | |
+| `python3 scripts/entstat.py ARQ` | estatística simples sobre bytes do `random`. Não valida o gerador | |
+
+### F.7 As medidas de ataque e do PUF
+
+Os dois programas pedem bitstreams próprios, que não são o de produção (seção
+29).
+
+`glitch.py` varre o injetor de falha de clock:
+
+| Opção | Padrão | O que é |
+|---|---|---|
+| `--alvo` | `selftest` | o comando atacado: `selftest`, `encrypt` ou `mac-verify` |
+| `--handle` | 1 | o slot, para `encrypt` e `mac-verify` |
+| `--de`, `--ate`, `--passo` | 0, 1 000 000, 50 000 | a faixa de atraso do glitch, em ciclos |
+| `--largura` | 40 | a largura do glitch |
+| `--repete` | 1 | quantas vezes em cada atraso |
+| `--cabo` | `digilent_hs2` | o cabo JTAG |
+| `-o`, `--saida` | `glitch.csv` | o resultado: atraso, largura e classe de cada tentativa (`ok`, `detectou`, `ERRADO`, `mudo` e outras) |
+
+`puf.py [--porta DEV] SUBCOMANDO` mede o RO-PUF:
+
+| Subcomando | O que faz |
+|---|---|
+| `ler [-n N] [--carga C] -o ARQ` | N varreduras dos 64 anéis (padrão 100), com a carga térmica no nível C (padrão 0, desligada) |
+| `termica [-n N] [--espera S] -o ARQ` | sobe a carga térmica nível a nível. Em cada nível, olha a temperatura a cada S segundos (padrão 20) até ela parar de subir, e lê N varreduras. Para perto de 70 °C |
+| `analisa ARQ ...` | as frequências dos anéis e as métricas de uma ou mais medidas |
+| `deriva BASE MEDIDA` | a taxa de bits errados contra a medida de referência, por nível de carga |
+| `compara A B` | quantos bits diferem entre as respostas de referência de duas medidas |
+| `corretor --ber P [--uniformidade U] [--falha F]` | escolhe o código BCH(255) que corrige a taxa de erro P (%) com probabilidade de falha F (padrão 10⁻⁶), e conta a entropia que sobra com a uniformidade U (padrão 50 %) |
+
+## G. Leitura
 
 ### Normas
 

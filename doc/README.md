@@ -9,25 +9,25 @@ construindo um de brinquedo.
 
 ## O manual
 
-**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 191 páginas, o documento
+**[`hsm-a7-manual.pdf`](hsm-a7-manual.pdf)** — 210 páginas, o documento
 principal. Fonte em [`manual/`](manual/), legível como Markdown; o PDF é
 gerado por `./scripts/mkpdf.sh`.
 
 | Parte | Assunto |
 |---|---|
 | **I — O que é um HSM** | O problema que resolve, modelo de ameaça, as três propriedades, onde HSMs são usados |
-| **II — Arquitetura interna** | Fronteira criptográfica, hierarquia de chaves, cerimônia de LMK, key blocks TR-31, máquina de estados, aleatoriedade, self-test, zeroização, log, ciclo de vida |
+| **II — Arquitetura interna** | Fronteira criptográfica, hierarquia de chaves, cerimônia de LMK, key blocks TR-31, CMAC e HMAC, máquina de estados, aleatoriedade, self-test, zeroização, log, ciclo de vida |
 | **III — Como HSMs são atacados** | Ataques de API (tabela de decimalização, confusão de tipo, PIN blocks), canais laterais, injeção de falha, ataques físicos |
 | **IV — Certificação** | FIPS 140-3 e seus quatro níveis, PCI, Common Criteria, e o que "certificado" não significa |
 | **V — O equipamento hsm-a7** | Objetivo, plataforma, restrições, e cada peça da plataforma ligada ao que ela é num HSM real |
 | **VI — As funções, fase a fase** | O que cada fase acrescentou, e o conceito por trás: fases 2 a 8 |
-| **VII — Criptografia de pagamento** | PIN blocks ISO 9564, tradução de PIN, PVV e IBM 3624, decimalização, DUKPT — e o que deste domínio dá para ensinar aqui |
+| **VII — Criptografia de pagamento** | PIN blocks ISO 9564, tradução de PIN, PVV e IBM 3624, decimalização, CVV, DUKPT, DES e 3DES, ARQC — e o que deste domínio dá para ensinar aqui |
 | **VIII — Como o equipamento é testado** | O que um teste pode provar, vetores oficiais, testes de formato, do gerador aleatório, de propriedade de segurança, de canal lateral e de falha, o autoteste, os testes na placa, e o que não é testado |
-| **Apêndices** | Glossário, especificação do protocolo, pinagem, como reproduzir, **como operar o dispositivo**, leitura |
+| **Apêndices** | Glossário, especificação do protocolo, pinagem, como reproduzir, **como operar o dispositivo**, **os programas e seus parâmetros**, leitura |
 
 As Partes I a IV valem por si e não dependem deste projeto. Quem quer só
 entender o assunto pode parar na IV; quem quer reproduzir o trabalho começa
-na V. Quem tem a placa na mão e quer operá-la vai direto ao **apêndice E**.
+na V. Quem tem a placa na mão e quer operá-la vai direto ao **apêndice E**; a referência dos programas está no **apêndice F**.
 
 O manual tem só conceitos e uso. O histórico da construção, as medidas e os
 testes ficam nas notas de fase, abaixo.
